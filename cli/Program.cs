@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -12,7 +13,7 @@ namespace VideoEnhancer;
 /// </summary>
 internal static class Program
 {
-    private const string ToolVersion = "1.4.0";
+    private const string ToolVersion = "1.5.1";
 
     // exe 所在目录：videoenhancer.ini 的查找位置，也是未配置 core-path 时的回退根目录（1.0 布局）
     private static readonly string AppRoot = AppContext.BaseDirectory.TrimEnd(
@@ -149,6 +150,125 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// FPS 精确重算：rve-backend 自报的 FPS 是整数值且把暂停时间计入（暂停后恢复平均值偏低）。
+    /// 这里用"已渲染帧数 / 有效耗时（总耗时 − 暂停耗时）"重算，输出保留两位小数；
+    /// 同时按相同速率重算 ETA。暂停状态通过 -pause-shm 共享内存字节（1=暂停）采样。
+    /// </summary>
+    private sealed class FpsTracker
+    {
+        private static readonly Regex ProgressLine = new(
+            @"FPS:\s*[\d.]+\s*Current Frame:\s*(\d+)\s*ETA:\s*[\d:]+",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex TotalFramesLine = new(
+            @"Total Output Frames:\s*(\d+)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private readonly string? _pauseShm;
+        private readonly object _sync = new();
+        private DateTime _firstLine;
+        private bool _hasFirstLine;
+        private DateTime _lastPauseSample = DateTime.UtcNow;
+        private TimeSpan _paused = TimeSpan.Zero;
+        private bool _wasPaused;
+        private long _totalFrames;
+        private bool _hasTotal;
+
+        public FpsTracker(string? pauseShm)
+        {
+            _pauseShm = pauseShm;
+        }
+
+        /// <summary>采样暂停共享内存（每 ~200ms 由主循环调用），累计暂停时长。</summary>
+        public void SamplePause()
+        {
+            if (string.IsNullOrWhiteSpace(_pauseShm))
+            {
+                return;
+            }
+            var now = DateTime.UtcNow;
+            var delta = now - _lastPauseSample;
+            _lastPauseSample = now;
+            var paused = ReadShmByte(_pauseShm) == 1;
+            if (_wasPaused || paused)
+            {
+                lock (_sync)
+                {
+                    _paused += delta;
+                }
+            }
+            _wasPaused = paused;
+        }
+
+        /// <summary>重写进度行；非进度行原样返回。</summary>
+        public string Rewrite(string? line)
+        {
+            if (line is null)
+            {
+                return string.Empty;
+            }
+            var totalMatch = TotalFramesLine.Match(line);
+            if (totalMatch.Success && long.TryParse(totalMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var total))
+            {
+                _totalFrames = total;
+                _hasTotal = true;
+            }
+            var m = ProgressLine.Match(line);
+            if (!m.Success)
+            {
+                return line;
+            }
+            if (!long.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var frame) || frame <= 0)
+            {
+                return line;
+            }
+
+            var now = DateTime.UtcNow;
+            if (!_hasFirstLine)
+            {
+                _firstLine = now;
+                _hasFirstLine = true;
+            }
+            TimeSpan active;
+            lock (_sync)
+            {
+                active = now - _firstLine - _paused;
+            }
+            if (active <= TimeSpan.Zero)
+            {
+                return line;
+            }
+
+            var fps = frame / active.TotalSeconds;
+            var fpsText = fps.ToString("F2", CultureInfo.InvariantCulture);
+            var etaText = m.Groups[2].Value;
+            if (_hasTotal && _totalFrames > frame)
+            {
+                var secondsPerFrame = active.TotalSeconds / frame;
+                var remainingSeconds = (long)Math.Ceiling((_totalFrames - frame) * secondsPerFrame);
+                etaText = FormatEta(remainingSeconds);
+            }
+            return ProgressLine.Replace(line,
+                "FPS: " + fpsText + " Current Frame: " + m.Groups[1].Value + " ETA: " + etaText);
+        }
+
+        /// <summary>ETA 格式与 rve-backend 一致：H:MM:SS（小时不补零，分/秒补零）。</summary>
+        private static string FormatEta(long seconds)
+        {
+            if (seconds < 0)
+            {
+                seconds = 0;
+            }
+            var h = seconds / 3600;
+            var mm = (seconds % 3600) / 60;
+            var ss = seconds % 60;
+            return h.ToString(CultureInfo.InvariantCulture) + ":" +
+                   mm.ToString("00", CultureInfo.InvariantCulture) + ":" +
+                   ss.ToString("00", CultureInfo.InvariantCulture);
+        }
+    }
+
     private sealed class Options
     {
         public bool ShowHelp;
@@ -174,6 +294,8 @@ internal static class Program
         public bool HasInterpFactor;
         public bool NoUpscale;
         public bool ListInterpModels;
+        public string Backend = "ncnn";
+        public bool HasBackend;
     }
 
     private static int Main(string[] args)
@@ -271,6 +393,17 @@ internal static class Program
             return 0;
         }
 
+        // 推理后端：ncnn（默认，Vulkan）或 cuda（PyTorch，需 .pth 模型）
+        if (o.HasBackend)
+        {
+            var b = o.Backend.Trim().ToLowerInvariant();
+            if (b is not ("ncnn" or "cuda"))
+            {
+                return Fail("-backend 仅支持 ncnn 或 cuda，当前值：" + o.Backend);
+            }
+            o.Backend = b;
+        }
+
         // 读取 videoenhancer.ini（第一行 core-path="<核心程序路径>"）确定核心程序根目录
         var configError = LoadCorePathConfig();
         if (configError is not null)
@@ -280,12 +413,12 @@ internal static class Program
 
         if (o.ListModels)
         {
-            return ListModels(o.Json);
+            return ListModels(o.Json, o.Backend);
         }
 
         if (o.ListInterpModels)
         {
-            return ListInterpModels(o.Json);
+            return ListInterpModels(o.Json, o.Backend);
         }
 
         if (o.CheckOnly)
@@ -336,7 +469,7 @@ internal static class Program
         var model = "";
         if (useUpscale)
         {
-            model = ResolveModel(o.Model);
+            model = ResolveModel(o.Model, o.Backend);
             if (model.Length == 0)
             {
                 return 1;
@@ -347,7 +480,7 @@ internal static class Program
         string? interpModel = null;
         if (o.HasInterpModel)
         {
-            interpModel = ResolveInterpModel(o.InterpModel);
+            interpModel = ResolveInterpModel(o.InterpModel, o.Backend);
             if (interpModel.Length == 0)
             {
                 return 1;
@@ -423,8 +556,8 @@ internal static class Program
         }
 
         // 6. 构建并启动 rve-backend
-        var backendArgs = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale, o.PauseShm, interpModel, interpFactor);
-        return LaunchBackend(backendArgs, input, model, outputFile, customEncoder, stopWatcher, interpModel, interpFactor);
+        var backendArgs = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale, o.PauseShm, interpModel, interpFactor, o.Backend);
+        return LaunchBackend(backendArgs, input, model, outputFile, customEncoder, stopWatcher, interpModel, interpFactor, o.Backend, o.PauseShm);
     }
 
     private static Options ParseArgs(string[] args)
@@ -502,6 +635,11 @@ internal static class Program
                 case "--search-interp-models":
                     o.ListInterpModels = true;
                     break;
+                case "-backend":
+                case "--backend":
+                    o.Backend = TakeValue(args, ref i, name, inlineValue);
+                    o.HasBackend = true;
+                    break;
                 default:
                     throw new ArgumentException("未知参数：" + args[i] + "（使用 -h 查看帮助）");
             }
@@ -532,8 +670,9 @@ internal static class Program
         return (arg, null);
     }
 
-    /// <summary>解析模型路径：完整路径 / models 下相对路径 / 模型文件夹名；省略时用默认模型。</summary>
-    private static string ResolveModel(string requested)
+    /// <summary>解析模型路径：完整路径 / models 下相对路径 / 模型名；省略时用默认模型。</summary>
+    /// <remarks>cuda 后端仅接受 .pth/.pt/.pkl 模型文件；ncnn 后端接受含 .param/.bin 的模型文件夹。</remarks>
+    private static string ResolveModel(string requested, string backend)
     {
         var candidates = new List<string>();
         if (!string.IsNullOrWhiteSpace(requested))
@@ -553,20 +692,70 @@ internal static class Program
 
         foreach (var c in candidates)
         {
-            if (Directory.Exists(c) && IsNcnnModelFolder(c))
+            if (backend == "cuda")
+            {
+                if (File.Exists(c) && IsPthModelFile(c))
+                {
+                    return c;
+                }
+            }
+            else if (Directory.Exists(c) && IsNcnnModelFolder(c))
             {
                 return c;
             }
         }
 
-        Console.Error.WriteLine("[错误] 未找到可用模型：" + (string.IsNullOrWhiteSpace(requested) ? DefaultModel : requested));
-        Console.Error.WriteLine("[提示] 可用模型（models 目录）：");
-        foreach (var m in DiscoverModelFolders())
+        // CUDA：按模型名（可省略扩展名）在 models 顶层搜索 .pth/.pt/.pkl 文件
+        if (backend == "cuda" && !string.IsNullOrWhiteSpace(requested))
         {
-            Console.Error.WriteLine("       " + Path.GetFileName(m));
+            var baseName = Path.GetFileNameWithoutExtension(requested.Trim().Trim('"'));
+            foreach (var f in DiscoverUpscalePthModels())
+            {
+                if (Path.GetFileNameWithoutExtension(f).Equals(baseName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return f;
+                }
+            }
         }
-        Console.Error.WriteLine("[提示] 用法：-modelpath <模型名或路径>，例如 -modelpath RealESRGAN-AnimeVideoV3-2x");
+
+        Console.Error.WriteLine("[错误] 未找到可用模型：" + (string.IsNullOrWhiteSpace(requested) ? DefaultModel : requested));
+        if (backend == "cuda")
+        {
+            Console.Error.WriteLine("[提示] CUDA 后端需要 models 下的 .pth/.pt/.pkl 放大模型（或 models\\RIFE 下的 .pth 补帧模型）。");
+            var pth = DiscoverUpscalePthModels();
+            if (pth.Count > 0)
+            {
+                Console.Error.WriteLine("[提示] 可用 CUDA 放大模型：");
+                foreach (var m in pth)
+                {
+                    Console.Error.WriteLine("       " + Path.GetFileNameWithoutExtension(m));
+                }
+            }
+            else
+            {
+                Console.Error.WriteLine("[提示] models 下未找到 .pth 放大模型文件。");
+            }
+            Console.Error.WriteLine("[提示] 用法：-backend cuda -modelpath <模型名>，例如 -modelpath AnimeJaNai-V2-2x-Compact-36K");
+        }
+        else
+        {
+            Console.Error.WriteLine("[提示] 可用模型（models 目录）：");
+            foreach (var m in DiscoverModelFolders())
+            {
+                Console.Error.WriteLine("       " + Path.GetFileName(m));
+            }
+            Console.Error.WriteLine("[提示] 用法：-modelpath <模型名或路径>，例如 -modelpath RealESRGAN-AnimeVideoV3-2x");
+        }
         return "";
+    }
+
+    /// <summary>是否为 PyTorch 可加载的模型文件（.pth/.pt/.pkl）。</summary>
+    private static bool IsPthModelFile(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return ext.Equals(".pth", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".pt", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".pkl", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>从模型文件夹名解析放大倍率（RealESRGAN-AnimeVideoV3-2x → 2）。</summary>
@@ -711,22 +900,31 @@ internal static class Program
     /// <summary>构建 rve-backend.py 的命令行参数，逻辑与 GUI 的 RvePaths.BuildBackendArgs 一致。</summary>
     private static List<string> BuildBackendArgs(
         string input, string outputFile, string modelFolder, string customEncoder, bool overwrite, string? scale, string pauseShm,
-        string? interpModel, string? interpFactor)
+        string? interpModel, string? interpFactor, string backend)
     {
         var args = new List<string>
         {
             BackendScript,
             "-i", input,
             "-o", outputFile,
-            "-b", "ncnn",
+            "-b", backend == "cuda" ? "pytorch" : "ncnn",
             "--precision", "auto",
             "--custom_encoder", " " + customEncoder + " ",
             "--tensorrt_opt_profile", "3",
-            "--ncnn_gpu_id", "0",
             "--pytorch_gpu_id", "0",
             "--cwd", CoreRoot,
             "--ffmpeg_path", FfmpegExe,
         };
+        if (backend == "cuda")
+        {
+            args.Add("--device");
+            args.Add("cuda");
+        }
+        else
+        {
+            args.Add("--ncnn_gpu_id");
+            args.Add("0");
+        }
 
         if (!string.IsNullOrEmpty(modelFolder))
         {
@@ -768,8 +966,9 @@ internal static class Program
         return args;
     }
 
-    /// <summary>解析补帧模型路径：完整路径 / models\RIFE 下相对路径 / RIFE 子文件夹名；返回空串表示失败。</summary>
-    private static string ResolveInterpModel(string requested)
+    /// <summary>解析补帧模型路径：完整路径 / models\RIFE 下相对路径 / 模型名；返回空串表示失败。</summary>
+    /// <remarks>ncnn 后端接受 RIFE 子文件夹（含 .param/.bin）；cuda 后端接受 .pth 模型文件。</remarks>
+    private static string ResolveInterpModel(string requested, string backend)
     {
         var rifeDir = Path.Combine(ModelsDir, "RIFE");
         var raw = requested.Trim().Trim('"');
@@ -783,29 +982,60 @@ internal static class Program
 
         foreach (var candidate in candidates)
         {
-            if (Directory.Exists(candidate) && IsNcnnModelFolder(candidate))
+            if (backend == "cuda")
+            {
+                if (File.Exists(candidate) && Path.GetExtension(candidate).Equals(".pth", StringComparison.OrdinalIgnoreCase))
+                {
+                    return candidate;
+                }
+            }
+            else if (Directory.Exists(candidate) && IsNcnnModelFolder(candidate))
             {
                 return candidate;
             }
         }
 
-        Console.Error.WriteLine("[错误] 未找到可用补帧模型：" + raw);
-        Console.Error.WriteLine(@"[提示] 可用补帧模型（models\RIFE 目录）：");
-        foreach (var m in DiscoverInterpModelFolders())
+        // cuda 模式允许只给文件名（可省略 .pth 扩展名），递归搜索 models\RIFE 下的 .pth 文件
+        if (backend == "cuda")
         {
-            Console.Error.WriteLine("       " + Path.GetFileName(m));
+            var name = Path.GetFileName(raw);
+            var matched = DiscoverInterpModels("cuda")
+                .Where(p => string.Equals(Path.GetFileName(p), name, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(Path.GetFileNameWithoutExtension(p), name, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (matched.Count > 0)
+            {
+                return matched[0];
+            }
         }
-        Console.Error.WriteLine("[提示] 用法：-interp-model <模型名或路径>，例如 -interp-model rife-v4.25");
+
+        Console.Error.WriteLine("[错误] 未找到可用补帧模型：" + raw + (backend == "cuda" ? "（CUDA 需要 models\\RIFE 下的 .pth 模型文件）" : ""));
+        Console.Error.WriteLine(backend == "cuda"
+            ? "[提示] 可用补帧模型（CUDA，.pth）："
+            : @"[提示] 可用补帧模型（models\RIFE 目录）：");
+        foreach (var m in DiscoverInterpModels(backend))
+        {
+            Console.Error.WriteLine("       " + InterpModelDisplayName(m));
+        }
+        Console.Error.WriteLine(backend == "cuda"
+            ? "[提示] 用法：-backend cuda -interp-model <模型名>，例如 -interp-model rife46"
+            : "[提示] 用法：-interp-model <模型名或路径>，例如 -interp-model rife-v4.25");
         return "";
     }
 
-    /// <summary>发现 models\RIFE 下的补帧模型子文件夹（含 .param/.bin）。</summary>
-    private static List<string> DiscoverInterpModelFolders()
+    /// <summary>发现补帧模型：ncnn 返回 models\RIFE 下含 .param/.bin 的文件夹；cuda 返回 .pth 模型文件。</summary>
+    private static List<string> DiscoverInterpModels(string backend)
     {
         var rifeDir = Path.Combine(ModelsDir, "RIFE");
         if (!Directory.Exists(rifeDir))
         {
             return new List<string>();
+        }
+        if (backend == "cuda")
+        {
+            return Directory.GetFiles(rifeDir, "*.pth", SearchOption.AllDirectories)
+                .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
         }
         return Directory.GetDirectories(rifeDir)
             .Where(IsNcnnModelFolder)
@@ -813,24 +1043,38 @@ internal static class Program
             .ToList();
     }
 
-    private static int ListInterpModels(bool json)
+    /// <summary>补帧模型的显示名：ncnn 用文件夹名，cuda 用去掉 .pth 扩展名的文件名。</summary>
+    private static string InterpModelDisplayName(string path)
     {
-        var models = DiscoverInterpModelFolders();
+        if (Path.GetExtension(path).Equals(".pth", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFileNameWithoutExtension(path);
+        }
+        return Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+    }
+
+    private static int ListInterpModels(bool json, string backend)
+    {
+        var models = DiscoverInterpModels(backend);
         if (json)
         {
-            var names = models.Select(m => Path.GetFileName(m)).ToList();
+            var names = models.Select(InterpModelDisplayName).ToList();
             Console.WriteLine("[" + string.Join(",", names.Select(n => "\"" + n + "\"")) + "]");
             return 0;
         }
-        Console.WriteLine(@"可用补帧模型（models\RIFE 目录）：");
+        Console.WriteLine(backend == "cuda"
+            ? "可用补帧模型（CUDA，models\\RIFE 下的 .pth 文件）："
+            : @"可用补帧模型（models\RIFE 目录）：");
         if (models.Count == 0)
         {
-            Console.WriteLine("  (未找到任何含 .param/.bin 的补帧模型文件夹)");
+            Console.WriteLine(backend == "cuda"
+                ? "  (未找到任何 .pth 补帧模型文件；CUDA 推理需要 models\\RIFE 下的 .pth 模型)"
+                : "  (未找到任何含 .param/.bin 的补帧模型文件夹)");
             return 0;
         }
         foreach (var m in models)
         {
-            Console.WriteLine("  " + Path.GetFileName(m));
+            Console.WriteLine("  " + InterpModelDisplayName(m));
         }
         return 0;
     }
@@ -935,9 +1179,9 @@ internal static class Program
 
     [DllImport("kernel32.dll")]
     private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern bool Process32First(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern bool Process32Next(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
 
     private const uint TH32CS_SNAPPROCESS = 0x00000002;
@@ -1104,10 +1348,11 @@ internal static class Program
 
     private static int LaunchBackend(
         List<string> backendArgs, string input, string model, string outputFile, string customEncoder, StopWatcher? stopWatcher,
-        string? interpModel, string? interpFactor)
+        string? interpModel, string? interpFactor, string backend, string pauseShm)
     {
         Console.WriteLine();
         Console.WriteLine("[信息] 输入视频 : " + input);
+        Console.WriteLine("[信息] 推理后端 : " + (backend == "cuda" ? "CUDA（PyTorch）" : "NCNN（Vulkan）"));
         if (string.IsNullOrEmpty(model))
         {
             Console.WriteLine("[信息] 放大模型 : （未使用，仅补帧）");
@@ -1150,6 +1395,7 @@ internal static class Program
         using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         var job = CreateKillOnCloseJob();
         var throttle = new ProgressThrottle();
+        var fpsTracker = new FpsTracker(pauseShm);
         var oomHintPrinted = false;
 
         // 启动前检查停止请求（用户可能在环境检测阶段就点了停止）
@@ -1173,6 +1419,7 @@ internal static class Program
             {
                 return;
             }
+            line = fpsTracker.Rewrite(line);
             if (!throttle.ShouldForward(line))
             {
                 return;
@@ -1235,6 +1482,7 @@ internal static class Program
         var stopped = false;
         while (!process.HasExited && !cancelRequested)
         {
+            fpsTracker.SamplePause();
             if (stopWatcher is not null && stopWatcher.IsStopRequested())
             {
                 stopped = true;
@@ -1335,7 +1583,7 @@ internal static class Program
             models.Count > 0 ? models.Count + " 个可用模型" : "未找到含 .param/.bin 的模型");
         ok &= models.Count > 0;
 
-        var interpModels = DiscoverInterpModelFolders();
+        var interpModels = DiscoverInterpModels("ncnn");
         Report(true, "补帧模型库", Path.Combine(ModelsDir, "RIFE"),
             interpModels.Count > 0 ? interpModels.Count + " 个可用补帧模型" : "未找到含 .param/.bin 的补帧模型（可忽略，仅超分可用）");
 
@@ -1418,26 +1666,32 @@ internal static class Program
         }
     }
 
-    private static int ListModels(bool json)
+    private static int ListModels(bool json, string backend)
     {
-        var models = DiscoverModelFolders();
+        var isCuda = backend == "cuda";
+        var models = isCuda ? DiscoverUpscalePthModels() : DiscoverModelFolders();
+        string DisplayName(string path) => isCuda ? Path.GetFileNameWithoutExtension(path) : Path.GetFileName(path);
         if (json)
         {
             // 机器可读：一行 JSON 数组（插件下拉框等调用方直接解析）
-            var names = models.Select(m => Path.GetFileName(m)).ToList();
+            var names = models.Select(DisplayName).ToList();
             Console.WriteLine("[" + string.Join(",", names.Select(n => "\"" + n + "\"")) + "]");
             return 0;
         }
-        Console.WriteLine("可用放大模型（models 目录）：");
+        Console.WriteLine(isCuda
+            ? "可用放大模型（CUDA，models 下的 .pth/.pt/.pkl 文件）："
+            : "可用放大模型（models 目录）：");
         if (models.Count == 0)
         {
-            Console.WriteLine("  (未找到任何含 .param/.bin 的模型文件夹)");
+            Console.WriteLine(isCuda
+                ? "  (未找到任何 .pth/.pt/.pkl 模型文件；CUDA 放大需要 models 下的 .pth 模型)"
+                : "  (未找到任何含 .param/.bin 的模型文件夹)");
             return 0;
         }
         foreach (var m in models)
         {
             var scale = DetectScale(m);
-            Console.WriteLine("  " + Path.GetFileName(m) + (scale is null ? "" : "  (" + scale + "x)"));
+            Console.WriteLine("  " + DisplayName(m) + (scale is null ? "" : "  (" + scale + "x)"));
         }
         return 0;
     }
@@ -1452,6 +1706,24 @@ internal static class Program
             .Where(IsNcnnModelFolder)
             .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>发现 CUDA 放大模型：models 目录顶层（不含 RIFE 子目录）的 .pth/.pt/.pkl 文件。</summary>
+    private static List<string> DiscoverUpscalePthModels()
+    {
+        if (!Directory.Exists(ModelsDir))
+        {
+            return new List<string>();
+        }
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pattern in new[] { "*.pth", "*.pt", "*.pkl" })
+        {
+            foreach (var f in Directory.GetFiles(ModelsDir, pattern, SearchOption.TopDirectoryOnly))
+            {
+                set.Add(f);
+            }
+        }
+        return set.OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
     private static string FormatSize(long bytes)
@@ -1488,6 +1760,7 @@ internal static class Program
         writer.WriteLine("用法");
         writer.WriteLine("  videoenhancer.exe -i <输入视频> -modelpath <模型目录> -ffmpeg-settings \"<FFmpeg 参数 + 输出路径>\"");
         writer.WriteLine("  videoenhancer.exe -i <输入视频> -interp-model <补帧模型> [-no-upscale] -ffmpeg-settings \"<FFmpeg 参数 + 输出路径>\"");
+        writer.WriteLine("  videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUDA 补帧模型> -ffmpeg-settings \"<FFmpeg 参数 + 输出路径>\"");
         writer.WriteLine();
         writer.WriteLine("必需参数");
         writer.WriteLine("  -i, --input <路径>");
@@ -1504,15 +1777,21 @@ internal static class Program
         writer.WriteLine("  -h, --help          显示本帮助并退出");
         writer.WriteLine("  -scale <N>          强制放大倍率（如 2/3/4），默认从模型名自动识别");
         writer.WriteLine("  -interp-model <路径>  补帧模型（RIFE）：完整路径、models\\RIFE 下的相对路径或子文件夹名");
-        writer.WriteLine("        （如 rife-v4.25）；可与 -modelpath 同时使用（先补帧后放大）");
+        writer.WriteLine("        （如 rife-v4.25）；可与 -modelpath 同时使用（先补帧后放大）；");
+        writer.WriteLine("        -backend cuda 时改为 .pth 模型文件名（如 rife46）");
         writer.WriteLine("  -interp-factor <N>  补帧倍率（帧率倍数，默认 2，需大于 1）");
+        writer.WriteLine("  -backend <ncnn|cuda>  推理后端：ncnn（默认，Vulkan）或 cuda（PyTorch）；");
+        writer.WriteLine("        cuda 时放大模型用 models 下的 .pth/.pt/.pkl 文件、补帧模型用 models\\RIFE 下的 .pth 文件；");
+        writer.WriteLine("        命令行允许超分与补帧同时指定（界面层两者互斥）");
         writer.WriteLine("  -no-upscale         不放大（仅补帧模式，需配合 -interp-model）");
         writer.WriteLine("  -pause-shm <ID>     暂停共享内存名（透传给 rve-backend --pause_shared_memory_id）");
         writer.WriteLine("  -stop-shm <ID>      停止共享内存名：字节变 1 时优雅停止，已处理部分写入输出文件");
-        writer.WriteLine("  --list-models, --search-models  列出 models 目录下可用的放大模型并退出");
+        writer.WriteLine("  --list-models, --search-models  列出可用的放大模型并退出（默认 ncnn 文件夹）");
+        writer.WriteLine("        加 -backend cuda 则列出 models 下的 .pth/.pt/.pkl 放大模型；");
         writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）");
         writer.WriteLine("  --list-interp-models  列出 models\\RIFE 目录下可用的补帧模型并退出");
-        writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）");
+        writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）；");
+        writer.WriteLine("        加 -backend cuda 则列出 .pth 补帧模型");
         writer.WriteLine("  --check             仅检测运行环境（ffmpeg / python 库 / 模型库）并退出");
         writer.WriteLine();
         writer.WriteLine("说明");
@@ -1547,6 +1826,9 @@ internal static class Program
         writer.WriteLine();
         writer.WriteLine("说明：本工具是 Video Enhancer GUI 的 rve-backend 命令行中转器，后端逻辑");
         writer.WriteLine("与 GUI 完全一致（ncnn 后端、场景检测、倍率自动识别等）。");
+        writer.WriteLine("  · CUDA 推理（-backend cuda）会以 pytorch 后端 + --device cuda 运行；");
+        writer.WriteLine("    放大模型取 models 下的 .pth/.pt/.pkl 文件，补帧模型取 models\\RIFE 下的 .pth 文件；");
+        writer.WriteLine("    （rve-backend 的 spandrel/InterpolateRIFE 加载）。");
     }
 }
 

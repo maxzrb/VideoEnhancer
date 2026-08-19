@@ -1,4 +1,4 @@
-Imports System
+﻿Imports System
 Imports System.Collections
 Imports System.Collections.Generic
 Imports System.ComponentModel
@@ -41,6 +41,11 @@ Namespace videoenhancer
         Private Shared _menuItem As Object
         Private Shared _originalMenuItemClick As [Delegate]
         Private Shared _hookedMenuItemClick As EventHandler
+        Private Shared _contextMenu As Object
+        Private Shared _previewMenuItem As Object
+        Private Shared _originalMouseUp As [Delegate]
+        Private Shared _hookedMouseUp As MouseEventHandler
+        Private Shared _hookedListView As Control
         Private Shared _btnPause As Control
         Private Shared _originalPauseClick As [Delegate]
         Private Shared _hookedPauseClick As EventHandler
@@ -107,6 +112,11 @@ Namespace videoenhancer
                         field.SetValue(_menuItem, _originalMenuItemClick)
                     End If
                 End If
+                ' 注意：「预览输出」菜单项不随 hook 卸载而移除（实时预览与主开关无关）。
+                If _hookedListView IsNot Nothing AndAlso _hookedMouseUp IsNot Nothing Then
+                    RemoveHandler _hookedListView.MouseUp, _hookedMouseUp
+                    RestoreControlEvent(_hookedListView, "MouseUp", _originalMouseUp)
+                End If
             Catch
             End Try
             Try
@@ -139,6 +149,11 @@ Namespace videoenhancer
             _menuItem = Nothing
             _originalMenuItemClick = Nothing
             _hookedMenuItemClick = Nothing
+            _contextMenu = Nothing
+            _previewMenuItem = Nothing
+            _originalMouseUp = Nothing
+            _hookedMouseUp = Nothing
+            _hookedListView = Nothing
             _btnPause = Nothing
             _originalPauseClick = Nothing
             _hookedPauseClick = Nothing
@@ -187,6 +202,11 @@ Namespace videoenhancer
                     End If
                 End If
 
+                ' 右键菜单：追加「预览输出」（跳到实时预览页并选中该任务）
+                ' 「预览输出」右键菜单项与插件总开关无关：实时预览始终可用，由
+                ' EnsurePreviewMenuItem 统一管理（挂 MouseUp 保证显示菜单前已存在）。
+                EnsurePreviewMenuItem()
+
                 Dim btnPause = TryCast(HostAccess.GetField(queueForm, "_ModernButton2", "ModernButton2"), Control)
                 If btnPause IsNot Nothing Then
                     _btnPause = btnPause
@@ -212,6 +232,98 @@ Namespace videoenhancer
                 End If
             Catch
             End Try
+        End Sub
+
+        ''' <summary>
+        ''' 把「预览输出」右键菜单项挂到当前编码队列窗体。
+        ''' 与插件总开关无关：实时预览始终可用，插件面板启动时与定期调用本方法。
+        ''' </summary>
+        Public Shared Sub AttachQueueMenu()
+            Try
+                If SyncQueueForm() Then
+                    EnsurePreviewMenuItem()
+                End If
+            Catch
+            End Try
+        End Sub
+
+        ''' <summary>同步队列窗体引用；窗体实例变化时重置相关字段（下次 Ensure 时重挂）。</summary>
+        Private Shared Function SyncQueueForm() As Boolean
+            Dim queueForm = HostAccess.GetDefaultInstance("Form_v6_编码队列")
+            If queueForm Is Nothing Then
+                Return False
+            End If
+            If Not ReferenceEquals(_queueForm, queueForm) Then
+                _queueForm = queueForm
+                _listView = TryCast(HostAccess.GetField(queueForm, "_UltraDetailListView1", "UltraDetailListView1"), Control)
+                _contextMenu = TryCast(HostAccess.GetField(queueForm, "_右键菜单", "右键菜单"), ModernContextMenu)
+                _previewMenuItem = Nothing
+                _hookedListView = Nothing
+                _originalMouseUp = Nothing
+                _hookedMouseUp = Nothing
+            End If
+            Return _queueForm IsNot Nothing
+        End Function
+
+        ''' <summary>
+        ''' 确保当前队列窗体的右键菜单包含「预览输出」项，并保证右键时先同步再显示。
+        ''' 队列窗体实例重建后会自动重挂（MouseUp 先执行同步，再调用 3fui 原生逻辑显示菜单）。
+        ''' </summary>
+        Private Shared Sub EnsurePreviewMenuItem()
+            If Not SyncQueueForm() Then
+                Return
+            End If
+            Dim cm = TryCast(_contextMenu, ModernContextMenu)
+            If cm Is Nothing Then
+                _contextMenu = TryCast(HostAccess.GetField(_queueForm, "_右键菜单", "右键菜单"), ModernContextMenu)
+                cm = TryCast(_contextMenu, ModernContextMenu)
+            End If
+            If cm Is Nothing Then
+                Return
+            End If
+
+            ' 已创建过则复用；否则查找同名项（避免重复添加），再创建
+            Dim preview As ModernContextMenu.ModernMenuItem = TryCast(_previewMenuItem, ModernContextMenu.ModernMenuItem)
+            If preview Is Nothing Then
+                For Each it As ModernContextMenu.ModernMenuItem In cm.Items
+                    If String.Equals(it.Text, "预览输出", StringComparison.Ordinal) Then
+                        preview = it
+                        Exit For
+                    End If
+                Next
+            End If
+            If preview Is Nothing Then
+                preview = New ModernContextMenu.ModernMenuItem("预览输出")
+                AddHandler preview.Click, AddressOf OnPreviewMenuClicked
+                cm.Items.Add(preview)
+            ElseIf Not cm.Items.Contains(preview) Then
+                cm.Items.Add(preview)
+            End If
+            _previewMenuItem = preview
+
+            ' 右键时先同步菜单再交给原生逻辑显示：把 MouseUp 换成我们的前置处理器
+            If _listView IsNot Nothing AndAlso Not ReferenceEquals(_hookedListView, _listView) Then
+                If _hookedListView IsNot Nothing AndAlso _hookedMouseUp IsNot Nothing Then
+                    Try
+                        RemoveHandler _hookedListView.MouseUp, _hookedMouseUp
+                        RestoreControlEvent(_hookedListView, "MouseUp", _originalMouseUp)
+                    Catch
+                    End Try
+                End If
+                _originalMouseUp = RemoveControlEvent(_listView, "MouseUp")
+                _hookedMouseUp = New MouseEventHandler(AddressOf OnListMouseUp)
+                AddHandler _listView.MouseUp, _hookedMouseUp
+                _hookedListView = _listView
+            End If
+        End Sub
+
+        ''' <summary>列表右键：先确保「预览输出」存在，再执行 3fui 原逻辑（显示菜单）。</summary>
+        Private Shared Sub OnListMouseUp(sender As Object, e As MouseEventArgs)
+            Try
+                EnsurePreviewMenuItem()
+            Catch
+            End Try
+            InvokeOriginal(_originalMouseUp, sender, e)
         End Sub
 
         ''' <summary>移除控件指定事件的全部处理器并返回原委托。</summary>
@@ -336,6 +448,53 @@ Namespace videoenhancer
                 ShowTip("加入队列失败：" & ex.Message)
             End Try
         End Sub
+
+        ''' <summary>右键菜单「预览输出」：把选中的第一个任务交给插件实时预览页。</summary>
+        Private Shared Sub OnPreviewMenuClicked(sender As Object, e As EventArgs)
+            Try
+                Dim ids = GetSelectedTaskIds()
+                If ids.Count = 0 Then
+                    ShowTip("请先选中一个队列任务")
+                    Return
+                End If
+                Dim panel = PluginPanel.Current
+                If panel Is Nothing Then
+                    ShowTip("视频超分插件面板尚未就绪")
+                    Return
+                End If
+                panel.ShowPreviewForTask(ids(0))
+            Catch ex As Exception
+                ShowTip("预览输出失败：" & ex.Message)
+            End Try
+        End Sub
+
+        ''' <summary>读取队列列表当前选中项的 Tag（任务 ID）。</summary>
+        Private Shared Function GetSelectedTaskIds() As List(Of String)
+            Dim result As New List(Of String)()
+            Try
+                Dim queueForm = _queueForm
+                If queueForm Is Nothing Then
+                    Return result
+                End If
+                Dim listView = HostAccess.GetField(queueForm, "_UltraDetailListView1", "UltraDetailListView1")
+                If listView Is Nothing Then
+                    Return result
+                End If
+                Dim selected = HostAccess.GetProperty(listView, "SelectedItems")
+                Dim items = TryCast(selected, IEnumerable)
+                If items Is Nothing Then
+                    Return result
+                End If
+                For Each item In items
+                    Dim id = TryCast(HostAccess.GetProperty(item, "Tag"), String)
+                    If Not String.IsNullOrWhiteSpace(id) Then
+                        result.Add(id)
+                    End If
+                Next
+            Catch
+            End Try
+            Return result
+        End Function
 
         ''' <summary>暂停按钮：先写后端暂停字节，再执行 3fui 原逻辑。</summary>
         Private Shared Sub OnPauseClicked(sender As Object, e As EventArgs)
@@ -482,7 +641,7 @@ Namespace videoenhancer
                 Dim settings = BuildFfmpegSettings(preset, input, output)
                 Dim pauseShm = "ve_plugin_pause_" & Guid.NewGuid().ToString("N")
                 Dim stopShm = "ve_plugin_stop_" & Guid.NewGuid().ToString("N")
-                Dim args = BuildCliArgs(input, output, cfg.Model, settings, pauseShm, stopShm, cfg.UpscaleEnabled, cfg.InterpModel, cfg.InterpEnabled)
+                Dim args = BuildCliArgs(input, output, cfg.Model, settings, pauseShm, stopShm, cfg.UpscaleEnabled, cfg.InterpModel, cfg.InterpEnabled, cfg.Backend, cfg.InterpFactor)
                 AddQueueTask(args, Path.GetFileName(input), output, input)
                 added += 1
             Next
@@ -575,7 +734,7 @@ Namespace videoenhancer
         ' ────────────────────────── 命令构建 ──────────────────────────
 
         ''' <summary>构建 videoenhancer.exe 的参数：-i / -modelpath / -ffmpeg-settings / -pause-shm / -stop-shm / -interp-model / -no-upscale。</summary>
-        Public Shared Function BuildCliArgs(input As String, output As String, model As String, ffmpegSettings As String, Optional pauseShm As String = "", Optional stopShm As String = "", Optional upscaleOn As Boolean = True, Optional interpModel As String = "", Optional interpOn As Boolean = False) As String
+        Public Shared Function BuildCliArgs(input As String, output As String, model As String, ffmpegSettings As String, Optional pauseShm As String = "", Optional stopShm As String = "", Optional upscaleOn As Boolean = True, Optional interpModel As String = "", Optional interpOn As Boolean = False, Optional backend As String = "ncnn", Optional interpFactor As Double = 2.0) As String
             Dim sb As New StringBuilder()
             sb.Append("-i ").Append(Arg(input))
             If upscaleOn AndAlso Not String.IsNullOrWhiteSpace(model) Then
@@ -586,6 +745,15 @@ Namespace videoenhancer
             End If
             If interpOn AndAlso Not upscaleOn Then
                 sb.Append(" -no-upscale")
+            End If
+            ' 推理后端对超分与补帧均生效：CUDA 超分需要 models 下的 .pth 模型
+            If interpOn OrElse upscaleOn Then
+                Dim b = If(String.IsNullOrWhiteSpace(backend), "ncnn", backend.Trim().ToLowerInvariant())
+                sb.Append(" -backend ").Append(Arg(b))
+            End If
+            If interpOn Then
+                Dim f = If(interpFactor <= 1, 2.0, interpFactor)
+                sb.Append(" -interp-factor ").Append(f.ToString("0", System.Globalization.CultureInfo.InvariantCulture))
             End If
             sb.Append(" -ffmpeg-settings ").Append(Arg(ffmpegSettings))
             If Not String.IsNullOrWhiteSpace(pauseShm) Then

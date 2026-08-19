@@ -1,4 +1,4 @@
-Imports System
+﻿Imports System
 Imports System.Collections.Generic
 Imports System.Globalization
 Imports System.IO
@@ -25,6 +25,31 @@ Namespace videoenhancer
 
         Private Shared ReadOnly TotalFrames As New Dictionary(Of String, Long)(StringComparer.Ordinal)
         Private Shared ReadOnly LastSizeUpdate As New Dictionary(Of String, DateTime)(StringComparer.Ordinal)
+        Private Shared ReadOnly TelemetryLock As New Object()
+        Private Shared ReadOnly Telemetry As New Dictionary(Of String, PreviewTelemetry)(StringComparer.Ordinal)
+
+        ''' <summary>预览引擎遥测：每次后端进度行更新时记录当前 FPS / 已处理帧 / 总输出帧。</summary>
+        Public Class PreviewTelemetry
+            Public Fps As Double = 0
+            Public Frame As Long = 0
+            Public TotalFrames As Long = 0
+        End Class
+
+        Public Shared Function GetTelemetry(taskId As String) As PreviewTelemetry
+            SyncLock TelemetryLock
+                Dim value As PreviewTelemetry = Nothing
+                If Telemetry.TryGetValue(taskId, value) Then
+                    Return value
+                End If
+            End SyncLock
+            Return Nothing
+        End Function
+
+        Private Shared Sub ClearTelemetry(taskId As String)
+            SyncLock TelemetryLock
+                Telemetry.Remove(taskId)
+            End SyncLock
+        End Sub
 
         Public Shared Sub Attach(subscribe As Action(Of String, Object))
             If subscribe Is Nothing Then
@@ -46,6 +71,12 @@ Namespace videoenhancer
             If eventName = "task.paused" OrElse eventName = "task.resumed" OrElse
                eventName = "task.stopped" OrElse eventName = "task.completed" OrElse eventName = "task.failed" Then
                 PauseControl.HandleQueueEvent(eventName, json)
+                If eventName = "task.stopped" OrElse eventName = "task.completed" OrElse eventName = "task.failed" Then
+                    Dim endedId = TryGetTaskId(json)
+                    If Not String.IsNullOrEmpty(endedId) Then
+                        ClearTelemetry(endedId)
+                    End If
+                End If
                 If Not (eventName = "task.log" OrElse eventName = "task.progress") Then
                     Return
                 End If
@@ -123,9 +154,12 @@ Namespace videoenhancer
                     Else
                         task.进度.进度文本 = ""
                     End If
-                    task.进度.效率文本 = fps.ToString("F1", CultureInfo.InvariantCulture) & " FPS"
+                    task.进度.效率文本 = fps.ToString("F2", CultureInfo.InvariantCulture) & " FPS"
                     task.进度.时间文本 = eta
                     task.进度.当前阶段 = "视频超分"
+                    SyncLock TelemetryLock
+                        Telemetry(id) = New PreviewTelemetry With {.Fps = fps, .Frame = frame, .TotalFrames = known}
+                    End SyncLock
 
                     Dim now = DateTime.Now
                     Dim last As DateTime = DateTime.MinValue
@@ -139,6 +173,25 @@ Namespace videoenhancer
                 ' 进度解析失败不影响队列
             End Try
         End Sub
+
+        Private Shared Function TryGetTaskId(json As String) As String
+            Try
+                Using doc = JsonDocument.Parse(json)
+                    Dim root = doc.RootElement
+                    Dim taskEl As JsonElement = Nothing
+                    If Not root.TryGetProperty("task", taskEl) Then
+                        Return ""
+                    End If
+                    Dim idEl As JsonElement = Nothing
+                    If Not taskEl.TryGetProperty("id", idEl) Then
+                        Return ""
+                    End If
+                    Return idEl.GetString()
+                End Using
+            Catch
+                Return ""
+            End Try
+        End Function
 
         Private Shared Function FindTask(id As String) As 编码任务_v6
             Try

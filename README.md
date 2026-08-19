@@ -20,7 +20,8 @@ _~~其实也是3fui目前全网最详细的图文教程 终末诗那样推荐小
 
 VCB那个是测试视频，不用下载
 
-1 从链接 https://yun.139.com/shareweb/#/w/i/2wFH0FJ348y0x中下载上图中除了\[VCB-Studio\]开头之外的5个文件。VCB那个是测试视频。
+1 从链接 https://yun.139.com/shareweb/#/w/i/2wFH0FJ348y0x
+中下载上图中除了\[VCB-Studio\]开头之外的5个文件。VCB那个是测试视频。
 
 2 解压四个.7z格式的文件到对应的文件夹。如果**无法解压(提示算法不支持)**，请前往 [网页链接](https://github.com/mcmilk/7-Zip-zstd) 下载最新版7z-zstd进行解压。
 

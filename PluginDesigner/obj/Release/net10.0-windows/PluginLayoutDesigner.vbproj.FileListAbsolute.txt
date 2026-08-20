@@ -1,0 +1,17 @@
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\PluginLayoutDesigner.PluginLayoutDesigner.PluginLayoutForm.resources
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\PluginLayoutDesigner.vbproj.GenerateResource.cache
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\PluginLayoutDesigner.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\PluginLayoutDesigner.AssemblyInfoInputs.cache
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\PluginLayoutDesigner.AssemblyInfo.vb
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\PluginLayoutDesigner.vbproj.CoreCompileInputs.cache
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\bin\Release\net10.0-windows\PluginLayoutDesigner.exe
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\bin\Release\net10.0-windows\PluginLayoutDesigner.deps.json
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\bin\Release\net10.0-windows\PluginLayoutDesigner.runtimeconfig.json
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\bin\Release\net10.0-windows\PluginLayoutDesigner.dll
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\bin\Release\net10.0-windows\PluginLayoutDesigner.pdb
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\PluginLayoutDesigner.dll
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\refint\PluginLayoutDesigner.dll
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\PluginLayoutDesigner.pdb
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\PluginLayoutDesigner.genruntimeconfig.cache
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\ref\PluginLayoutDesigner.dll
+C:\Users\ARXChem\Documents\Codex\2026-08-17\videoenhancergui-c-users-arxchem-documents-lakeuiapps\outputs\PluginDesigner\obj\Release\net10.0-windows\PluginLayoutDesigner.PluginLayoutDesigner.PreviewLayoutForm.resources

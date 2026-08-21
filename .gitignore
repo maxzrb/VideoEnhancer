@@ -1,0 +1,10 @@
+# .NET / MSBuild build outputs
+[Bb]in/
+[Oo]bj/
+
+# Project and publishing build outputs
+[Oo]ut/
+[Bb]uild/
+[Dd]ist/
+[Pp]ublish/
+.publish/

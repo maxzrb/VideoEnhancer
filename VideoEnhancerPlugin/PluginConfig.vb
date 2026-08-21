@@ -18,8 +18,12 @@ Namespace videoenhancer
         Public Property InterpModel As String = ""
         ''' <summary>补帧倍率（RIFE --interpolate_factor，默认 2；须为大于 1 的数字）。</summary>
         Public Property InterpFactor As Double = 2.0
-        ''' <summary>推理后端：ncnn（Vulkan，默认）或 cuda（PyTorch，需 .pth 补帧模型）。</summary>
+        ''' <summary>推理后端：ncnn、cuda、tensorrt 或 onnx。</summary>
         Public Property Backend As String = "ncnn"
+        Public Property ImageOutput As String = ""
+        Public Property ImageOutputOriginal As Boolean = False
+        Public Property ImagePng As Boolean = True
+        Public Property ImageSuffix As String = "timestamp"
 
         Private Shared Function GetConfigDir() As String
             ' 支持环境变量覆盖（测试/便携部署用），默认 %LocalAppData%\FFmpegFreeUI

@@ -6,6 +6,7 @@ Imports System.IO
 Imports System.Linq
 Imports System.Text
 Imports System.Text.Json
+Imports System.Text.RegularExpressions
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
 Imports FFmpegFreeUI
@@ -43,11 +44,32 @@ Namespace videoenhancer
         Private _interpModelsLoaded As Boolean = False
         Private _loadingInterpModels As Boolean = False
         Private _uiReady As Boolean = False
-        ' ── 选项卡分栏：超分主界面 / 实时预览 / 高级功能 ──
+        ' ── 选项卡分栏：超分主界面 / 实时预览 / 高级功能 / 模型转换器 ──
         Private ReadOnly _tabs As New ModernTabControl()
         Private ReadOnly _pageUpscale As New Panel()
         Private ReadOnly _pagePreview As New Panel()
         Private ReadOnly _pageAdvanced As New Panel()
+        Private ReadOnly _pageDownloader As New Panel()
+        Private ReadOnly _pageConverter As New Panel()
+        Private ReadOnly _pageModelInfo As New Panel()
+        Private ReadOnly _pageTutorial As New Panel()
+        ' ── 独立图片超分页（位于超分主界面内）──
+        Private ReadOnly _btnImageFiles As New ModernButton()
+        Private ReadOnly _btnImageFolder As New ModernButton()
+        Private ReadOnly _btnImageOutput As New ModernButton()
+        Private ReadOnly _btnImageStart As New ModernButton()
+        Private ReadOnly _switchImageOriginal As New LakeUI.BooleanSwitch()
+        Private ReadOnly _switchImagePng As New LakeUI.BooleanSwitch()
+        Private ReadOnly _cmbImageSuffix As New ModernComboBox()
+        Private ReadOnly _lblImageInputs As New HtmlColorLabel()
+        Private ReadOnly _lblImageOutput As New HtmlColorLabel()
+        Private ReadOnly _lblImageProgress As New HtmlColorLabel()
+        Private ReadOnly _imageProgress As New ProgressBar()
+        Private ReadOnly _imageFiles As New List(Of String)()
+        Private ReadOnly _imageFolders As New List(Of String)()
+        Private _imageProcess As Process
+        Private _imageRunning As Boolean
+        Private _imageCompleteReceived As Boolean
         ' ── 实时预览页 ──
         Private ReadOnly _picPreview As New PictureBox()          ' 原生 .NET 图片控件（修复预览不切换）
         Private ReadOnly _cmbTask As New ModernComboBox()         ' 多任务选择
@@ -59,6 +81,31 @@ Namespace videoenhancer
         Private ReadOnly _lblRate As New HtmlColorLabel()
         Private ReadOnly _lblAdvancedHint As New HtmlColorLabel()
         Private ReadOnly _btnQuad As New ModernButton()
+        ' ── 模型转换器页 ──
+        Private ReadOnly _lblConvertInput As New HtmlColorLabel()
+        Private ReadOnly _lblConvertOutput As New HtmlColorLabel()
+        Private ReadOnly _lblConvertStatus As New HtmlColorLabel()
+        Private ReadOnly _btnPickPth As New ModernButton()
+        Private ReadOnly _btnConvert As New ModernButton()
+        Private _convertInputPath As String = ""
+        Private _conversionRunning As Boolean = False
+        ' ── 模型下载页 ──
+        Private ReadOnly _downloadList As New FlowLayoutPanel()
+        Private ReadOnly _btnRefreshDownloads As New ModernButton()
+        Private ReadOnly _btnCleanArchives As New ModernButton()
+        Private _downloadsLoaded As Boolean = False
+        Private _downloadsLoading As Boolean = False
+        Private _downloadOnline As Boolean = True
+        Private _downloadBusy As Boolean = False
+        Private NotInheritable Class DownloadModelEntry
+            Public Property Name As String
+            Public Property RelativePath As String
+            Public Property Size As Long
+        End Class
+        Private NotInheritable Class DownloadExecutionResult
+            Public Property ExitCode As Integer = -1
+            Public Property Errors As String = ""
+        End Class
         Private ReadOnly _statusClearTimer As New Timer() With {.Interval = 5000}
         ' 定期把「预览输出」右键菜单项挂到编码队列窗体（窗体实例重建后自动恢复）
         Private ReadOnly _queueMenuTimer As New Timer() With {.Interval = 2000}
@@ -208,7 +255,7 @@ Namespace videoenhancer
             End If
             _config.UpscaleEnabled = _switchUpscale.Checked
             ' 开启超分：CUDA 模式下放大模型列表切换为 models 下的 .pth 模型（空列表时自动回退 ncnn）
-            If _switchUpscale.Checked AndAlso (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt") Then
+            If _switchUpscale.Checked AndAlso (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr") Then
                 RefreshUpscaleModels()
             End If
             _config.Save()
@@ -413,14 +460,19 @@ Namespace videoenhancer
                 End If
                 Dim modeText = If(_config.Backend = "tensorrt",
                     "（TensorRT，models 下的 .engine 文件）",
+                    If(_config.Backend = "onnx",
+                    "（ONNX Runtime，models 下的 .onnx 文件）",
+                    If(_config.Backend = "flashvsr",
+                    "（FlashVSR，连续视频帧专用模型目录）",
                     If(_config.Backend = "cuda",
                     "（CUDA，models 下的 .pth/.pt/.pkl 文件）",
-                    "（models 目录，.param/.bin 文件夹）"))
+                    "（models 目录，.param/.bin 文件夹）"))))
                 ShowStatus($"已从 videoenhancer.exe 读取 {models.Count} 个可用模型 " & modeText, False)
             Else
-                If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt") AndAlso _config.UpscaleEnabled Then
-                    _cmbModel.WaterText = If(_config.Backend = "tensorrt", "未找到 .engine 放大模型", "未找到 .pth 放大模型")
-                    ShowStatus(If(_config.Backend = "tensorrt", "未找到 .engine 放大模型，请确认 models 目录", "未找到 .pth 放大模型"), True)
+                If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr") AndAlso _config.UpscaleEnabled Then
+                    Dim missingExt = If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "tensorrt", ".engine", If(_config.Backend = "onnx", ".onnx", ".pth")))
+                    _cmbModel.WaterText = "未找到 " & missingExt & " 放大模型"
+                    ShowStatus("未找到 " & missingExt & " 放大模型，请确认 models 目录", True)
                     ' 保留用户选择的 TensorRT，不因一次扫描失败自动改回 NCNN。
                     _loadingModels = False
                 Else
@@ -497,6 +549,13 @@ Namespace videoenhancer
             If backend = _config.Backend Then
                 Return
             End If
+            If (backend = "onnx" OrElse backend = "flashvsr") AndAlso _config.InterpEnabled Then
+                ShowStatus(If(backend = "flashvsr", "FlashVSR 不能与补帧同时运行；请先关闭补帧开关。", "ONNX Runtime 当前只用于超分；请先关闭补帧开关。"), True)
+                _syncingBackend = True
+                SyncBackendCombo()
+                _syncingBackend = False
+                Return
+            End If
             _config.Backend = backend
             _config.Save()
             ' 切换后端后重新读取两个模型列表（CUDA 需要 .pth 模型；活动模式无 .pth 时由 Apply*List 自动回退）
@@ -504,9 +563,13 @@ Namespace videoenhancer
             RefreshInterpModels()
             Dim modeText = If(backend = "tensorrt",
                 "TensorRT（NVIDIA）：超分用 models 下的 .engine 模型（仅 N 卡）",
+                If(backend = "onnx",
+                "ONNX Runtime：超分用 models 下的 .onnx 模型，自动优先 CUDA",
+                If(backend = "flashvsr",
+                "FlashVSR（NVIDIA）：连续视频帧专用扩散超分，不用于图片或补帧",
                 If(backend = "cuda",
                 "CUDA（PyTorch）：超分用 models 下的 .pth 模型，补帧用 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型",
-                "NCNN（Vulkan）"))
+                "NCNN（Vulkan）"))))
             ShowStatus("推理方式：" & modeText, False)
         End Sub
 
@@ -531,8 +594,14 @@ Namespace videoenhancer
 
         Private Shared Function BackendValue(item As Object) As String
             Dim text = If(item Is Nothing, "", item.ToString())
+            If text.Contains("FlashVSR") Then
+                Return "flashvsr"
+            End If
             If text.Contains("TensorRT") Then
                 Return "tensorrt"
+            End If
+            If text.Contains("ONNX") Then
+                Return "onnx"
             End If
             If text.Contains("CUDA") Then
                 Return "cuda"
@@ -679,6 +748,18 @@ Namespace videoenhancer
             _lblStatus.ForeColor = Color.FromArgb(190, 190, 190)
             _lblStatus.Text = "就绪"
             sectionStatus.Controls.Add(_lblStatus)
+            _btnCleanArchives.Text = "清理临时文件"
+            _btnCleanArchives.Size = New Size(132, 32)
+            _btnCleanArchives.Dock = DockStyle.Right
+            _btnCleanArchives.BorderRadius = 8
+            _btnCleanArchives.BorderSize = 1
+            _btnCleanArchives.BorderColor = Color.FromArgb(68, 68, 68)
+            _btnCleanArchives.BackColor1 = Color.FromArgb(46, 46, 46)
+            _btnCleanArchives.HoverBackColor1 = Color.FromArgb(58, 58, 58)
+            _btnCleanArchives.Visible = False
+            AddHandler _btnCleanArchives.Click, AddressOf OnCleanDownloadArchives
+            sectionStatus.Controls.Add(_btnCleanArchives)
+            _btnCleanArchives.BringToFront()
             root.Controls.Add(sectionStatus)
         End Sub
 
@@ -700,13 +781,25 @@ Namespace videoenhancer
             BuildUpscalePage()
             BuildPreviewPage()
             BuildAdvancedPage()
+            BuildModelDownloadPage()
+            BuildConverterPage()
+            BuildMarkdownPage(_pageModelInfo, "# Markdown 渲染测试" & Environment.NewLine & Environment.NewLine & "这是模型简介页面的 **Markdown 测试文字**。")
+            BuildMarkdownPage(_pageTutorial, "")
 
             Dim tabMain As New ModernTabControl.ModernTab("超分主界面") With {.BoundControl = _pageUpscale}
             Dim tabPreview As New ModernTabControl.ModernTab("实时预览") With {.BoundControl = _pagePreview}
             Dim tabAdvanced As New ModernTabControl.ModernTab("高级功能") With {.BoundControl = _pageAdvanced}
+            Dim tabDownloader As New ModernTabControl.ModernTab("模型下载") With {.BoundControl = _pageDownloader}
+            Dim tabConverter As New ModernTabControl.ModernTab("模型转换器") With {.BoundControl = _pageConverter}
+            Dim tabModelInfo As New ModernTabControl.ModernTab("模型简介") With {.BoundControl = _pageModelInfo}
+            Dim tabTutorial As New ModernTabControl.ModernTab("使用教程") With {.BoundControl = _pageTutorial}
             _tabs.Items.Add(tabMain)
             _tabs.Items.Add(tabPreview)
             _tabs.Items.Add(tabAdvanced)
+            _tabs.Items.Add(tabDownloader)
+            _tabs.Items.Add(tabConverter)
+            _tabs.Items.Add(tabModelInfo)
+            _tabs.Items.Add(tabTutorial)
             ' 每次打开插件都从超分主界面开始，避免保留上次停留在实时预览/高级功能页的状态。
             _tabs.SelectedIndex = 0
         End Sub
@@ -716,6 +809,7 @@ Namespace videoenhancer
         Private Sub BuildUpscalePage()
             _pageUpscale.Dock = DockStyle.Fill
             _pageUpscale.BackColor = Color.Transparent
+            _pageUpscale.AutoScroll = True
             ' 给页签标题与插件总开关之间留出明确的呼吸空间；其余控件相对间距保持不变。
             _pageUpscale.Padding = New Padding(0, 22, 0, 0)
 
@@ -723,17 +817,16 @@ Namespace videoenhancer
             ' 整页 Dock.Top 反序添加：最后添加的行排在最上。
 
             ' ── 说明 + exe 路径（放回超分主界面；先添加 → 排在最下）──
-            Dim sectionHint As New Panel() With {.Dock = DockStyle.Top, .Height = 96, .BackColor = Color.Transparent, .Padding = New Padding(2, 12, 0, 0)}
+            Dim sectionHint As New Panel() With {.Dock = DockStyle.Fill, .BackColor = Color.Transparent, .Padding = New Padding(2, 2, 0, 0)}
             _lblAdvancedHint.AutoSize = False
             _lblAdvancedHint.Dock = DockStyle.Fill
             _lblAdvancedHint.TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft
             _lblAdvancedHint.LineSpacing = 4
             _lblAdvancedHint.Text = "<font color=#9A9A9A><b>说明</b></font><br/>" &
                 "<font color=#8A8A8A>「插件总开关」仅作用于「超分主界面」页：开启后，加入编码队列的命令会被 videoenhancer.exe 中转执行 AI 超分/补帧。</font><br/>" &
-                "<font color=#8A8A8A>「实时预览」与队列监控即使关闭插件总开关也能使用。</font><br/>" &
+                "<font color=#8A8A8A>「实时预览」与队列监控即使关闭插件总开关也能使用。超分开关右边选择图片超分模型，开关关闭也可以使用。</font><br/>" &
                 "<font color=#8A8A8A>CLI 程序启动时读取本目录 videoenhancer.ini 的 core-path，并校验 bin\ffmpeg、python 库与模型库。</font>"
             sectionHint.Controls.Add(_lblAdvancedHint)
-            _pageUpscale.Controls.Add(sectionHint)
 
             Dim sectionExe As New Panel() With {.Dock = DockStyle.Top, .Height = 44, .BackColor = Color.Transparent, .Padding = New Padding(0, 8, 0, 0)}
             _btnPickExe.Text = "更改路径"
@@ -750,7 +843,13 @@ Namespace videoenhancer
             _lblExe.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _lblExe.ForeColor = Color.Gainsboro
             sectionExe.Controls.Add(_lblExe)
-            _pageUpscale.Controls.Add(sectionExe)
+            Dim footer As New Panel() With {.Dock = DockStyle.Top, .Height = 130, .BackColor = Color.Transparent}
+            footer.Controls.Add(sectionHint)
+            footer.Controls.Add(sectionExe)
+            _pageUpscale.Controls.Add(footer)
+
+            ' 图片超分位于补帧倍率下方；模型与推理方式直接借用上方选择。
+            Dim imageSection = BuildImageUpscaleSection()
 
             ' ── 因子行（补帧倍率）：先添加 → 排在最下 ──
             Dim sectionFactor As New Panel() With {.Dock = DockStyle.Top, .Height = 56, .BackColor = Color.Transparent, .Padding = New Padding(0, 10, 0, 0)}
@@ -799,7 +898,7 @@ Namespace videoenhancer
             _lblSwitchInterp.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             rowInterp.Controls.Add(_lblSwitchInterp)
             _switchInterp.Dock = DockStyle.Left
-            _switchInterp.Size = New Size(66, 34)
+            ConfigureDpiSwitch(_switchInterp)
             _switchInterp.TrackColorOn = Color.FromArgb(80, 200, 120)
             _switchInterp.TrackColorOff = Color.FromArgb(90, 90, 100)
             _switchInterp.KnobColor = Color.FromArgb(235, 235, 235)
@@ -867,6 +966,8 @@ Namespace videoenhancer
             _cmbBackend.Items.Add("NCNN (Vulkan)")
             _cmbBackend.Items.Add("CUDA (PyTorch)")
             _cmbBackend.Items.Add("TensorRT (NVIDIA)")
+            _cmbBackend.Items.Add("ONNX Runtime")
+            _cmbBackend.Items.Add("FlashVSR (NVIDIA · 视频)")
             AddHandler _cmbBackend.SelectedIndexChanged, AddressOf OnBackendSelected
             rowUpscale.Controls.Add(_cmbBackend)
             _lblSwitch.Text = "<font color=#E8E8E8><b>超分开关</b></font>"
@@ -878,7 +979,7 @@ Namespace videoenhancer
             _lblSwitch.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             rowUpscale.Controls.Add(_lblSwitch)
             _switchUpscale.Dock = DockStyle.Left
-            _switchUpscale.Size = New Size(66, 34)
+            ConfigureDpiSwitch(_switchUpscale)
             _switchUpscale.TrackColorOn = Color.FromArgb(80, 200, 120)
             _switchUpscale.TrackColorOff = Color.FromArgb(90, 90, 100)
             _switchUpscale.KnobColor = Color.FromArgb(235, 235, 235)
@@ -899,7 +1000,7 @@ Namespace videoenhancer
             _lblMaster.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             sectionMaster.Controls.Add(_lblMaster)
             _switchMaster.Dock = DockStyle.Left
-            _switchMaster.Size = New Size(66, 34)
+            ConfigureDpiSwitch(_switchMaster)
             _switchMaster.TrackColorOn = Color.FromArgb(80, 200, 120)
             _switchMaster.TrackColorOff = Color.FromArgb(90, 90, 100)
             _switchMaster.KnobColor = Color.FromArgb(235, 235, 235)
@@ -907,7 +1008,365 @@ Namespace videoenhancer
             AddHandler _switchMaster.CheckedChanged, AddressOf OnMasterSwitchChanged
             sectionMaster.Controls.Add(_switchMaster)
             _pageUpscale.Controls.Add(sectionMaster)
+
+            ' 图片区占用固定设置区与底部说明之间的全部剩余高度；窗口较小时保留滚动能力。
+            Dim resizeImageSection As Action =
+                Sub()
+                    Dim fixedHeight = 50 + 56 + 50 + 56 + 56
+                    Dim available = _pageUpscale.ClientSize.Height - _pageUpscale.Padding.Vertical - fixedHeight - footer.Height
+                    imageSection.Height = Math.Max(330, available)
+                End Sub
+            AddHandler _pageUpscale.Resize, Sub(sender, e) resizeImageSection()
+            resizeImageSection()
         End Sub
+
+        Private Function BuildImageUpscaleSection() As Panel
+            Dim section As New FluentCardPanel() With {
+                .Dock = DockStyle.Top, .Height = 330, .FillColor = Color.FromArgb(43, 43, 43),
+                .StrokeColor = Color.FromArgb(62, 62, 62), .CornerRadius = 12,
+                .Padding = New Padding(18), .AllowDrop = True
+            }
+            AddHandler section.DragEnter, AddressOf OnImageDragEnter
+            AddHandler section.DragDrop, AddressOf OnImageDragDrop
+
+            Dim title As New Label() With {
+                .Text = "图片超分", .Location = New Point(20, 14), .Size = New Size(880, 30),
+                .ForeColor = Color.White, .BackColor = Color.Transparent,
+                .Font = New Font("Microsoft YaHei UI", 12.0F, FontStyle.Bold),
+                .TextAlign = ContentAlignment.MiddleLeft
+            }
+            section.Controls.Add(title)
+
+            Dim subtitle As New Label() With {
+                .Text = "借用上方超分模型和推理方式，可处理单张图片或递归文件夹。",
+                .Location = New Point(20, 44), .Size = New Size(880, 24),
+                .ForeColor = Color.FromArgb(170, 170, 170), .BackColor = Color.Transparent,
+                .Font = New Font("Microsoft YaHei UI", 9.0F), .TextAlign = ContentAlignment.MiddleLeft
+            }
+            section.Controls.Add(subtitle)
+
+            Dim inputRow As New FluentCardPanel() With {
+                .Location = New Point(20, 76), .Size = New Size(900, 50),
+                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right,
+                .FillColor = Color.FromArgb(51, 51, 51), .StrokeColor = Color.FromArgb(68, 68, 68), .CornerRadius = 8
+            }
+            ConfigureImageButton(_btnImageFiles, "选择或拖入文件", 185)
+            ConfigureImageButton(_btnImageFolder, "选择文件夹及其子目录", 232)
+            _btnImageFiles.Location = New Point(8, 9)
+            _btnImageFolder.Location = New Point(205, 9)
+            AddHandler _btnImageFiles.Click, AddressOf OnPickImageFiles
+            AddHandler _btnImageFolder.Click, AddressOf OnPickImageFolder
+            _lblImageInputs.Location = New Point(449, 9)
+            _lblImageInputs.Size = New Size(435, 32)
+            _lblImageInputs.AutoSize = False
+            _lblImageInputs.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
+            _lblImageInputs.Text = "<font color=#999999>尚未选择图片</font>"
+            inputRow.Controls.AddRange(New Control() {_btnImageFiles, _btnImageFolder, _lblImageInputs})
+            section.Controls.Add(inputRow)
+
+            Dim outputRow As New FluentCardPanel() With {
+                .Location = New Point(20, 136), .Size = New Size(900, 50),
+                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right,
+                .FillColor = Color.FromArgb(51, 51, 51), .StrokeColor = Color.FromArgb(68, 68, 68), .CornerRadius = 8
+            }
+            ConfigureImageButton(_btnImageOutput, "指定输出文件夹", 185)
+            _btnImageOutput.Location = New Point(8, 9)
+            AddHandler _btnImageOutput.Click, AddressOf OnPickImageOutput
+            _lblImageOutput.Location = New Point(205, 9)
+            _lblImageOutput.Size = New Size(300, 32)
+            _lblImageOutput.AutoSize = False
+            _lblImageOutput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
+            _switchImageOriginal.Location = New Point(513, 13)
+            ConfigureDpiSwitch(_switchImageOriginal)
+            _switchImageOriginal.Checked = _config.ImageOutputOriginal
+            AddHandler _switchImageOriginal.CheckedChanged, AddressOf OnImageOriginalChanged
+            Dim originalLabel As New Label() With {.Text = "输出到原目录，附加", .ForeColor = Color.Gainsboro, .BackColor = Color.Transparent, .Location = New Point(568, 10), .Size = New Size(170, 30), .TextAlign = ContentAlignment.MiddleLeft}
+            _cmbImageSuffix.Location = New Point(738, 9)
+            _cmbImageSuffix.Size = New Size(160, 32)
+            _cmbImageSuffix.Items.Add("处理时间戳")
+            _cmbImageSuffix.Items.Add("模型名称")
+            _cmbImageSuffix.SelectedIndex = If(String.Equals(_config.ImageSuffix, "model", StringComparison.OrdinalIgnoreCase), 1, 0)
+            AddHandler _cmbImageSuffix.SelectedIndexChanged, AddressOf OnImageSuffixChanged
+            outputRow.Controls.AddRange(New Control() {_btnImageOutput, _lblImageOutput, _switchImageOriginal, originalLabel, _cmbImageSuffix})
+            section.Controls.Add(outputRow)
+
+            Dim actionRow As New FluentCardPanel() With {
+                .Location = New Point(20, 196), .Size = New Size(900, 50),
+                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right,
+                .FillColor = Color.FromArgb(51, 51, 51), .StrokeColor = Color.FromArgb(68, 68, 68), .CornerRadius = 8
+            }
+            ConfigureImageButton(_btnImageStart, "开始处理", 185)
+            _btnImageStart.Location = New Point(8, 9)
+            _btnImageStart.BackColor1 = Color.FromArgb(0, 120, 212)
+            _btnImageStart.HoverBackColor1 = Color.FromArgb(17, 94, 163)
+            _btnImageStart.ForeColor = Color.White
+            AddHandler _btnImageStart.Click, AddressOf OnStartImageProcessing
+            _switchImagePng.Location = New Point(208, 13)
+            ConfigureDpiSwitch(_switchImagePng)
+            _switchImagePng.Checked = _config.ImagePng
+            AddHandler _switchImagePng.CheckedChanged, AddressOf OnImagePngChanged
+            Dim pngLabel As New Label() With {.Text = "处理为 PNG 格式", .ForeColor = Color.Gainsboro, .BackColor = Color.Transparent, .Location = New Point(263, 10), .Size = New Size(150, 30), .TextAlign = ContentAlignment.MiddleLeft}
+            Dim pngHint As New Label() With {.Text = "开启后统一输出为无损 PNG；关闭时输出源格式", .ForeColor = Color.FromArgb(160, 160, 160), .BackColor = Color.Transparent, .Location = New Point(413, 10), .Size = New Size(477, 30), .TextAlign = ContentAlignment.MiddleLeft}
+            actionRow.Controls.AddRange(New Control() {_btnImageStart, _switchImagePng, pngLabel, pngHint})
+            section.Controls.Add(actionRow)
+
+            Dim progressRow As New FluentCardPanel() With {
+                .Location = New Point(20, 256), .Size = New Size(900, 50),
+                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right,
+                .FillColor = Color.FromArgb(47, 47, 47), .StrokeColor = Color.FromArgb(68, 68, 68), .CornerRadius = 8
+            }
+            _imageProgress.Location = New Point(8, 16)
+            _imageProgress.Size = New Size(420, 18)
+            _imageProgress.Minimum = 0
+            _imageProgress.Maximum = 1000
+            _lblImageProgress.Location = New Point(443, 7)
+            _lblImageProgress.Size = New Size(445, 38)
+            _lblImageProgress.AutoSize = False
+            _lblImageProgress.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
+            _lblImageProgress.Text = "<font color=#999999>处理进度 / ETA：等待开始</font>"
+            progressRow.Controls.AddRange(New Control() {_imageProgress, _lblImageProgress})
+            section.Controls.Add(progressRow)
+
+            ' 水平方向利用完整可用宽度；左边界保持不动。各按钮基准宽度较旧布局增加约 30%。
+            ' 垂直方向把四行平均铺开，避免集中挤在模块顶部。
+            Dim arrange As Action =
+                Sub()
+                    Dim rowWidth = Math.Max(900, section.ClientSize.Width - 40)
+                    inputRow.Width = rowWidth
+                    outputRow.Width = rowWidth
+                    actionRow.Width = rowWidth
+                    progressRow.Width = rowWidth
+
+                    _lblImageInputs.Width = Math.Max(220, rowWidth - _lblImageInputs.Left - 8)
+
+                    Dim suffixWidth = Math.Max(150, Math.Min(190, CInt(rowWidth * 0.17)))
+                    _cmbImageSuffix.Width = suffixWidth
+                    _cmbImageSuffix.Left = rowWidth - suffixWidth
+                    originalLabel.Width = 170
+                    originalLabel.Left = _cmbImageSuffix.Left - originalLabel.Width
+                    _switchImageOriginal.Left = originalLabel.Left - _switchImageOriginal.Width - 10
+                    _lblImageOutput.Width = Math.Max(180, _switchImageOriginal.Left - _lblImageOutput.Left - 10)
+
+                    pngHint.Width = Math.Max(220, rowWidth - pngHint.Left - 8)
+                    _imageProgress.Width = Math.Max(360, CInt(rowWidth * 0.55))
+                    _lblImageProgress.Left = _imageProgress.Right + 15
+                    _lblImageProgress.Width = Math.Max(220, rowWidth - _lblImageProgress.Left)
+
+                    Dim usable = Math.Max(230, section.ClientSize.Height - 86)
+                    Dim stepY = Math.Max(58, usable \ 4)
+                    inputRow.Top = 76
+                    outputRow.Top = inputRow.Top + stepY
+                    actionRow.Top = outputRow.Top + stepY
+                    progressRow.Top = Math.Min(section.ClientSize.Height - progressRow.Height - 14, actionRow.Top + stepY)
+                End Sub
+            AddHandler section.Resize, Sub(sender, e) arrange()
+
+            _pageUpscale.Controls.Add(section)
+            RefreshImageOutputLabel()
+            arrange()
+            Return section
+        End Function
+
+        ''' <summary>BooleanSwitch 按宿主窗口的实际 DPI 重新计算尺寸（96 DPI 基准为 44×23）。</summary>
+        Private Shared Sub ConfigureDpiSwitch(switchControl As LakeUI.BooleanSwitch)
+            Dim applySize As Action =
+                Sub()
+                    Dim dpi = 96
+                    If switchControl.FindForm() IsNot Nothing Then
+                        dpi = switchControl.FindForm().DeviceDpi
+                    ElseIf switchControl.IsHandleCreated Then
+                        dpi = switchControl.DeviceDpi
+                    End If
+                    Dim scale = Math.Max(1.0F, CSng(dpi) / 96.0F)
+                    switchControl.Size = New Size(CInt(Math.Round(44 * scale)), CInt(Math.Round(23 * scale)))
+                End Sub
+            AddHandler switchControl.HandleCreated, Sub(sender, e) applySize()
+            AddHandler switchControl.DpiChangedAfterParent, Sub(sender, e) applySize()
+            AddHandler switchControl.ParentChanged, Sub(sender, e) applySize()
+            applySize()
+        End Sub
+
+        Private Shared Sub ConfigureImageButton(button As ModernButton, text As String, width As Integer)
+            button.Text = text
+            button.Size = New Size(width, 32)
+            button.BorderRadius = 7
+            button.BorderSize = 0
+            button.BackColor1 = Color.FromArgb(42, 220, 220, 220)
+            button.HoverBackColor1 = Color.FromArgb(62, 220, 220, 220)
+        End Sub
+
+        Private Sub OnPickImageFiles(sender As Object, e As EventArgs)
+            Using dialog As New OpenFileDialog With {
+                .Title = "选择要超分的图片", .Multiselect = True,
+                .Filter = "图片文件|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.tif;*.tiff;*.avif|所有文件|*.*"
+            }
+                If dialog.ShowDialog() = DialogResult.OK Then AddImagePaths(dialog.FileNames)
+            End Using
+        End Sub
+
+        Private Sub OnPickImageFolder(sender As Object, e As EventArgs)
+            Using dialog As New FolderBrowserDialog With {.Description = "选择图片文件夹（将递归处理子目录）", .ShowNewFolderButton = False}
+                If dialog.ShowDialog() = DialogResult.OK Then AddImagePaths(New String() {dialog.SelectedPath})
+            End Using
+        End Sub
+
+        Private Sub OnPickImageOutput(sender As Object, e As EventArgs)
+            Using dialog As New FolderBrowserDialog With {.Description = "选择图片输出文件夹", .ShowNewFolderButton = True}
+                If Directory.Exists(_config.ImageOutput) Then dialog.SelectedPath = _config.ImageOutput
+                If dialog.ShowDialog() = DialogResult.OK Then
+                    _config.ImageOutput = dialog.SelectedPath
+                    _config.Save()
+                    RefreshImageOutputLabel()
+                End If
+            End Using
+        End Sub
+
+        Private Sub OnImageDragEnter(sender As Object, e As DragEventArgs)
+            If e.Data.GetDataPresent(DataFormats.FileDrop) Then e.Effect = DragDropEffects.Copy
+        End Sub
+
+        Private Sub OnImageDragDrop(sender As Object, e As DragEventArgs)
+            Dim paths = TryCast(e.Data.GetData(DataFormats.FileDrop), String())
+            If paths IsNot Nothing Then AddImagePaths(paths)
+        End Sub
+
+        Private Sub AddImagePaths(paths As IEnumerable(Of String))
+            Dim supported = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase) From {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".avif"}
+            For Each path In paths
+                If Directory.Exists(path) Then
+                    If Not _imageFolders.Contains(path, StringComparer.OrdinalIgnoreCase) Then _imageFolders.Add(path)
+                ElseIf File.Exists(path) AndAlso supported.Contains(IO.Path.GetExtension(path)) Then
+                    If Not _imageFiles.Contains(path, StringComparer.OrdinalIgnoreCase) Then _imageFiles.Add(path)
+                End If
+            Next
+            _lblImageInputs.Text = "<font color=#D8D8D8>已选择 " & _imageFiles.Count & " 个文件、" & _imageFolders.Count & " 个递归文件夹</font>"
+        End Sub
+
+        Private Sub OnImageOriginalChanged(sender As Object, e As EventArgs)
+            _config.ImageOutputOriginal = _switchImageOriginal.Checked
+            _config.Save()
+            RefreshImageOutputLabel()
+        End Sub
+
+        Private Sub OnImagePngChanged(sender As Object, e As EventArgs)
+            _config.ImagePng = _switchImagePng.Checked
+            _config.Save()
+        End Sub
+
+        Private Sub OnImageSuffixChanged(sender As Object, e As EventArgs)
+            _config.ImageSuffix = If(_cmbImageSuffix.SelectedIndex = 1, "model", "timestamp")
+            _config.Save()
+        End Sub
+
+        Private Sub RefreshImageOutputLabel()
+            _btnImageOutput.Enabled = Not _switchImageOriginal.Checked
+            Dim text = If(_switchImageOriginal.Checked, "原图片所在目录", If(String.IsNullOrWhiteSpace(_config.ImageOutput), "尚未指定输出文件夹", _config.ImageOutput))
+            _lblImageOutput.Text = "<font color=#A8A8A8>输出：</font><font color=#E0E0E0>" & EscapeHtml(text) & "</font>"
+        End Sub
+
+        Private Sub OnStartImageProcessing(sender As Object, e As EventArgs)
+            If _imageRunning Then Return
+            If _config.Backend = "flashvsr" Then
+                ShowStatus("FlashVSR 是连续视频帧模型，图片超分请选择 NCNN、CUDA、TensorRT 或 ONNX。", True)
+                Return
+            End If
+            If _imageFiles.Count = 0 AndAlso _imageFolders.Count = 0 Then
+                ShowStatus("请先选择或拖入图片/文件夹", True) : Return
+            End If
+            If Not File.Exists(_config.ExePath) Then
+                ShowStatus("请先指定有效的 videoenhancer.exe", True) : Return
+            End If
+            If String.IsNullOrWhiteSpace(_config.Model) Then
+                ShowStatus("请先在上方选择放大模型", True) : Return
+            End If
+            If Not _switchImageOriginal.Checked AndAlso String.IsNullOrWhiteSpace(_config.ImageOutput) Then
+                ShowStatus("请指定图片输出文件夹，或开启输出到原目录", True) : Return
+            End If
+
+            Dim args As New List(Of String)()
+            For Each path In _imageFiles : args.Add("--image-input") : args.Add(path) : Next
+            For Each path In _imageFolders : args.Add("--image-folder") : args.Add(path) : Next
+            If _switchImageOriginal.Checked Then
+                args.Add("--image-output-original")
+            Else
+                args.Add("--image-output") : args.Add(_config.ImageOutput)
+            End If
+            args.Add("--image-suffix") : args.Add(If(_cmbImageSuffix.SelectedIndex = 1, "model", "timestamp"))
+            args.Add(If(_switchImagePng.Checked, "--image-png", "--image-source-format"))
+            args.Add("-backend") : args.Add(_config.Backend)
+            args.Add("-modelpath") : args.Add(_config.Model)
+
+            Dim psi As New ProcessStartInfo With {
+                .FileName = _config.ExePath, .WorkingDirectory = Path.GetDirectoryName(_config.ExePath),
+                .UseShellExecute = False, .CreateNoWindow = True,
+                .RedirectStandardOutput = True, .RedirectStandardError = True,
+                .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8,
+                .Arguments = String.Join(" ", args.Select(Function(value) QuoteCommandArgument(value)))
+            }
+            _imageProcess = New Process With {.StartInfo = psi, .EnableRaisingEvents = True}
+            Dim errors As New StringBuilder()
+            AddHandler _imageProcess.OutputDataReceived, Sub(s, ev) If ev.Data IsNot Nothing Then HandleImageProgressLine(ev.Data)
+            AddHandler _imageProcess.ErrorDataReceived, Sub(s, ev) If ev.Data IsNot Nothing Then SyncLock errors : errors.AppendLine(ev.Data) : End SyncLock
+            _imageRunning = True
+            _imageCompleteReceived = False
+            _btnImageStart.Enabled = False
+            _imageProgress.Value = 0
+            _lblImageProgress.Text = "<font color=#D8D8D8>正在加载模型…</font>"
+            Try
+                _imageProcess.Start()
+                _imageProcess.BeginOutputReadLine()
+                _imageProcess.BeginErrorReadLine()
+                Task.Run(Sub()
+                    _imageProcess.WaitForExit()
+                    Dim code = _imageProcess.ExitCode
+                    Dim errorText As String
+                    SyncLock errors : errorText = errors.ToString() : End SyncLock
+                    If IsHandleCreated Then BeginInvoke(New Action(Sub()
+                        _imageRunning = False
+                        _btnImageStart.Enabled = True
+                        If code = 0 OrElse _imageCompleteReceived Then
+                            _imageProgress.Value = 1000
+                            _lblImageProgress.Text = "<font color=#96D2A0>处理完成</font>"
+                        Else
+                            _lblImageProgress.Text = "<font color=#E07878>处理失败：" & EscapeHtml(LastNonEmptyLine(errorText)) & "</font>"
+                        End If
+                    End Sub))
+                End Sub)
+            Catch ex As Exception
+                _imageRunning = False
+                _btnImageStart.Enabled = True
+                _lblImageProgress.Text = "<font color=#E07878>启动失败：" & EscapeHtml(ex.Message) & "</font>"
+            End Try
+        End Sub
+
+        Private Sub HandleImageProgressLine(line As String)
+            If line.StartsWith("IMAGE_COMPLETE|", StringComparison.Ordinal) Then
+                _imageCompleteReceived = True
+                Return
+            End If
+            If Not line.StartsWith("IMAGE_PROGRESS|", StringComparison.Ordinal) Then Return
+            Dim parts = line.Split("|"c)
+            If parts.Length < 6 Then Return
+            Dim current, total As Integer
+            Dim elapsed, eta As Double
+            If Not Integer.TryParse(parts(1), current) OrElse Not Integer.TryParse(parts(2), total) OrElse total <= 0 Then Return
+            Double.TryParse(parts(3), Globalization.NumberStyles.Float, Globalization.CultureInfo.InvariantCulture, elapsed)
+            Double.TryParse(parts(4), Globalization.NumberStyles.Float, Globalization.CultureInfo.InvariantCulture, eta)
+            If IsHandleCreated Then BeginInvoke(New Action(Sub()
+                _imageProgress.Value = Math.Max(0, Math.Min(1000, CInt(current * 1000.0 / total)))
+                _lblImageProgress.Text = "<font color=#D8D8D8>" & current & "/" & total & "　已用 " & FormatDuration(elapsed) & "　ETA " & FormatDuration(eta) & "</font>"
+            End Sub))
+        End Sub
+
+        Private Shared Function FormatDuration(seconds As Double) As String
+            Dim value = TimeSpan.FromSeconds(Math.Max(0, seconds))
+            Return value.ToString(If(value.TotalHours >= 1, "hh\:mm\:ss", "mm\:ss"))
+        End Function
+
+        Private Shared Function QuoteCommandArgument(value As String) As String
+            If value Is Nothing Then value = ""
+            Return """" & value.Replace(""""c, "\""") & """"
+        End Function
 
         ' ────────────────────────── 实时预览页 ──────────────────────────
 
@@ -992,35 +1451,781 @@ Namespace videoenhancer
         Private Sub BuildAdvancedPage()
             _pageAdvanced.Dock = DockStyle.Fill
             _pageAdvanced.BackColor = Color.Transparent
-            _pageAdvanced.Padding = New Padding(0, 4, 0, 0)
+            _pageAdvanced.Padding = New Padding(8, 22, 8, 8)
 
-            ' 工具行：「制作四宫格比对视频」打开独立二级窗口（不影响主界面）
-            Dim sectionQuad As New Panel() With {.Dock = DockStyle.Top, .Height = 78, .BackColor = Color.Transparent, .Padding = New Padding(0, 26, 0, 0)}
-            _btnQuad.Text = "制作四宫格比对视频"
-            _btnQuad.Size = New Size(210, 36)
-            _btnQuad.Dock = DockStyle.Left
+            ' Fluent Design 功能卡片；只调整呈现，仍打开原有 QuadGridForm 后端。
+            Dim card As New FluentCardPanel() With {
+                .Dock = DockStyle.Top, .Height = 166, .Padding = New Padding(24, 20, 24, 20),
+                .FillColor = Color.FromArgb(43, 43, 43), .StrokeColor = Color.FromArgb(63, 63, 63), .CornerRadius = 12
+            }
+            Dim accent As New Panel() With {
+                .BackColor = Color.FromArgb(96, 205, 255), .Location = New Point(0, 22),
+                .Size = New Size(4, 122), .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Bottom
+            }
+            Dim icon As New Label() With {
+                .Text = "▦", .Location = New Point(24, 22), .Size = New Size(48, 48),
+                .ForeColor = Color.FromArgb(96, 205, 255), .Font = New Font("Segoe UI Symbol", 24.0F),
+                .TextAlign = ContentAlignment.MiddleCenter
+            }
+            Dim title As New Label() With {
+                .Text = "视频对比工作室", .Location = New Point(84, 22), .Size = New Size(420, 32),
+                .ForeColor = Color.FromArgb(250, 250, 250), .Font = New Font("Microsoft YaHei UI", 13.0F, FontStyle.Bold),
+                .TextAlign = ContentAlignment.MiddleLeft
+            }
+            Dim description As New Label() With {
+                .Text = "拖入 1–4 个视频，实时预览上下、左右、1+2 或四宫格布局，并自定义编码器、分辨率和分割线。",
+                .Location = New Point(84, 58), .Size = New Size(690, 52),
+                .ForeColor = Color.FromArgb(190, 190, 190), .Font = New Font("Microsoft YaHei UI", 9.5F),
+                .TextAlign = ContentAlignment.MiddleLeft, .AutoEllipsis = True
+            }
+            Dim footnote As New Label() With {
+                .Text = "至少需要两个视频 · 处理过程完全在本机完成", .Location = New Point(84, 112), .Size = New Size(520, 28),
+                .ForeColor = Color.FromArgb(145, 145, 145), .Font = New Font("Microsoft YaHei UI", 8.5F),
+                .TextAlign = ContentAlignment.MiddleLeft
+            }
+            _btnQuad.Text = "打开工作室  →"
+            _btnQuad.Size = New Size(168, 40)
+            _btnQuad.Location = New Point(card.Width - 192, 102)
+            _btnQuad.Anchor = AnchorStyles.Right Or AnchorStyles.Bottom
             _btnQuad.BorderRadius = 8
             _btnQuad.BorderSize = 0
-            _btnQuad.BackColor1 = Color.FromArgb(40, 110, 190, 255)
-            _btnQuad.HoverBackColor1 = Color.FromArgb(60, 110, 190, 255)
+            _btnQuad.BackColor1 = Color.FromArgb(0, 120, 212)
+            _btnQuad.HoverBackColor1 = Color.FromArgb(17, 94, 163)
+            _btnQuad.PressedBackColor1 = Color.FromArgb(0, 91, 158)
             AddHandler _btnQuad.Click, AddressOf OnQuadClick
-            sectionQuad.Controls.Add(_btnQuad)
-            _pageAdvanced.Controls.Add(sectionQuad)
+            card.Controls.AddRange(New Control() {accent, icon, title, description, footnote, _btnQuad})
+            _pageAdvanced.Controls.Add(card)
+        End Sub
 
-            ' 说明文字
-            Dim sectionDesc As New Panel() With {.Dock = DockStyle.Top, .Height = 108, .BackColor = Color.Transparent, .Padding = New Padding(2, 16, 0, 0)}
-            Dim lblDesc As New HtmlColorLabel() With {
-                .Text = "<font color=#9A9A9A><b>四宫格比对</b></font><br/>" &
-                        "<font color=#8A8A8A>拖入 1-4 个视频，选择输出大小 / 缩放算法 / 分割线，生成 2×2（或 1+1+2 / 上下 / 左右）比对视频。</font><br/>" &
-                        "<font color=#8A8A8A>至少需要 2 个视频；少于 4 个时自动调整布局。</font>",
+        ' ────────────────────────── 模型下载页 ──────────────────────────
+
+        Private Sub BuildModelDownloadPage()
+            _pageDownloader.Dock = DockStyle.Fill
+            _pageDownloader.BackColor = Color.Transparent
+            _pageDownloader.Padding = New Padding(0, 12, 0, 0)
+
+            Dim header As New Panel() With {.Dock = DockStyle.Top, .Height = 76, .BackColor = Color.Transparent}
+            Dim description As New HtmlColorLabel() With {
+                .Text = "<font color=#D8D8D8><b>ModelScope 模型镜像</b></font><br/>" &
+                        "<font color=#8A8A8A>文件下载到 models 对应分类；Backend 文件下载到 python。压缩包会自动解压。</font>",
+                .AutoSize = False, .Dock = DockStyle.Fill,
+                .TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft, .LineSpacing = 4
+            }
+            _btnRefreshDownloads.Text = "刷新列表"
+            _btnRefreshDownloads.Size = New Size(118, 34)
+            _btnRefreshDownloads.Dock = DockStyle.Right
+            _btnRefreshDownloads.BorderRadius = 8
+            _btnRefreshDownloads.BorderSize = 0
+            _btnRefreshDownloads.BackColor1 = Color.FromArgb(40, 110, 190, 255)
+            _btnRefreshDownloads.HoverBackColor1 = Color.FromArgb(60, 110, 190, 255)
+            AddHandler _btnRefreshDownloads.Click, Sub(sender, e) LoadDownloadModels(True)
+            header.Controls.Add(description)
+            header.Controls.Add(_btnRefreshDownloads)
+            _pageDownloader.Controls.Add(header)
+
+            _downloadList.Dock = DockStyle.Fill
+            _downloadList.AutoScroll = True
+            _downloadList.WrapContents = False
+            _downloadList.FlowDirection = FlowDirection.TopDown
+            _downloadList.BackColor = Color.Transparent
+            _downloadList.Padding = New Padding(0, 4, 4, 4)
+            AddHandler _downloadList.ClientSizeChanged,
+                Sub(sender, e)
+                    For Each row As Panel In _downloadList.Controls.OfType(Of Panel)()
+                        row.Width = Math.Max(320, _downloadList.ClientSize.Width - 24)
+                    Next
+                End Sub
+            _pageDownloader.Controls.Add(_downloadList)
+            ' Fill 先加入、Top 后加入，确保标题栏占位后列表填满其余区域。
+            _pageDownloader.Controls.SetChildIndex(_downloadList, 0)
+            _pageDownloader.Controls.SetChildIndex(header, 1)
+        End Sub
+
+        Private Function DownloadExecutablePath() As String
+            If File.Exists(_config.ExePath) Then Return _config.ExePath
+            Dim besideHost = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "videoenhancer.exe")
+            Return If(File.Exists(besideHost), besideHost, "")
+        End Function
+
+        Private Sub LoadDownloadModels(force As Boolean)
+            If _downloadsLoading OrElse (_downloadsLoaded AndAlso Not force) Then Return
+            Dim exePath = DownloadExecutablePath()
+            If String.IsNullOrWhiteSpace(exePath) Then
+                ShowStatus("请先在超分主界面指定 videoenhancer.exe", True)
+                Return
+            End If
+            _downloadsLoading = True
+            _btnRefreshDownloads.Enabled = False
+            _downloadList.Controls.Clear()
+            Dim loading As New Label() With {
+                .Text = "正在读取在线模型列表…", .ForeColor = Color.FromArgb(170, 170, 170),
+                .Size = New Size(520, 40), .TextAlign = ContentAlignment.MiddleLeft
+            }
+            _downloadList.Controls.Add(loading)
+
+            Task.Run(
+                Sub()
+                    Dim stdout = ""
+                    Dim stderr = ""
+                    Dim exitCode = -1
+                    Try
+                        Dim psi As New ProcessStartInfo With {
+                            .FileName = exePath, .WorkingDirectory = Path.GetDirectoryName(exePath),
+                            .UseShellExecute = False, .RedirectStandardOutput = True,
+                            .RedirectStandardError = True, .CreateNoWindow = True,
+                            .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
+                        }
+                        psi.ArgumentList.Add("--list-download-models")
+                        psi.ArgumentList.Add("--json")
+                        Using runningProcess As Process = Diagnostics.Process.Start(psi)
+                            If runningProcess IsNot Nothing Then
+                                Dim outputTask = runningProcess.StandardOutput.ReadToEndAsync()
+                                Dim errorTask = runningProcess.StandardError.ReadToEndAsync()
+                                runningProcess.WaitForExit(45000)
+                                stdout = outputTask.GetAwaiter().GetResult()
+                                stderr = errorTask.GetAwaiter().GetResult()
+                                exitCode = runningProcess.ExitCode
+                            End If
+                        End Using
+                    Catch ex As Exception
+                        stderr = ex.Message
+                    End Try
+                    Try
+                        BeginInvoke(New Action(Sub() RenderDownloadModels(stdout, stderr, exitCode)))
+                    Catch
+                    End Try
+                End Sub)
+        End Sub
+
+        Private Sub RenderDownloadModels(stdout As String, stderr As String, exitCode As Integer)
+            _downloadsLoading = False
+            _btnRefreshDownloads.Enabled = True
+            _downloadList.Controls.Clear()
+            If exitCode <> 0 OrElse String.IsNullOrWhiteSpace(stdout) Then
+                _downloadsLoaded = False
+                _downloadOnline = False
+                ShowOfflineDownloadStatus()
+                Return
+            End If
+
+            Try
+                Dim entries As New List(Of DownloadModelEntry)()
+                Using document = JsonDocument.Parse(stdout.Trim())
+                    For Each item In document.RootElement.EnumerateArray()
+                        Dim name = item.GetProperty("name").GetString()
+                        Dim relativePath = item.GetProperty("path").GetString()
+                        Dim size = item.GetProperty("size").GetInt64()
+                        entries.Add(New DownloadModelEntry With {
+                            .Name = If(name, relativePath), .RelativePath = If(relativePath, ""), .Size = size
+                        })
+                    Next
+                End Using
+                Dim categoryOrder = New String() {"ONNX", "Param-Bin", "RIFE", "PTH", "Backend"}
+                For Each group In entries.GroupBy(Function(entry) DownloadCategory(entry.RelativePath)).
+                        OrderBy(Function(value)
+                                    Dim index = Array.FindIndex(categoryOrder, Function(name) name.Equals(value.Key, StringComparison.OrdinalIgnoreCase))
+                                    Return If(index < 0, Integer.MaxValue, index)
+                                End Function)
+                    AddDownloadGroup(group.Key, group.ToList())
+                Next
+                _downloadsLoaded = True
+                _downloadOnline = True
+                ShowStatus("模型列表已更新，共 " & entries.Count & " 个文件", False)
+            Catch ex As Exception
+                _downloadsLoaded = False
+                ShowStatus("模型列表格式错误：" & ex.Message, True)
+            End Try
+        End Sub
+
+        Private Shared Function DownloadCategory(relativePath As String) As String
+            If String.IsNullOrWhiteSpace(relativePath) Then Return "其他"
+            Dim normalized = relativePath.Replace("\"c, "/"c)
+            Dim slash = normalized.IndexOf("/"c)
+            Return If(slash > 0, normalized.Substring(0, slash), normalized)
+        End Function
+
+        Private Shared Function DownloadCategoryTitle(category As String) As String
+            Select Case category.ToUpperInvariant()
+                Case "ONNX" : Return "ONNX 模型"
+                Case "PARAM-BIN" : Return "Param-Bin 模型"
+                Case "RIFE" : Return "RIFE 模型"
+                Case "PTH" : Return "PTH 模型"
+                Case "BACKEND" : Return "Backend 后端"
+                Case Else : Return category
+            End Select
+        End Function
+
+        Private Sub AddDownloadGroup(category As String, entries As List(Of DownloadModelEntry))
+            Dim groupPanel As New Panel() With {
+                .Width = Math.Max(360, _downloadList.ClientSize.Width - 24), .Height = 54,
+                .Margin = New Padding(0, 0, 0, 8), .BackColor = Color.Transparent
+            }
+            Dim header As New Panel() With {
+                .Location = New Point(0, 0), .Height = 52, .Width = groupPanel.Width,
+                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right,
+                .BackColor = Color.FromArgb(34, 34, 38)
+            }
+            Dim title As New Label() With {
+                .Text = DownloadCategoryTitle(category) & "  ·  " & entries.Count & " 个文件",
+                .Location = New Point(16, 0), .Height = 52, .ForeColor = Color.FromArgb(235, 235, 238),
+                .Font = New Font("Microsoft YaHei UI", 10.0F, FontStyle.Bold),
+                .TextAlign = ContentAlignment.MiddleLeft, .AutoEllipsis = True
+            }
+            Dim expandButton As New ModernButton() With {
+                .Text = "展开  ▾", .Size = New Size(92, 34), .BorderRadius = 7, .BorderSize = 0,
+                .BackColor1 = Color.FromArgb(38, 255, 255, 255),
+                .HoverBackColor1 = Color.FromArgb(58, 255, 255, 255)
+            }
+            Dim allButton As New ModernButton() With {
+                .Text = "一键全部下载", .Size = New Size(142, 34),
+                .Tag = entries.Select(Function(entry) entry.RelativePath).ToList(),
+                .BorderRadius = 7, .BorderSize = 0,
+                .BackColor1 = Color.FromArgb(52, 0, 120, 212),
+                .HoverBackColor1 = Color.FromArgb(78, 0, 120, 212)
+            }
+            Dim content As New FlowLayoutPanel() With {
+                .Location = New Point(0, 56), .Width = groupPanel.Width,
+                .Height = Math.Max(1, entries.Count * 52), .Visible = False,
+                .WrapContents = False, .FlowDirection = FlowDirection.TopDown,
+                .AutoScroll = False, .BackColor = Color.Transparent, .Margin = New Padding(0)
+            }
+            For Each entry In entries
+                content.Controls.Add(CreateDownloadRow(entry, content.Width))
+            Next
+            expandButton.Tag = New Object() {groupPanel, content}
+            AddHandler expandButton.Click, AddressOf OnToggleDownloadGroup
+            AddHandler allButton.Click, AddressOf OnDownloadAllClick
+            Dim arrangeHeader As Action =
+                Sub()
+                    allButton.Left = Math.Max(250, header.ClientSize.Width - allButton.Width - 10)
+                    allButton.Top = 9
+                    expandButton.Left = allButton.Left - expandButton.Width - 8
+                    expandButton.Top = 9
+                    title.Width = Math.Max(120, expandButton.Left - title.Left - 10)
+                    content.Width = groupPanel.ClientSize.Width
+                    For Each row As Panel In content.Controls.OfType(Of Panel)()
+                        row.Width = Math.Max(320, content.ClientSize.Width)
+                    Next
+                End Sub
+            AddHandler header.Resize, Sub(sender, e) arrangeHeader()
+            AddHandler groupPanel.Resize, Sub(sender, e) arrangeHeader()
+            header.Controls.AddRange(New Control() {title, expandButton, allButton})
+            groupPanel.Controls.AddRange(New Control() {header, content})
+            _downloadList.Controls.Add(groupPanel)
+            arrangeHeader()
+        End Sub
+
+        Private Function CreateDownloadRow(entry As DownloadModelEntry, rowWidth As Integer) As Panel
+            Dim row As New Panel() With {
+                .Width = Math.Max(320, rowWidth), .Height = 48,
+                .Margin = New Padding(0, 0, 0, 4), .BackColor = Color.FromArgb(16, 255, 255, 255)
+            }
+            Dim sizeText = If(entry.Size > 0, "  ·  " & FormatDownloadSize(entry.Size), "")
+            Dim label As New Label() With {
+                .Text = entry.Name & sizeText, .ForeColor = Color.FromArgb(215, 215, 215),
+                .Dock = DockStyle.Fill, .Padding = New Padding(12, 0, 8, 0),
+                .TextAlign = ContentAlignment.MiddleLeft, .AutoEllipsis = True
+            }
+            Dim button As New ModernButton() With {
+                .Text = "下载", .Dock = DockStyle.Right, .Width = 108, .Tag = entry.RelativePath,
+                .BorderRadius = 7, .BorderSize = 0,
+                .BackColor1 = Color.FromArgb(42, 110, 190, 255),
+                .HoverBackColor1 = Color.FromArgb(68, 110, 190, 255)
+            }
+            AddHandler button.Click, AddressOf OnDownloadModelClick
+            row.Controls.Add(label)
+            row.Controls.Add(button)
+            Return row
+        End Function
+
+        Private Sub OnToggleDownloadGroup(sender As Object, e As EventArgs)
+            Dim button = TryCast(sender, ModernButton)
+            Dim state = If(button Is Nothing, Nothing, TryCast(button.Tag, Object()))
+            If state Is Nothing OrElse state.Length < 2 Then Return
+            Dim groupPanel = TryCast(state(0), Panel)
+            Dim content = TryCast(state(1), FlowLayoutPanel)
+            If groupPanel Is Nothing OrElse content Is Nothing Then Return
+            content.Visible = Not content.Visible
+            groupPanel.Height = If(content.Visible, 56 + content.Height, 54)
+            button.Text = If(content.Visible, "收起  ▴", "展开  ▾")
+            _downloadList.PerformLayout()
+        End Sub
+
+        Private Shared Function FormatDownloadSize(bytes As Long) As String
+            If bytes >= 1024L * 1024L * 1024L Then Return (bytes / (1024.0 * 1024.0 * 1024.0)).ToString("0.00") & " GB"
+            If bytes >= 1024L * 1024L Then Return (bytes / (1024.0 * 1024.0)).ToString("0.0") & " MB"
+            If bytes >= 1024L Then Return (bytes / 1024.0).ToString("0.0") & " KB"
+            Return bytes & " B"
+        End Function
+
+        Private Async Sub OnDownloadModelClick(sender As Object, e As EventArgs)
+            If Not _downloadOnline OrElse _downloadBusy Then Return
+            Dim button = TryCast(sender, ModernButton)
+            If button Is Nothing OrElse button.Tag Is Nothing Then Return
+            Dim exePath = DownloadExecutablePath()
+            If String.IsNullOrWhiteSpace(exePath) Then Return
+            Dim relativePath = button.Tag.ToString()
+            _downloadBusy = True
+            SetDownloadActionsEnabled(False)
+            button.Text = "准备中…"
+            Dim result = Await Task.Run(Function() ExecuteModelDownload(exePath, relativePath,
+                Sub(text)
+                    Try
+                        BeginInvoke(New Action(Sub() button.Text = text))
+                    Catch
+                    End Try
+                End Sub))
+            _downloadBusy = False
+            If result.ExitCode = 0 Then
+                button.Text = "已完成"
+                ShowStatus("模型下载完成：" & relativePath, False)
+                SetDownloadActionsEnabled(True)
+            ElseIf result.Errors.Contains("NO_NETWORK|") Then
+                button.Text = "下载"
+                _downloadOnline = False
+                ShowOfflineDownloadStatus()
+            Else
+                button.Text = "重试"
+                SetDownloadActionsEnabled(True)
+                ShowStatus("模型下载失败", True)
+            End If
+        End Sub
+
+        Private Async Sub OnDownloadAllClick(sender As Object, e As EventArgs)
+            If Not _downloadOnline OrElse _downloadBusy Then Return
+            Dim button = TryCast(sender, ModernButton)
+            Dim paths = If(button Is Nothing, Nothing, TryCast(button.Tag, List(Of String)))
+            If paths Is Nothing OrElse paths.Count = 0 Then Return
+            Dim exePath = DownloadExecutablePath()
+            If String.IsNullOrWhiteSpace(exePath) Then Return
+            _downloadBusy = True
+            SetDownloadActionsEnabled(False)
+            Dim completed = 0
+            Dim failed = False
+            For Each relativePath In paths
+                Dim current = completed + 1
+                button.Text = current & "/" & paths.Count
+                Dim result = Await Task.Run(Function() ExecuteModelDownload(exePath, relativePath,
+                    Sub(text)
+                        If text.EndsWith("%", StringComparison.Ordinal) Then
+                            Try : BeginInvoke(New Action(Sub() button.Text = current & "/" & paths.Count & "  " & text)) : Catch : End Try
+                        End If
+                    End Sub))
+                If result.ExitCode <> 0 Then
+                    failed = True
+                    If result.Errors.Contains("NO_NETWORK|") Then
+                        _downloadOnline = False
+                        ShowOfflineDownloadStatus()
+                    End If
+                    Exit For
+                End If
+                completed += 1
+            Next
+            _downloadBusy = False
+            If Not _downloadOnline Then
+                button.Text = "一键全部下载"
+                Return
+            End If
+            SetDownloadActionsEnabled(True)
+            If failed Then
+                button.Text = "继续下载"
+                ShowStatus("批量下载在第 " & (completed + 1) & " 个文件处失败", True)
+            Else
+                button.Text = "全部完成"
+                ShowStatus("该分类 " & completed & " 个文件已全部下载完成", False)
+            End If
+        End Sub
+
+        Private Function ExecuteModelDownload(exePath As String, relativePath As String, progress As Action(Of String)) As DownloadExecutionResult
+            Dim result As New DownloadExecutionResult()
+            Dim errors As New StringBuilder()
+            Try
+                Dim psi As New ProcessStartInfo With {
+                    .FileName = exePath, .WorkingDirectory = Path.GetDirectoryName(exePath),
+                    .UseShellExecute = False, .RedirectStandardOutput = True,
+                    .RedirectStandardError = True, .CreateNoWindow = True,
+                    .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
+                }
+                psi.ArgumentList.Add("--download-model")
+                psi.ArgumentList.Add(relativePath)
+                Using process As New Process With {.StartInfo = psi}
+                    AddHandler process.OutputDataReceived,
+                        Sub(s, ev)
+                            If ev.Data Is Nothing Then Return
+                            If ev.Data.StartsWith("DOWNLOAD_PROGRESS|", StringComparison.Ordinal) Then
+                                Dim parts = ev.Data.Split("|"c)
+                                If parts.Length > 1 Then progress(parts(1) & "%")
+                            ElseIf ev.Data.StartsWith("EXTRACT_COMPLETE|", StringComparison.Ordinal) Then
+                                progress("解压完成")
+                            End If
+                        End Sub
+                    AddHandler process.ErrorDataReceived, Sub(s, ev) If ev.Data IsNot Nothing Then errors.AppendLine(ev.Data)
+                    process.Start()
+                    process.BeginOutputReadLine()
+                    process.BeginErrorReadLine()
+                    process.WaitForExit()
+                    result.ExitCode = process.ExitCode
+                End Using
+            Catch ex As Exception
+                errors.AppendLine(ex.Message)
+            End Try
+            result.Errors = errors.ToString()
+            Return result
+        End Function
+
+        Private Iterator Function AllDownloadButtons(parent As Control) As IEnumerable(Of ModernButton)
+            For Each child As Control In parent.Controls
+                Dim button = TryCast(child, ModernButton)
+                If button IsNot Nothing AndAlso (TypeOf button.Tag Is String OrElse TypeOf button.Tag Is List(Of String)) Then
+                    Yield button
+                End If
+                If child.HasChildren Then
+                    For Each nested In AllDownloadButtons(child)
+                        Yield nested
+                    Next
+                End If
+            Next
+        End Function
+
+        Private Sub SetDownloadActionsEnabled(enabled As Boolean)
+            For Each button In AllDownloadButtons(_downloadList)
+                button.Enabled = enabled AndAlso _downloadOnline
+            Next
+        End Sub
+
+        Private Sub ShowOfflineDownloadStatus()
+            Try
+                _statusClearTimer.Stop()
+            Catch
+            End Try
+            _lblStatus.Text = "<font color=#E07878>当前无网络</font>"
+            SetDownloadActionsEnabled(False)
+        End Sub
+
+        Private Async Sub OnCleanDownloadArchives(sender As Object, e As EventArgs)
+            If _downloadBusy Then Return
+            If Not File.Exists(_config.ExePath) Then
+                ShowStatus("请先指定有效的 videoenhancer.exe", True)
+                Return
+            End If
+            _downloadBusy = True
+            _btnCleanArchives.Enabled = False
+            ShowStatus("正在清理下载压缩包…", False)
+            Dim output = New StringBuilder()
+            Dim errors = New StringBuilder()
+            Dim exitCode = Await Task.Run(
+                Function()
+                    Try
+                        Dim psi As New ProcessStartInfo With {
+                            .FileName = _config.ExePath,
+                            .WorkingDirectory = Path.GetDirectoryName(_config.ExePath),
+                            .UseShellExecute = False, .CreateNoWindow = True,
+                            .RedirectStandardOutput = True, .RedirectStandardError = True,
+                            .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
+                        }
+                        psi.ArgumentList.Add("--clean-download-archives")
+                        Using process As New Process With {.StartInfo = psi}
+                            process.Start()
+                            output.Append(process.StandardOutput.ReadToEnd())
+                            errors.Append(process.StandardError.ReadToEnd())
+                            process.WaitForExit()
+                            Return process.ExitCode
+                        End Using
+                    Catch ex As Exception
+                        errors.Append(ex.Message)
+                        Return -1
+                    End Try
+                End Function)
+            _downloadBusy = False
+            _btnCleanArchives.Enabled = True
+            Dim complete = output.ToString().Split(New Char() {Convert.ToChar(13), Convert.ToChar(10)}, StringSplitOptions.RemoveEmptyEntries).
+                FirstOrDefault(Function(line) line.StartsWith("CLEAN_COMPLETE|", StringComparison.Ordinal))
+            If exitCode = 0 AndAlso complete IsNot Nothing Then
+                Dim parts = complete.Split("|"c)
+                Dim count = If(parts.Length > 1, parts(1), "0")
+                ShowStatus("已清理 " & count & " 个下载压缩包", False)
+            Else
+                ShowStatus("清理失败：" & LastNonEmptyLine(errors.ToString()), True)
+            End If
+        End Sub
+
+        ' ────────────────────────── 模型转换器页 ──────────────────────────
+
+        Private Sub BuildMarkdownPage(page As Panel, markdown As String)
+            page.Dock = DockStyle.Fill
+            page.BackColor = Color.Transparent
+            page.Padding = New Padding(10, 12, 10, 10)
+            Dim browser As New WebBrowser With {
+                .Dock = DockStyle.Fill, .AllowWebBrowserDrop = False,
+                .IsWebBrowserContextMenuEnabled = False, .WebBrowserShortcutsEnabled = False,
+                .ScriptErrorsSuppressed = True, .ScrollBarsEnabled = True
+            }
+            browser.DocumentText = MarkdownDocument(markdown)
+            page.Controls.Add(browser)
+        End Sub
+
+        Private Shared Function MarkdownDocument(markdown As String) As String
+            Dim body As New StringBuilder()
+            Dim inList = False
+            Dim lineFeed As Char = Convert.ToChar(10)
+            For Each raw As String In If(markdown, "").Replace(Environment.NewLine, lineFeed.ToString()).Split(New Char() {lineFeed})
+                Dim line = raw.TrimEnd()
+                If line.StartsWith("### ") Then
+                    If inList Then body.Append("</ul>") : inList = False
+                    body.Append("<h3>").Append(InlineMarkdown(line.Substring(4))).Append("</h3>")
+                ElseIf line.StartsWith("## ") Then
+                    If inList Then body.Append("</ul>") : inList = False
+                    body.Append("<h2>").Append(InlineMarkdown(line.Substring(3))).Append("</h2>")
+                ElseIf line.StartsWith("# ") Then
+                    If inList Then body.Append("</ul>") : inList = False
+                    body.Append("<h1>").Append(InlineMarkdown(line.Substring(2))).Append("</h1>")
+                ElseIf line.StartsWith("- ") OrElse line.StartsWith("* ") Then
+                    If Not inList Then body.Append("<ul>") : inList = True
+                    body.Append("<li>").Append(InlineMarkdown(line.Substring(2))).Append("</li>")
+                ElseIf String.IsNullOrWhiteSpace(line) Then
+                    If inList Then body.Append("</ul>") : inList = False
+                Else
+                    If inList Then body.Append("</ul>") : inList = False
+                    body.Append("<p>").Append(InlineMarkdown(line)).Append("</p>")
+                End If
+            Next
+            If inList Then body.Append("</ul>")
+            Return "<!doctype html><html><head><meta charset='utf-8'><style>" &
+                "html,body{background:#17171b;color:#d8d8dc;font-family:'Microsoft YaHei UI',sans-serif;margin:0;padding:12px 16px;}" &
+                "h1{font-size:24px;color:#fff;margin:4px 0 18px;border-bottom:1px solid #3b3b42;padding-bottom:10px;}" &
+                "h2{font-size:20px;color:#f2f2f2}h3{font-size:17px}p,li{font-size:14px;line-height:1.8}strong{color:#fff}" &
+                "code{background:#303038;padding:2px 5px;border-radius:4px;color:#e8c98d}a{color:#76b7ff}</style></head><body>" & body.ToString() & "</body></html>"
+        End Function
+
+        Private Shared Function InlineMarkdown(text As String) As String
+            Dim value = System.Net.WebUtility.HtmlEncode(If(text, ""))
+            value = Regex.Replace(value, "\*\*(.+?)\*\*", "<strong>$1</strong>")
+            value = Regex.Replace(value, "`(.+?)`", "<code>$1</code>")
+            value = Regex.Replace(value, "\[(.+?)\]\((https?://[^\s)]+)\)", "<a href='$2'>$1</a>")
+            Return value
+        End Function
+
+        Private Sub BuildConverterPage()
+            _pageConverter.Dock = DockStyle.Fill
+            _pageConverter.BackColor = Color.Transparent
+            _pageConverter.Padding = New Padding(0, 18, 0, 0)
+            _pageConverter.AllowDrop = True
+            AddHandler _pageConverter.DragEnter, AddressOf OnConverterDragEnter
+            AddHandler _pageConverter.DragDrop, AddressOf OnConverterDragDrop
+
+            Dim actionRow As New Panel() With {.Dock = DockStyle.Top, .Height = 58, .BackColor = Color.Transparent, .Padding = New Padding(0, 10, 0, 0)}
+            _btnPickPth.Text = "选择或拖入 PTH 模型"
+            _btnPickPth.Size = New Size(200, 38)
+            _btnPickPth.Dock = DockStyle.Left
+            _btnPickPth.BorderRadius = 8
+            _btnPickPth.BorderSize = 0
+            _btnPickPth.BackColor1 = Color.FromArgb(40, 110, 190, 255)
+            _btnPickPth.HoverBackColor1 = Color.FromArgb(60, 110, 190, 255)
+            AddHandler _btnPickPth.Click, AddressOf OnPickPthClick
+            actionRow.Controls.Add(_btnPickPth)
+
+            _btnConvert.Text = "开始离线转换"
+            _btnConvert.Size = New Size(160, 38)
+            _btnConvert.Dock = DockStyle.Left
+            _btnConvert.Margin = New Padding(12, 0, 0, 0)
+            _btnConvert.BorderRadius = 8
+            _btnConvert.BorderSize = 0
+            _btnConvert.Enabled = False
+            AddHandler _btnConvert.Click, AddressOf OnConvertModelClick
+            actionRow.Controls.Add(_btnConvert)
+            _pageConverter.Controls.Add(actionRow)
+
+            Dim info As New HtmlColorLabel() With {
+                .Text = "<font color=#D8D8D8><b>PTH → TensorRT Engine</b></font><br/>" &
+                        "<font color=#8A8A8A>拖入一个 .pth 模型后，输出目录会自动设为 models\TensorRT-Personalized，和预置引擎分开管理。</font><br/>" &
+                        "<font color=#8A8A8A>TensorRT 通常能获得更高吞吐与更低推理开销；转换完全离线进行，不会上传模型。</font><br/>" &
+                        "<font color=#8A8A8A>Engine 与显卡、TensorRT/CUDA 版本相关，建议在实际使用的设备上重新转换。</font>",
                 .AutoSize = False,
-                .Dock = DockStyle.Fill,
+                .Dock = DockStyle.Top,
+                .Height = 112,
                 .TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft,
                 .LineSpacing = 4
             }
-            sectionDesc.Controls.Add(lblDesc)
-            _pageAdvanced.Controls.Add(sectionDesc)
+            _pageConverter.Controls.Add(info)
+
+            _lblConvertInput.Text = "<font color=#A8A8A8>输入模型：</font><font color=#7F7F7F>请拖入或选择 .pth 文件</font>"
+            _lblConvertInput.AutoSize = False
+            _lblConvertInput.Dock = DockStyle.Top
+            _lblConvertInput.Height = 38
+            _lblConvertInput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
+            _pageConverter.Controls.Add(_lblConvertInput)
+
+            _lblConvertOutput.Text = "<font color=#A8A8A8>输出目录：</font><font color=#7F7F7F>选择模型后自动确定</font>"
+            _lblConvertOutput.AutoSize = False
+            _lblConvertOutput.Dock = DockStyle.Top
+            _lblConvertOutput.Height = 38
+            _lblConvertOutput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
+            _pageConverter.Controls.Add(_lblConvertOutput)
+
+            _lblConvertStatus.Text = "<font color=#8A8A8A>等待选择模型…</font>"
+            _lblConvertStatus.AutoSize = False
+            _lblConvertStatus.Dock = DockStyle.Top
+            _lblConvertStatus.Height = 52
+            _lblConvertStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
+            _pageConverter.Controls.Add(_lblConvertStatus)
+            ' DockStyle.Top 按 Z 序布局，固定为：说明 → 输入 → 输出 → 操作 → 状态。
+            _pageConverter.Controls.SetChildIndex(info, 0)
+            _pageConverter.Controls.SetChildIndex(_lblConvertInput, 1)
+            _pageConverter.Controls.SetChildIndex(_lblConvertOutput, 2)
+            _pageConverter.Controls.SetChildIndex(actionRow, 3)
+            _pageConverter.Controls.SetChildIndex(_lblConvertStatus, 4)
         End Sub
+
+        Private Sub OnConverterDragEnter(sender As Object, e As DragEventArgs)
+            If e.Data IsNot Nothing AndAlso e.Data.GetDataPresent(DataFormats.FileDrop) Then
+                Dim paths = TryCast(e.Data.GetData(DataFormats.FileDrop), String())
+                If paths IsNot Nothing AndAlso paths.Length > 0 AndAlso
+                    String.Equals(Path.GetExtension(paths(0)), ".pth", StringComparison.OrdinalIgnoreCase) Then
+                    e.Effect = DragDropEffects.Copy
+                    Return
+                End If
+            End If
+            e.Effect = DragDropEffects.None
+        End Sub
+
+        Private Sub OnConverterDragDrop(sender As Object, e As DragEventArgs)
+            Dim paths = TryCast(e.Data.GetData(DataFormats.FileDrop), String())
+            If paths IsNot Nothing AndAlso paths.Length > 0 Then
+                SelectConverterInput(paths(0))
+            End If
+        End Sub
+
+        Private Sub OnPickPthClick(sender As Object, e As EventArgs)
+            Using dialog As New OpenFileDialog With {
+                .Title = "选择要转换的 PTH 模型",
+                .Filter = "PyTorch 模型 (*.pth)|*.pth",
+                .CheckFileExists = True,
+                .Multiselect = False
+            }
+                If dialog.ShowDialog(Me) = DialogResult.OK Then
+                    SelectConverterInput(dialog.FileName)
+                End If
+            End Using
+        End Sub
+
+        Private Sub SelectConverterInput(modelPath As String)
+            If Not File.Exists(modelPath) OrElse Not String.Equals(Path.GetExtension(modelPath), ".pth", StringComparison.OrdinalIgnoreCase) Then
+                SetConverterStatus("只支持拖入有效的 .pth 模型文件。", True)
+                Return
+            End If
+            If _switchInterp.Checked AndAlso _config.Backend = "onnx" Then
+                _syncingInterpSwitch = True
+                _switchInterp.Checked = False
+                _syncingInterpSwitch = False
+                ShowStatus("ONNX Runtime 当前用于超分模型；补帧请切换到 NCNN 或 CUDA。", True)
+                Return
+            End If
+            _convertInputPath = Path.GetFullPath(modelPath)
+            Dim outputDir = GetPersonalizedTensorRtDirectory()
+            _lblConvertInput.Text = "<font color=#A8A8A8>输入模型：</font><font color=#E0E0E0>" & EscapeHtml(_convertInputPath) & "</font>"
+            _lblConvertOutput.Text = "<font color=#A8A8A8>输出目录：</font><font color=#E0E0E0>" & EscapeHtml(outputDir) & "</font>"
+            _btnConvert.Enabled = Not _conversionRunning
+            SetConverterStatus("模型已就绪，点击「开始离线转换」。", False)
+        End Sub
+
+        Private Async Sub OnConvertModelClick(sender As Object, e As EventArgs)
+            If _conversionRunning OrElse Not File.Exists(_convertInputPath) Then Return
+            Dim coreRoot = ResolveCoreRoot()
+            Dim pythonExe = Path.Combine(coreRoot, "python", "python", "python.exe")
+            Dim converter = Path.Combine(coreRoot, "python", "backend", "convert_tensorrt.py")
+            Dim outputDir = GetPersonalizedTensorRtDirectory()
+            If Not File.Exists(pythonExe) OrElse Not File.Exists(converter) Then
+                SetConverterStatus("找不到便携 Python 或 convert_tensorrt.py，请检查 videoenhancer.exe 的 core-path。", True)
+                Return
+            End If
+
+            Directory.CreateDirectory(outputDir)
+            _conversionRunning = True
+            _btnConvert.Enabled = False
+            _btnPickPth.Enabled = False
+            SetConverterStatus("正在离线编译 TensorRT Engine；复杂模型可能需要数分钟，请勿关闭程序…", False)
+            Try
+                Dim result = Await Task.Run(Function() RunTensorRtConversion(pythonExe, converter, _convertInputPath, outputDir))
+                If result.Item1 = 0 Then
+                    Dim enginePath = LastNonEmptyLine(result.Item2)
+                    SetConverterStatus("转换完成：" & If(String.IsNullOrWhiteSpace(enginePath), outputDir, enginePath), False)
+                    If _config.Backend = "tensorrt" Then RefreshUpscaleModels()
+                Else
+                    SetConverterStatus("转换失败：" & LastNonEmptyLine(result.Item2), True)
+                End If
+            Catch ex As Exception
+                SetConverterStatus("转换失败：" & ex.Message, True)
+            Finally
+                _conversionRunning = False
+                _btnPickPth.Enabled = True
+                _btnConvert.Enabled = File.Exists(_convertInputPath)
+            End Try
+        End Sub
+
+        Private Shared Function RunTensorRtConversion(pythonExe As String, converter As String, inputPath As String, outputDir As String) As Tuple(Of Integer, String)
+            Dim psi As New ProcessStartInfo With {
+                .FileName = pythonExe,
+                .WorkingDirectory = Path.GetDirectoryName(converter),
+                .UseShellExecute = False,
+                .CreateNoWindow = True,
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True,
+                .StandardOutputEncoding = Encoding.UTF8,
+                .StandardErrorEncoding = Encoding.UTF8
+            }
+            psi.ArgumentList.Add(converter)
+            psi.ArgumentList.Add(inputPath)
+            psi.ArgumentList.Add("--output-dir")
+            psi.ArgumentList.Add(outputDir)
+            Using child As Diagnostics.Process = Diagnostics.Process.Start(psi)
+                If child Is Nothing Then Return New Tuple(Of Integer, String)(1, "无法启动模型转换进程")
+                Dim stdoutTask = child.StandardOutput.ReadToEndAsync()
+                Dim stderrTask = child.StandardError.ReadToEndAsync()
+                child.WaitForExit()
+                Task.WaitAll(stdoutTask, stderrTask)
+                Return New Tuple(Of Integer, String)(child.ExitCode, stdoutTask.Result & Environment.NewLine & stderrTask.Result)
+            End Using
+        End Function
+
+        Private Function ResolveCoreRoot() As String
+            Dim exeDir = If(File.Exists(_config.ExePath), Path.GetDirectoryName(_config.ExePath), AppDomain.CurrentDomain.BaseDirectory)
+            Dim iniPath = Path.Combine(exeDir, "videoenhancer.ini")
+            Try
+                If File.Exists(iniPath) Then
+                    For Each rawLine In File.ReadLines(iniPath)
+                        Dim line = rawLine.Trim()
+                        If line.StartsWith("core-path", StringComparison.OrdinalIgnoreCase) Then
+                            Dim equalsAt = line.IndexOf("="c)
+                            If equalsAt >= 0 Then
+                                Dim value = line.Substring(equalsAt + 1).Trim().Trim(""""c)
+                                If Not Path.IsPathRooted(value) Then value = Path.GetFullPath(Path.Combine(exeDir, value))
+                                If Directory.Exists(value) Then Return value
+                            End If
+                        End If
+                    Next
+                End If
+            Catch
+            End Try
+            Return exeDir
+        End Function
+
+        Private Function GetPersonalizedTensorRtDirectory() As String
+            Return Path.Combine(ResolveCoreRoot(), "models", "TensorRT-Personalized")
+        End Function
+
+        Private Sub SetConverterStatus(text As String, isError As Boolean)
+            Dim color = If(isError, "#E58A8A", "#9AA79A")
+            _lblConvertStatus.Text = "<font color=" & color & ">" & EscapeHtml(If(text, "")) & "</font>"
+        End Sub
+
+        Private Shared Function LastNonEmptyLine(text As String) As String
+            If String.IsNullOrWhiteSpace(text) Then Return "未返回详细信息"
+            Dim lines = text.Replace(Convert.ToChar(13), Convert.ToChar(10)).Split(Convert.ToChar(10))
+            For i As Integer = lines.Length - 1 To 0 Step -1
+                If Not String.IsNullOrWhiteSpace(lines(i)) Then Return lines(i).Trim()
+            Next
+            Return "未返回详细信息"
+        End Function
 
         ' ────────────────────────── 预览事件 / 工具 ──────────────────────────
 
@@ -1184,6 +2389,10 @@ Namespace videoenhancer
             End If
             ' 切换页面时清除底部状态提示
             ClearStatus()
+            _btnCleanArchives.Visible = (_tabs.SelectedIndex = 3)
+            If _tabs.SelectedIndex = 3 Then
+                LoadDownloadModels(False)
+            End If
         End Sub
 
         Private Sub OnStatusClearTick(sender As Object, e As EventArgs)
@@ -1291,12 +2500,12 @@ Namespace videoenhancer
             _lblExe.Text = "<font color=#B8B8B8>videoenhancer.exe：</font><font color=#E6E6E6>" & EscapeHtml(If(String.IsNullOrWhiteSpace(_config.ExePath), "（未指定）", _config.ExePath)) & "</font>"
         End Sub
 
-        ''' <summary>把配置的推理后端同步到下拉框（0=NCNN，1=CUDA）。</summary>
+        ''' <summary>把配置的推理后端同步到下拉框（0=NCNN，1=CUDA，2=TensorRT，3=ONNX，4=FlashVSR）。</summary>
         Private Sub SyncBackendCombo()
             If _cmbBackend.Items.Count = 0 Then
                 Return
             End If
-            _cmbBackend.SelectedIndex = If(_config.Backend = "tensorrt", 2, If(_config.Backend = "cuda", 1, 0))
+            _cmbBackend.SelectedIndex = If(_config.Backend = "flashvsr", 4, If(_config.Backend = "onnx", 3, If(_config.Backend = "tensorrt", 2, If(_config.Backend = "cuda", 1, 0))))
         End Sub
 
         ''' <summary>把配置的补帧倍率同步到下拉框（2/3/4/8）。</summary>

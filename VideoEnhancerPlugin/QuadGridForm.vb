@@ -89,19 +89,19 @@ Namespace videoenhancer
         ' JSON 布局中的设计坐标以 1200×720 为基准。
         Private Const LayoutDesignWidth As Integer = 1200
         Private Const LayoutDesignHeight As Integer = 720
-        Private Const RightPaneDesignLeft As Integer = 700
+        Private Const RightPaneDesignLeft As Integer = 890
         Private Const RightPaneDesignRight As Integer = 1180
-        Private Const RightPaneHorizontalScale As Double = 0.6
+        Private Const RightPaneHorizontalScale As Double = 1.0
         Private ReadOnly _layoutControls As New Dictionary(Of String, Control)(StringComparer.OrdinalIgnoreCase)
         Private _layoutDocument As LayoutDocument
-        Private ReadOnly _lblEncoderSection As New HtmlColorLabel()
-        Private ReadOnly _lblLayoutSection As New HtmlColorLabel()
-        Private ReadOnly _btnEncoderCaption As New ModernButton()
-        Private ReadOnly _btnScaleCaption As New ModernButton()
-        Private ReadOnly _btnSizeCaption As New ModernButton()
-        Private ReadOnly _btnQualityCaption As New ModernButton()
-        Private ReadOnly _btnLayoutCaption As New ModernButton()
-        Private ReadOnly _btnLineCaption As New ModernButton()
+        Private ReadOnly _lblEncoderSection As New Label()
+        Private ReadOnly _lblLayoutSection As New Label()
+        Private ReadOnly _btnEncoderCaption As New Label()
+        Private ReadOnly _btnScaleCaption As New Label()
+        Private ReadOnly _btnSizeCaption As New Label()
+        Private ReadOnly _btnQualityCaption As New Label()
+        Private ReadOnly _btnLayoutCaption As New Label()
+        Private ReadOnly _btnLineCaption As New Label()
         Private ReadOnly _timelineHost As New Panel()
         Private ReadOnly _encoderHost As New Panel()
         Private ReadOnly _scaleHost As New Panel()
@@ -150,9 +150,9 @@ Namespace videoenhancer
             FormBorderStyle = FormBorderStyle.None
             DoubleBuffered = True
             StartPosition = FormStartPosition.CenterParent
-            BackColor = Color.FromArgb(24, 24, 28)
-            ForeColor = Color.FromArgb(220, 220, 220)
-            Font = New Font("Microsoft YaHei UI", 9.0F)
+            BackColor = Color.FromArgb(32, 32, 32)
+            ForeColor = Color.FromArgb(230, 230, 230)
+            Font = New Font("Segoe UI", 9.0F)
             ResolveFfmpeg()
             BuildUi()
             AddHandler MouseDown, AddressOf TitleMouseDown
@@ -190,7 +190,7 @@ Namespace videoenhancer
                 Controls.Add(card)
             Next
 
-            _preview.BackColor = Color.FromArgb(16, 16, 18)
+            _preview.BackColor = Color.FromArgb(15, 15, 15)
             _preview.AllowDrop = True
             _preview.SizeMode = PictureBoxSizeMode.Normal
             AddHandler _preview.Paint, AddressOf PreviewPaint
@@ -203,8 +203,8 @@ Namespace videoenhancer
             For i As Integer = 0 To 3
                 Dim overlay As New HtmlColorLabel() With {
                     .AutoSize = False,
-                    .BackColor1 = Color.FromArgb(210, 12, 15, 19),
-                    .BorderRadius = 5,
+                    .BackColor1 = Color.FromArgb(220, 32, 32, 32),
+                    .BorderRadius = 8,
                     .BorderSize = 0,
                     .ForeColor = Color.White,
                     .Font = New Font("Microsoft YaHei UI", 9.5F, FontStyle.Bold),
@@ -217,11 +217,11 @@ Namespace videoenhancer
 
             _btnPlay.Text = "▶"
             _btnPlay.ForeColor = Color.White
-            _btnPlay.BackColor1 = Color.FromArgb(40, 45, 53)
-            _btnPlay.BackColor2 = Color.FromArgb(40, 45, 53)
-            _btnPlay.HoverBackColor1 = Color.FromArgb(50, 57, 66)
-            _btnPlay.HoverBackColor2 = Color.FromArgb(50, 57, 66)
-            _btnPlay.BorderColor = Color.FromArgb(72, 81, 92)
+            _btnPlay.BackColor1 = Color.FromArgb(51, 51, 51)
+            _btnPlay.BackColor2 = Color.FromArgb(51, 51, 51)
+            _btnPlay.HoverBackColor1 = Color.FromArgb(62, 62, 62)
+            _btnPlay.HoverBackColor2 = Color.FromArgb(62, 62, 62)
+            _btnPlay.BorderColor = Color.FromArgb(72, 72, 72)
             _btnPlay.BorderSize = 1
             _btnPlay.BorderRadius = 7
             AddHandler _btnPlay.Click, AddressOf PlayClick
@@ -247,12 +247,12 @@ Namespace videoenhancer
 
             ConfigureSectionLabel(_lblEncoderSection, "编码器选项")
             ConfigureSectionLabel(_lblLayoutSection, "布局与画面")
-            ConfigureCaptionButton(_btnEncoderCaption, "编码器")
-            ConfigureCaptionButton(_btnScaleCaption, "缩放算法")
-            ConfigureCaptionButton(_btnSizeCaption, "分辨率")
-            ConfigureCaptionButton(_btnQualityCaption, "质量(CQ)")
-            ConfigureCaptionButton(_btnLayoutCaption, "排版方式")
-            ConfigureCaptionButton(_btnLineCaption, "线宽")
+            ConfigureCaptionLabel(_btnEncoderCaption, "编码器")
+            ConfigureCaptionLabel(_btnScaleCaption, "缩放算法")
+            ConfigureCaptionLabel(_btnSizeCaption, "分辨率")
+            ConfigureCaptionLabel(_btnQualityCaption, "质量(CQ)")
+            ConfigureCaptionLabel(_btnLayoutCaption, "排版方式")
+            ConfigureCaptionLabel(_btnLineCaption, "线宽")
 
             _cmbSize.DropDownStyle = ComboBoxStyle.DropDownList
             _cmbSize.Items.AddRange(New Object() {"3840x2160", "2560x1440", "1920x1080", "1280x720", "960x540"})
@@ -271,16 +271,16 @@ Namespace videoenhancer
 
             For Each combo As ComboBox In New ComboBox() {_cmbEncoder, _cmbScale, _cmbSize, _cmbLayout}
                 combo.FlatStyle = FlatStyle.Flat
-                combo.BackColor = Color.FromArgb(36, 41, 49)
-                combo.ForeColor = Color.FromArgb(232, 236, 241)
-                combo.Font = New Font("Microsoft YaHei UI", 10.0F)
+                combo.BackColor = Color.FromArgb(51, 51, 51)
+                combo.ForeColor = Color.FromArgb(245, 245, 245)
+                combo.Font = New Font("Segoe UI", 10.0F)
             Next
 
             _numLine.Minimum = 1
             _numLine.Maximum = 32
             _numLine.Value = 4
             _numLine.AutoSize = False
-            _numLine.BackColor = Color.FromArgb(45, 48, 56)
+            _numLine.BackColor = Color.FromArgb(51, 51, 51)
             _numLine.ForeColor = Color.FromArgb(220, 220, 220)
             _numLine.BorderStyle = BorderStyle.FixedSingle
             AddHandler _numLine.ValueChanged, AddressOf OptionsChanged
@@ -288,17 +288,17 @@ Namespace videoenhancer
             _numQuality.Maximum = 51
             _numQuality.Value = 28
             _numQuality.AutoSize = False
-            _numQuality.BackColor = Color.FromArgb(36, 41, 49)
+            _numQuality.BackColor = Color.FromArgb(51, 51, 51)
             _numQuality.ForeColor = Color.FromArgb(232, 236, 241)
             _numQuality.BorderStyle = BorderStyle.FixedSingle
 
             ConfigureControlHost(_timelineHost, _timeline, Color.Transparent)
-            ConfigureControlHost(_encoderHost, _cmbEncoder, Color.FromArgb(36, 41, 49))
-            ConfigureControlHost(_scaleHost, _cmbScale, Color.FromArgb(36, 41, 49))
-            ConfigureControlHost(_sizeHost, _cmbSize, Color.FromArgb(36, 41, 49))
-            ConfigureControlHost(_layoutHost, _cmbLayout, Color.FromArgb(36, 41, 49))
-            ConfigureControlHost(_qualityHost, _numQuality, Color.FromArgb(36, 41, 49))
-            ConfigureControlHost(_lineHost, _numLine, Color.FromArgb(36, 41, 49))
+            ConfigureControlHost(_encoderHost, _cmbEncoder, Color.FromArgb(51, 51, 51))
+            ConfigureControlHost(_scaleHost, _cmbScale, Color.FromArgb(51, 51, 51))
+            ConfigureControlHost(_sizeHost, _cmbSize, Color.FromArgb(51, 51, 51))
+            ConfigureControlHost(_layoutHost, _cmbLayout, Color.FromArgb(51, 51, 51))
+            ConfigureControlHost(_qualityHost, _numQuality, Color.FromArgb(51, 51, 51))
+            ConfigureControlHost(_lineHost, _numLine, Color.FromArgb(51, 51, 51))
 
             _btnColor.TextAlign = ModernButton.TextAlignEnum.Center
             _btnColor.BackColor1 = Color.White
@@ -314,15 +314,15 @@ Namespace videoenhancer
             _chkBurnFileName.ForeColor = Color.Gainsboro
             _btnOutput.Text = "开始生成"
             _btnOutput.ForeColor = Color.White
-            _btnOutput.BackColor1 = Color.FromArgb(26, 166, 100)
-            _btnOutput.BackColor2 = Color.FromArgb(26, 166, 100)
-            _btnOutput.HoverBackColor1 = Color.FromArgb(33, 187, 116)
-            _btnOutput.HoverBackColor2 = Color.FromArgb(33, 187, 116)
-            _btnOutput.PressedBackColor1 = Color.FromArgb(21, 142, 85)
-            _btnOutput.PressedBackColor2 = Color.FromArgb(21, 142, 85)
+            _btnOutput.BackColor1 = Color.FromArgb(0, 120, 212)
+            _btnOutput.BackColor2 = Color.FromArgb(0, 120, 212)
+            _btnOutput.HoverBackColor1 = Color.FromArgb(17, 94, 163)
+            _btnOutput.HoverBackColor2 = Color.FromArgb(17, 94, 163)
+            _btnOutput.PressedBackColor1 = Color.FromArgb(0, 91, 158)
+            _btnOutput.PressedBackColor2 = Color.FromArgb(0, 91, 158)
             _btnOutput.BorderSize = 0
             _btnOutput.BorderRadius = 7
-            _btnOutput.Font = New Font("Microsoft YaHei UI", 13.0F, FontStyle.Bold)
+            _btnOutput.Font = New Font("Segoe UI", 11.0F, FontStyle.Bold)
             AddHandler _btnOutput.Click, AddressOf OutputClick
 
             _lblStatus.AutoSize = False
@@ -352,29 +352,22 @@ Namespace videoenhancer
             ResumeLayout(False)
         End Sub
 
-        Private Shared Sub ConfigureSectionLabel(label As HtmlColorLabel, text As String)
+        Private Shared Sub ConfigureSectionLabel(label As Label, text As String)
             label.Text = text
             label.AutoSize = False
-            label.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
+            label.TextAlign = ContentAlignment.MiddleLeft
             label.ForeColor = Color.White
-            label.BackColor1 = Color.Transparent
-            label.BorderSize = 0
-            label.Font = New Font("Microsoft YaHei UI", 11.0F, FontStyle.Bold)
+            label.BackColor = Color.Transparent
+            label.Font = New Font("Segoe UI", 11.0F, FontStyle.Bold)
         End Sub
 
-        Private Shared Sub ConfigureCaptionButton(button As ModernButton, text As String)
-            button.Text = text
-            button.ForeColor = Color.White
-            button.TabStop = False
-            button.BackColor1 = Color.Transparent
-            button.BackColor2 = Color.Transparent
-            button.HoverBackColor1 = Color.FromArgb(42, 47, 55)
-            button.HoverBackColor2 = Color.FromArgb(42, 47, 55)
-            button.PressedBackColor1 = Color.FromArgb(34, 39, 46)
-            button.PressedBackColor2 = Color.FromArgb(34, 39, 46)
-            button.BorderSize = 0
-            button.BorderRadius = 5
-            button.TextAlign = ModernButton.TextAlignEnum.Left
+        Private Shared Sub ConfigureCaptionLabel(label As Label, text As String)
+            label.Text = text
+            label.ForeColor = Color.FromArgb(210, 210, 210)
+            label.BackColor = Color.Transparent
+            label.AutoSize = False
+            label.Font = New Font("Segoe UI", 9.5F)
+            label.TextAlign = ContentAlignment.MiddleLeft
         End Sub
 
         Private Shared Sub ConfigureControlHost(host As Panel, child As Control, backColor As Color)
@@ -384,25 +377,25 @@ Namespace videoenhancer
         End Sub
 
         Private Sub ConfigureTitleBar()
-            _titleIcon.Text = "⊞"
-            _titleIcon.ForeColor = Color.FromArgb(35, 190, 120)
+            _titleIcon.Text = "▦"
+            _titleIcon.ForeColor = Color.FromArgb(96, 205, 255)
             _titleIcon.Font = New Font("Segoe UI Symbol", 18.0F, FontStyle.Bold)
             _titleIcon.TextAlign = HtmlColorLabel.TextAlignEnum.Center
             _titleIcon.BackColor1 = Color.Transparent
             _titleIcon.BorderSize = 0
-            _titleText.Text = "生成对比视频"
+            _titleText.Text = "视频对比工作室"
             _titleText.ForeColor = Color.FromArgb(239, 242, 247)
-            _titleText.Font = New Font("Microsoft YaHei UI", 13.0F, FontStyle.Bold)
+            _titleText.Font = New Font("Segoe UI", 13.0F, FontStyle.Bold)
             _titleText.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _titleText.BackColor1 = Color.Transparent
             _titleText.BorderSize = 0
             For Each button As ModernButton In New ModernButton() {_btnMinimize, _btnMaximize, _btnClose}
                 button.BackColor1 = Color.Transparent
                 button.BackColor2 = Color.Transparent
-                button.HoverBackColor1 = Color.FromArgb(50, 55, 63)
-                button.HoverBackColor2 = Color.FromArgb(50, 55, 63)
-                button.PressedBackColor1 = Color.FromArgb(38, 43, 50)
-                button.PressedBackColor2 = Color.FromArgb(38, 43, 50)
+                button.HoverBackColor1 = Color.FromArgb(58, 58, 58)
+                button.HoverBackColor2 = Color.FromArgb(58, 58, 58)
+                button.PressedBackColor1 = Color.FromArgb(48, 48, 48)
+                button.PressedBackColor2 = Color.FromArgb(48, 48, 48)
                 button.BorderSize = 0
                 button.BorderRadius = 0
                 button.ForeColor = Color.FromArgb(220, 225, 232)
@@ -456,15 +449,6 @@ Namespace videoenhancer
 
         Private Shared Function LoadLayoutDocument() As LayoutDocument
             Dim options As New JsonSerializerOptions() With {.PropertyNameCaseInsensitive = True}
-            For Each candidate In LayoutCandidates()
-                Try
-                    If File.Exists(candidate) Then
-                        Dim value = JsonSerializer.Deserialize(Of LayoutDocument)(File.ReadAllText(candidate), options)
-                        If value IsNot Nothing AndAlso value.Controls IsNot Nothing AndAlso value.Controls.Count > 0 Then Return value
-                    End If
-                Catch
-                End Try
-            Next
             Try
                 Using stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("videoenhancer-layout.json")
                     If stream IsNot Nothing Then
@@ -474,6 +458,15 @@ Namespace videoenhancer
                 End Using
             Catch
             End Try
+            For Each candidate In LayoutCandidates()
+                Try
+                    If File.Exists(candidate) Then
+                        Dim value = JsonSerializer.Deserialize(Of LayoutDocument)(File.ReadAllText(candidate), options)
+                        If value IsNot Nothing AndAlso value.Controls IsNot Nothing AndAlso value.Controls.Count > 0 Then Return value
+                    End If
+                Catch
+                End Try
+            Next
             Return Nothing
         End Function
 
@@ -610,7 +603,7 @@ Namespace videoenhancer
                 Return
             End If
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias
-            Using brush As New LinearGradientBrush(ClientRectangle, Color.FromArgb(18, 22, 27), Color.FromArgb(25, 30, 36), 90.0F)
+            Using brush As New LinearGradientBrush(ClientRectangle, Color.FromArgb(32, 32, 32), Color.FromArgb(28, 28, 28), 90.0F)
                 e.Graphics.FillRectangle(brush, ClientRectangle)
             End Using
         End Sub
@@ -623,16 +616,16 @@ Namespace videoenhancer
             For Each logical In New Rectangle() {New Rectangle(18, 160, 865, 498), New Rectangle(892, 58, 288, 570)}
                 Dim rect = ScaleBounds(logical, scaleX, scaleY)
                 If rect.Width <= 1 OrElse rect.Height <= 1 Then Continue For
-                Using path = QuadGridDrawing.RoundedPath(New RectangleF(rect.X + 0.5F, rect.Y + 0.5F, rect.Width - 1, rect.Height - 1), 8)
-                    Using brush As New SolidBrush(Color.FromArgb(22, 27, 33))
+                Using path = QuadGridDrawing.RoundedPath(New RectangleF(rect.X + 0.5F, rect.Y + 0.5F, rect.Width - 1, rect.Height - 1), 12)
+                    Using brush As New SolidBrush(Color.FromArgb(43, 43, 43))
                         e.Graphics.FillPath(brush, path)
                     End Using
-                    Using pen As New Pen(Color.FromArgb(55, 64, 74), 1.0F)
+                    Using pen As New Pen(Color.FromArgb(62, 62, 62), 1.0F)
                         e.Graphics.DrawPath(pen, path)
                     End Using
                 End Using
             Next
-            Using pen As New Pen(Color.FromArgb(46, 54, 63), 1.0F)
+            Using pen As New Pen(Color.FromArgb(58, 58, 58), 1.0F)
                 e.Graphics.DrawLine(pen, 18, CInt(Math.Round(665 * scaleY)), ClientSize.Width - 18, CInt(Math.Round(665 * scaleY)))
             End Using
         End Sub
@@ -1814,7 +1807,7 @@ Namespace videoenhancer
                 If Not _process.Start() Then
                     _running = False
                     _btnOutput.Enabled = True
-                    _btnOutput.Text = "输出"
+                    _btnOutput.Text = "开始生成"
                     SetStatusText("启动 ffmpeg 失败", True)
                     Return
                 End If
@@ -1822,7 +1815,7 @@ Namespace videoenhancer
             Catch ex As Exception
                 _running = False
                 _btnOutput.Enabled = True
-                _btnOutput.Text = "输出"
+                _btnOutput.Text = "开始生成"
                 SetStatusText("启动失败：" & ex.Message, True)
             End Try
         End Sub
@@ -1884,7 +1877,7 @@ Namespace videoenhancer
                             _running = False
                             _process = Nothing
                             _btnOutput.Enabled = True
-                            _btnOutput.Text = "输出"
+                            _btnOutput.Text = "开始生成"
                         End Sub))
                     Else
                         _running = False

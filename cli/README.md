@@ -46,20 +46,20 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 ```
 
 - `-i` / `--input`：输入视频路径，含空格时加双引号。
-- `-modelpath` / `--modelpath` / `--model`：放大模型（完整路径 / models 下相对路径 / 模型名），省略用默认模型；配合 `-no-upscale` 时可不提供（仅补帧模式）。
+- `-modelpath` / `--modelpath` / `--model`：放大模型（完整路径 / models 下相对路径 / 模型名），省略用默认模型。NCNN、CUDA、TensorRT 都会递归搜索 `models` 的分类子目录，并排除独立的 `models\RIFE` 补帧目录；配合 `-no-upscale` 时可不提供（仅补帧模式）。
 - `-interp-model` / `--interp-model`：补帧模型（RIFE，位于 `models\RIFE\<子文件夹>`，如 `rife-v4.25`，含 `flownet.param` / `flownet.bin`）；可与 `-modelpath` 同时使用（先补帧后放大）；`-backend cuda` 时改为 `.pth` 模型文件名（如 `rife46`）。
 - `-interp-factor <N>`：补帧倍率（帧率倍数，默认 2，需大于 1；透传给 RIFE `--interpolate_factor`）。
 - `-backend <ncnn|cuda|tensorrt>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
-  放大模型使用 `models` 下的 `.pth/.pt/.pkl` 文件（如 `AnimeJaNai-V2-2x-Compact-36K`），
+  放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），
   补帧模型使用 `models\RIFE` 下的 `.pth` 文件；超分与补帧可独立使用。
-  `tensorrt` 使用 `models` 及其所有子目录中的 `.engine` 文件；列表中以相对 `models` 的路径显示。
+  `tensorrt` 使用 `models` 及其所有子目录中的 `.engine` 文件；NCNN 使用递归发现的 `.param/.bin` 模型文件夹。放大模型列表统一以相对 `models` 的路径显示。
 - `-no-upscale`：不放大（仅补帧模式，需配合 `-interp-model`）。
 - `-ffmpeg-settings`：FFmpeg 编码参数片段，**最后一个参数是输出文件路径**（无 `-o`），末尾 `-y` 表示覆盖。
   - 自动处理：`-map` 流映射会被移除（后端写进程自带映射），`-map_metadata 0` / `-map_chapters 0` 改写为 `1`；
   - 进度行按每秒 1 行节流输出，避免界面闪烁；
   - FPS 精确重算：用「已渲染帧数 / 有效耗时（总耗时 − 暂停耗时）」计算并保留两位小数
     （后端自报为取整且包含暂停时间），ETA 按相同速率重算；暂停状态来自 `-pause-shm` 共享内存字节。
-- `-h`：帮助（含 videoenhancer.ini 配置说明）；`-scale <N>`：强制倍率；`--list-models` / `--search-models`：列出放大模型（加 `-backend cuda` 则列出 `models` 下的 `.pth/.pt/.pkl` 放大模型）；`--list-interp-models`：列出 `models\RIFE` 下的补帧模型（加 `-backend cuda` 则列出 `.pth` 补帧模型；均可用 `--json` 输出一行 JSON 数组，供插件下拉框解析）；`--check`：仅检测环境。
+- `-h`：帮助（含 videoenhancer.ini 配置说明）；`-scale <N>`：强制倍率；`--list-models` / `--search-models`：按后端递归列出 `models` 子目录中的放大模型，并排除 `models\RIFE`；`--list-interp-models`：只列出 `models\RIFE` 下的补帧模型（加 `-backend cuda` 则列出 `.pth` 补帧模型；均可用 `--json` 输出一行 JSON 数组，供插件下拉框解析）；`--check`：仅检测环境。
 - `-pause-shm <ID>`：透传暂停共享内存名（供插件暂停/恢复后端）；`-stop-shm <ID>`：停止共享内存名，字节变 1 时优雅停止，已处理部分正常写入输出文件（退出码 130）。
 - `--debug-split`：仅打印 `-ffmpeg-settings` 的拆分结果（`custom_encoder` / `output` / `overwrite`），用于调试 -map 剥除逻辑。
 

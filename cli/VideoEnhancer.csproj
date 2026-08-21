@@ -7,12 +7,33 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>videoenhancer</AssemblyName>
     <RootNamespace>VideoEnhancer</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.9.2</Version>
     <!-- 单文件自包含发布：videoenhancer.exe 可直接复制到 Video Enhancer GUI 根目录运行 -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <DebugType>embedded</DebugType>
+    <!-- 压缩并裁剪未使用的 .NET 运行库；保留完全自包含，无需用户安装 .NET。 -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DebuggerSupport>false</DebuggerSupport>
+    <EventSourceSupport>false</EventSourceSupport>
+    <HttpActivityPropagationSupport>false</HttpActivityPropagationSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 双击安装时释放到所选 FFmpegFreeUI 程序旁的 plugin 目录。 -->
+    <EmbeddedResource Include="..\videoenhancer.3fui.dll"
+                      LogicalName="VideoEnhancer.Embedded.videoenhancer.3fui.dll" />
+    <EmbeddedResource Include="embedded-tools\aria2-next.exe"
+                      LogicalName="VideoEnhancer.Embedded.aria2-next.exe" />
+    <EmbeddedResource Include="embedded-tools\7za.exe"
+                      LogicalName="VideoEnhancer.Embedded.7za.exe" />
+  </ItemGroup>
 
 </Project>

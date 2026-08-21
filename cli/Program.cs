@@ -1,8 +1,11 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.MemoryMappedFiles;
+using System.Net.Http;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace VideoEnhancer;
@@ -13,7 +16,12 @@ namespace VideoEnhancer;
 /// </summary>
 internal static class Program
 {
-    private const string ToolVersion = "1.5.2";
+    private const string ToolVersion = "1.9.2";
+    private const string EmbeddedPluginResource = "VideoEnhancer.Embedded.videoenhancer.3fui.dll";
+    private const string EmbeddedAriaResource = "VideoEnhancer.Embedded.aria2-next.exe";
+    private const string Embedded7ZipResource = "VideoEnhancer.Embedded.7za.exe";
+    private const string ModelScopeTreeApi = "https://www.modelscope.cn/api/v1/datasets/ARXChem/VideoEnhancer-Models/repo/tree?Revision=master&Recursive=true";
+    private const string ModelScopeResolveRoot = "https://www.modelscope.cn/datasets/ARXChem/VideoEnhancer-Models/resolve/master/";
 
     // exe 所在目录：videoenhancer.ini 的查找位置，也是未配置 core-path 时的回退根目录（1.0 布局）
     private static readonly string AppRoot = AppContext.BaseDirectory.TrimEnd(
@@ -25,9 +33,12 @@ internal static class Program
 
     private static string PythonExe => Path.Combine(CoreRoot, "python", "python", "python.exe");
     private static string BackendScript => Path.Combine(CoreRoot, "python", "backend", "rve-backend.py");
+    private static string ImageBackendScript => Path.Combine(CoreRoot, "python", "backend", "rve-image-backend.py");
+    private static string TensorRTValidatorScript => Path.Combine(CoreRoot, "python", "backend", "validate_tensorrt_engines.py");
     private static string FfmpegExe => Path.Combine(CoreRoot, "bin", "ffmpeg", "ffmpeg.exe");
     private static string ModelsDir => Path.Combine(CoreRoot, "models");
-    private static string SceneDetectModel => Path.Combine(ModelsDir, "EfficientNet-SceneDetect");
+    private static string SceneDetectModel => FindNcnnModelFolder("EfficientNet-SceneDetect")
+        ?? Path.Combine(ModelsDir, "EfficientNet-SceneDetect");
     private static string DefaultModel => Path.Combine(ModelsDir, "RealESRGAN-AnimeVideoV3-2x");
     private static string PythonSitePackages => Path.Combine(CoreRoot, "python", "python", "Lib", "site-packages");
 
@@ -47,6 +58,48 @@ internal static class Program
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetConsoleWindow();
+
+    [DllImport("comdlg32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetOpenFileName(ref OPENFILENAME ofn);
+
+    [DllImport("comdlg32.dll")]
+    private static extern uint CommDlgExtendedError();
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct OPENFILENAME
+    {
+        public int lStructSize;
+        public IntPtr hwndOwner;
+        public IntPtr hInstance;
+        public IntPtr lpstrFilter;
+        public IntPtr lpstrCustomFilter;
+        public int nMaxCustFilter;
+        public int nFilterIndex;
+        public IntPtr lpstrFile;
+        public int nMaxFile;
+        public IntPtr lpstrFileTitle;
+        public int nMaxFileTitle;
+        public IntPtr lpstrInitialDir;
+        public IntPtr lpstrTitle;
+        public uint Flags;
+        public short nFileOffset;
+        public short nFileExtension;
+        public IntPtr lpstrDefExt;
+        public IntPtr lCustData;
+        public IntPtr lpfnHook;
+        public IntPtr lpTemplateName;
+        public IntPtr pvReserved;
+        public int dwReserved;
+        public uint FlagsEx;
+    }
+
+    private const uint OFN_PATHMUSTEXIST = 0x00000800;
+    private const uint OFN_FILEMUSTEXIST = 0x00001000;
+    private const uint OFN_EXPLORER = 0x00080000;
 
     private const int JobObjectExtendedLimitInformation = 9;
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
@@ -296,8 +349,24 @@ internal static class Program
         public bool ListInterpModels;
         public string Backend = "ncnn";
         public bool HasBackend;
+        public bool ListBackends;
+        public bool ValidateEngines;
+        public bool ListDownloadModels;
+        public bool CleanDownloadArchives;
+        public string DownloadModel = "";
+        public string DownloadUrl = "";
+        public string DownloadOutput = "";
+        public string ExtractArchive = "";
+        public string ExtractOutput = "";
+        public readonly List<string> ImageInputs = new();
+        public readonly List<string> ImageFolders = new();
+        public string ImageOutput = "";
+        public bool ImageOutputOriginal;
+        public string ImageSuffix = "timestamp";
+        public bool ImagePng = true;
     }
 
+    [STAThread]
     private static int Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
@@ -381,8 +450,7 @@ internal static class Program
     {
         if (args.Length == 0)
         {
-            PrintHelp(Console.Out);
-            return 2;
+            return RunInteractiveInstaller();
         }
 
         var o = ParseArgs(args);
@@ -397,9 +465,9 @@ internal static class Program
         if (o.HasBackend)
         {
             var b = o.Backend.Trim().ToLowerInvariant();
-            if (b is not ("ncnn" or "cuda" or "tensorrt"))
+            if (b is not ("ncnn" or "cuda" or "tensorrt" or "onnx" or "flashvsr"))
             {
-                return Fail("-backend 仅支持 ncnn、cuda 或 tensorrt，当前值：" + o.Backend);
+                return Fail("-backend 仅支持 ncnn、cuda、tensorrt、onnx 或 flashvsr，当前值：" + o.Backend);
             }
             o.Backend = b;
         }
@@ -409,6 +477,37 @@ internal static class Program
         if (configError is not null)
         {
             return Fail(configError, 1);
+        }
+
+        if (o.ListDownloadModels)
+        {
+            return ListRemoteModels(o.Json);
+        }
+
+        if (o.CleanDownloadArchives)
+        {
+            return CleanDownloadArchives();
+        }
+
+        if (!string.IsNullOrWhiteSpace(o.DownloadModel))
+        {
+            return DownloadRepositoryModel(o.DownloadModel);
+        }
+
+        if (!string.IsNullOrWhiteSpace(o.DownloadUrl))
+        {
+            if (string.IsNullOrWhiteSpace(o.DownloadOutput))
+                return Fail("--download-url 需要同时指定 --download-output <文件路径>");
+            return DownloadWithAria(o.DownloadUrl, Path.GetFullPath(o.DownloadOutput));
+        }
+
+        if (!string.IsNullOrWhiteSpace(o.ExtractArchive))
+        {
+            var archive = Path.GetFullPath(o.ExtractArchive);
+            var output = string.IsNullOrWhiteSpace(o.ExtractOutput)
+                ? Path.GetDirectoryName(archive)!
+                : Path.GetFullPath(o.ExtractOutput);
+            return ExtractWith7Zip(archive, output);
         }
 
         if (o.ListModels)
@@ -424,6 +523,22 @@ internal static class Program
         if (o.CheckOnly)
         {
             return RunCheck(verbose: true) ? 0 : 1;
+        }
+
+        if (o.ListBackends)
+        {
+            return ListBackendsWithEngineValidation();
+        }
+
+        if (o.ValidateEngines)
+        {
+            return ValidateAllTensorRTEngines();
+        }
+
+        // 图片超分是独立路径：不依赖 FFmpegFreeUI/FFmpeg 编码参数。
+        if (o.ImageInputs.Count > 0 || o.ImageFolders.Count > 0)
+        {
+            return RunImageJob(o);
         }
 
         if (o.DebugSplit)
@@ -474,12 +589,20 @@ internal static class Program
             {
                 return 1;
             }
+            if (o.Backend == "tensorrt" && !ValidateTensorRTEngine(model, printSuccess: true))
+            {
+                return 1;
+            }
         }
 
         // 3.5 补帧模型（RIFE）：与放大可同时使用（先补帧后放大）
         string? interpModel = null;
         if (o.HasInterpModel)
         {
+            if (o.Backend == "flashvsr")
+            {
+                return Fail("FlashVSR 是时序视频超分管线，不能与 RIFE 补帧同时运行");
+            }
             interpModel = ResolveInterpModel(o.InterpModel, o.Backend);
             if (interpModel.Length == 0)
             {
@@ -582,6 +705,34 @@ internal static class Program
                 case "--check":
                     o.CheckOnly = true;
                     break;
+                case "--list-backends":
+                case "--list_backends":
+                    o.ListBackends = true;
+                    break;
+                case "--validate-engines":
+                    o.ValidateEngines = true;
+                    break;
+                case "--list-download-models":
+                    o.ListDownloadModels = true;
+                    break;
+                case "--clean-download-archives":
+                    o.CleanDownloadArchives = true;
+                    break;
+                case "--download-model":
+                    o.DownloadModel = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--download-url":
+                    o.DownloadUrl = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--download-output":
+                    o.DownloadOutput = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--extract-archive":
+                    o.ExtractArchive = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--extract-output":
+                    o.ExtractOutput = TakeValue(args, ref i, name, inlineValue);
+                    break;
                 case "--debug-split":
                     o.DebugSplit = true;
                     break;
@@ -640,6 +791,31 @@ internal static class Program
                     o.Backend = TakeValue(args, ref i, name, inlineValue);
                     o.HasBackend = true;
                     break;
+                case "--image-input":
+                    o.ImageInputs.Add(TakeValue(args, ref i, name, inlineValue));
+                    break;
+                case "--image-folder":
+                    o.ImageFolders.Add(TakeValue(args, ref i, name, inlineValue));
+                    break;
+                case "--image-output":
+                    o.ImageOutput = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--image-output-original":
+                    o.ImageOutputOriginal = true;
+                    break;
+                case "--image-suffix":
+                    o.ImageSuffix = TakeValue(args, ref i, name, inlineValue).Trim().ToLowerInvariant();
+                    if (o.ImageSuffix is not ("timestamp" or "model"))
+                    {
+                        throw new ArgumentException("--image-suffix 仅支持 timestamp 或 model");
+                    }
+                    break;
+                case "--image-png":
+                    o.ImagePng = true;
+                    break;
+                case "--image-source-format":
+                    o.ImagePng = false;
+                    break;
                 default:
                     throw new ArgumentException("未知参数：" + args[i] + "（使用 -h 查看帮助）");
             }
@@ -670,6 +846,508 @@ internal static class Program
         return (arg, null);
     }
 
+    /// <summary>双击无参数启动时安装插件 DLL，并按需初始化便携核心目录。</summary>
+    private static int RunInteractiveInstaller()
+    {
+        var installationStarted = false;
+        try
+        {
+            Console.WriteLine($"VideoEnhancer 插件安装程序 v{ToolVersion}");
+            Console.WriteLine("按下y并enter执行安装，按其他任意键并enter退出安装。");
+            Console.Write("> ");
+            if (!ReadYes())
+            {
+                Console.WriteLine("已退出安装。");
+                return 0;
+            }
+            installationStarted = true;
+
+            Console.WriteLine("请选择正确的ffmpegfreeui.exe路径（可执行文件名称不限）。");
+            var hostExe = PickHostExecutable();
+            if (string.IsNullOrWhiteSpace(hostExe))
+            {
+                Console.WriteLine("未选择程序，已取消安装。");
+                return 0;
+            }
+
+            var hostDirectory = Path.GetDirectoryName(hostExe)
+                ?? throw new InvalidOperationException("无法确定所选程序的目录。");
+            var pluginDirectory = Path.Combine(hostDirectory, "plugin");
+            var pluginPath = Path.Combine(pluginDirectory, "videoenhancer.3fui.dll");
+            Directory.CreateDirectory(pluginDirectory);
+            ExtractEmbeddedPlugin(pluginPath);
+            Console.WriteLine("插件已安装到：" + pluginPath);
+
+            var currentExe = Path.GetFullPath(Environment.ProcessPath ?? Path.Combine(AppRoot, "videoenhancer.exe"));
+            var hasOtherEntries = Directory.EnumerateFileSystemEntries(AppRoot)
+                .Any(path => !string.Equals(Path.GetFullPath(path), currentExe, StringComparison.OrdinalIgnoreCase));
+            if (hasOtherEntries)
+            {
+                Console.Write("检测到程序当前目录存在其他文件，");
+            }
+            Console.Write($"程序即将在\"{AppRoot}\"中自动创建核心目录（models、python 和 bin），是否继续？选择\"是(Y)\"：");
+            if (!ReadYes())
+            {
+                Console.WriteLine("插件安装完成；已跳过核心目录初始化。");
+                return 0;
+            }
+
+            Directory.CreateDirectory(Path.Combine(AppRoot, "models"));
+            Directory.CreateDirectory(Path.Combine(AppRoot, "python"));
+            Directory.CreateDirectory(Path.Combine(AppRoot, "bin"));
+            Console.WriteLine("安装完成。核心目录已准备好。");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("安装失败：" + ex);
+            return 1;
+        }
+        finally
+        {
+            IfInstallationWasStartedPause(installationStarted);
+        }
+    }
+
+    private static void IfInstallationWasStartedPause(bool installationStarted)
+    {
+        if (!installationStarted) return;
+        Console.WriteLine("按 Enter 键关闭此窗口。");
+        Console.ReadLine();
+    }
+
+    private static bool ReadYes()
+    {
+        var answer = Console.ReadLine()?.Trim();
+        return string.Equals(answer, "Y", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(answer, "是", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? PickHostExecutable()
+    {
+        const int fileCapacity = 32768;
+        var fileBuffer = Marshal.AllocHGlobal(fileCapacity * sizeof(char));
+        var filter = Marshal.StringToHGlobalUni("可执行程序 (*.exe)\0*.exe\0所有文件 (*.*)\0*.*\0\0");
+        var initialDirectory = Marshal.StringToHGlobalUni(AppRoot);
+        var title = Marshal.StringToHGlobalUni("请选择正确的ffmpegfreeui.exe路径（文件名不限）");
+        var defaultExtension = Marshal.StringToHGlobalUni("exe");
+        try
+        {
+            Marshal.WriteInt16(fileBuffer, 0);
+            var dialog = new OPENFILENAME
+            {
+                lStructSize = Marshal.SizeOf<OPENFILENAME>(),
+                hwndOwner = GetConsoleWindow(),
+                lpstrFilter = filter,
+                nFilterIndex = 1,
+                lpstrFile = fileBuffer,
+                nMaxFile = fileCapacity,
+                lpstrInitialDir = initialDirectory,
+                lpstrTitle = title,
+                Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST,
+                lpstrDefExt = defaultExtension
+            };
+            if (GetOpenFileName(ref dialog)) return Marshal.PtrToStringUni(fileBuffer);
+            var error = CommDlgExtendedError();
+            if (error != 0) throw new InvalidOperationException($"无法打开文件选择窗口（错误 0x{error:X8}）。");
+            return null;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(fileBuffer);
+            Marshal.FreeHGlobal(filter);
+            Marshal.FreeHGlobal(initialDirectory);
+            Marshal.FreeHGlobal(title);
+            Marshal.FreeHGlobal(defaultExtension);
+        }
+    }
+
+    private static void ExtractEmbeddedPlugin(string destinationPath)
+    {
+        using var source = Assembly.GetExecutingAssembly().GetManifestResourceStream(EmbeddedPluginResource)
+            ?? throw new InvalidOperationException("内置的 videoenhancer 插件 DLL 不存在，无法安装。");
+        using var destination = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        source.CopyTo(destination);
+    }
+
+    private sealed record RemoteModel(string Name, string Path, long Size, string Sha256);
+
+    private static List<RemoteModel> FetchRemoteModels()
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("VideoEnhancer/" + ToolVersion);
+        var json = client.GetStringAsync(ModelScopeTreeApi).GetAwaiter().GetResult();
+        using var document = JsonDocument.Parse(json);
+        var files = document.RootElement.GetProperty("Data").GetProperty("Files");
+        var result = new List<RemoteModel>();
+        var allowedRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "Backend", "ONNX", "Param-Bin", "RIFE", "PTH" };
+        foreach (var file in files.EnumerateArray())
+        {
+            if (!string.Equals(file.GetProperty("Type").GetString(), "blob", StringComparison.OrdinalIgnoreCase)) continue;
+            var path = file.GetProperty("Path").GetString()?.Replace('\\', '/').TrimStart('/') ?? "";
+            if (path.Length == 0 || path.EndsWith("/.gitkeep", StringComparison.OrdinalIgnoreCase)) continue;
+            var slash = path.IndexOf('/');
+            var root = slash < 0 ? path : path[..slash];
+            if (!allowedRoots.Contains(root)) continue;
+            result.Add(new RemoteModel(
+                file.GetProperty("Name").GetString() ?? System.IO.Path.GetFileName(path),
+                path,
+                file.TryGetProperty("Size", out var size) ? size.GetInt64() : 0,
+                file.TryGetProperty("Sha256", out var hash) ? hash.GetString() ?? "" : ""));
+        }
+        return result.OrderBy(m => m.Path, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static int ListRemoteModels(bool json)
+    {
+        try
+        {
+            var models = FetchRemoteModels();
+            if (json)
+            {
+                using var buffer = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(buffer))
+                {
+                    writer.WriteStartArray();
+                    foreach (var model in models)
+                    {
+                        writer.WriteStartObject();
+                        writer.WriteString("name", model.Name);
+                        writer.WriteString("path", model.Path);
+                        writer.WriteNumber("size", model.Size);
+                        writer.WriteEndObject();
+                    }
+                    writer.WriteEndArray();
+                }
+                Console.WriteLine(Encoding.UTF8.GetString(buffer.ToArray()));
+            }
+            else
+            {
+                foreach (var model in models)
+                    Console.WriteLine($"{model.Path}\t{model.Size}");
+            }
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("NO_NETWORK|当前无网络");
+            Console.Error.WriteLine("[错误] 无法读取模型列表：" + ex.Message);
+            return 3;
+        }
+    }
+
+    private static int DownloadRepositoryModel(string requestedPath)
+    {
+        List<RemoteModel> models;
+        try
+        {
+            models = FetchRemoteModels();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("NO_NETWORK|当前无网络");
+            Console.Error.WriteLine("[错误] 无法连接模型镜像：" + ex.Message);
+            return 3;
+        }
+
+        var normalized = requestedPath.Replace('\\', '/').TrimStart('/');
+        var model = models.FirstOrDefault(m => m.Path.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+        if (model is null) return Fail("镜像中不存在该文件：" + normalized, 1);
+
+        var slash = model.Path.IndexOf('/');
+        if (slash <= 0) return Fail("模型镜像路径无效：" + model.Path, 1);
+        var category = model.Path[..slash];
+        var suffix = model.Path[(slash + 1)..].Replace('/', Path.DirectorySeparatorChar);
+        var destinationRoot = category.Equals("Backend", StringComparison.OrdinalIgnoreCase)
+            ? Path.Combine(CoreRoot, "python")
+            : Path.Combine(CoreRoot, "models", category);
+        var destination = SafeCombine(destinationRoot, suffix);
+        var url = ModelScopeResolveRoot + string.Join("/", model.Path.Split('/').Select(Uri.EscapeDataString));
+        Console.WriteLine("DOWNLOAD_START|" + model.Path);
+        var code = DownloadWithAria(url, destination, printComplete: false);
+        if (code != 0) return code;
+
+        if (model.Size > 0 && new FileInfo(destination).Length != model.Size)
+            return Fail("下载文件大小校验失败：" + destination, 1);
+        if (!string.IsNullOrWhiteSpace(model.Sha256))
+        {
+            using var stream = File.OpenRead(destination);
+            var actual = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream));
+            if (!actual.Equals(model.Sha256, StringComparison.OrdinalIgnoreCase))
+                return Fail("下载文件 SHA256 校验失败：" + destination, 1);
+        }
+
+        if (IsArchiveFile(destination))
+        {
+            // 镜像压缩包自身已经包含一级分类目录（例如 RIFE\...、python\python、python\backend）。
+            // 因此必须解到分类目录的上一级，不能再形成 models\RIFE\RIFE 或 python\python 的重复层级。
+            var extractionRoot = category.Equals("Backend", StringComparison.OrdinalIgnoreCase)
+                ? CoreRoot
+                : Path.Combine(CoreRoot, "models");
+            code = ExtractWith7Zip(destination, extractionRoot);
+            if (code != 0) return code;
+        }
+        Console.WriteLine("DOWNLOAD_COMPLETE|" + destination);
+        return 0;
+    }
+
+    private static string SafeCombine(string root, string relative)
+    {
+        var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var full = Path.GetFullPath(Path.Combine(fullRoot, relative));
+        if (!full.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("路径越出了目标目录：" + relative);
+        return full;
+    }
+
+    private static bool IsArchiveFile(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".7z", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".zip", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".rar", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".gz", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".xz", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".zst", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".tar", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int CleanDownloadArchives()
+    {
+        var deleted = 0;
+        long reclaimedBytes = 0;
+        var failures = new List<string>();
+
+        var candidates = new List<string>();
+        var modelsRoot = Path.Combine(CoreRoot, "models");
+        if (Directory.Exists(modelsRoot))
+            candidates.AddRange(Directory.EnumerateFiles(modelsRoot, "*", SearchOption.AllDirectories));
+        // Backend 下载包落在核心 python 目录的顶层；其子目录是运行时与后端源码，
+        // 其中也包含 base_library.zip、测试数据 .gz 等不可删除的正常文件。
+        var pythonRoot = Path.Combine(CoreRoot, "python");
+        if (Directory.Exists(pythonRoot))
+            candidates.AddRange(Directory.EnumerateFiles(pythonRoot, "*", SearchOption.TopDirectoryOnly));
+
+        foreach (var file in candidates.Where(IsArchiveFile).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var full = Path.GetFullPath(file);
+                var length = new FileInfo(full).Length;
+                File.Delete(full);
+                reclaimedBytes += length;
+                deleted++;
+                Console.WriteLine("CLEAN_DELETED|" + full);
+            }
+            catch (Exception ex)
+            {
+                failures.Add(file + "：" + ex.Message);
+            }
+        }
+
+        Console.WriteLine($"CLEAN_COMPLETE|{deleted}|{reclaimedBytes}");
+        if (failures.Count == 0) return 0;
+        foreach (var failure in failures) Console.Error.WriteLine("[清理失败] " + failure);
+        return 2;
+    }
+
+    private static string EnsureEmbeddedTool(string resourceName, string fileName)
+    {
+        var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrWhiteSpace(basePath)) basePath = Path.GetTempPath();
+        var directory = Path.Combine(basePath, "VideoEnhancer", "tools", ToolVersion);
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, fileName);
+        using var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException("内置工具资源不存在：" + fileName);
+        if (!File.Exists(path) || new FileInfo(path).Length != resource.Length)
+        {
+            using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+            resource.CopyTo(output);
+        }
+        return path;
+    }
+
+    private static int DownloadWithAria(string url, string destination, bool printComplete = true)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            var aria = EnsureEmbeddedTool(EmbeddedAriaResource, "aria2-next.exe");
+            var start = new ProcessStartInfo
+            {
+                FileName = aria,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
+            };
+            foreach (var argument in new[]
+            {
+                "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
+                "--file-allocation=none", "--max-connection-per-server=8", "--split=8",
+                "--min-split-size=1M", "--summary-interval=1", "--enable-color=false",
+                "--dir=" + Path.GetDirectoryName(destination), "--out=" + Path.GetFileName(destination), url
+            }) start.ArgumentList.Add(argument);
+
+            using var process = new Process { StartInfo = start };
+            var percentRegex = new Regex(@"\((\d{1,3})%\)", RegexOptions.Compiled);
+            var lastPercent = -1;
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data is null) return;
+                var match = percentRegex.Match(e.Data);
+                if (match.Success && int.TryParse(match.Groups[1].Value, out var percent) && percent != lastPercent)
+                {
+                    lastPercent = percent;
+                    Console.WriteLine($"DOWNLOAD_PROGRESS|{percent}|{Path.GetFileName(destination)}");
+                }
+            };
+            process.ErrorDataReceived += (_, e) => { if (e.Data is not null) Console.Error.WriteLine(e.Data); };
+            if (!process.Start()) return Fail("无法启动内置 aria2-next", 1);
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            process.WaitForExit();
+            if (process.ExitCode != 0) return Fail("aria2-next 下载失败，退出码：" + process.ExitCode, 1);
+            if (!File.Exists(destination)) return Fail("下载结束但未找到输出文件：" + destination, 1);
+            if (printComplete) Console.WriteLine("DOWNLOAD_COMPLETE|" + destination);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("[错误] 下载失败：" + ex.Message);
+            return 1;
+        }
+    }
+
+    private static int ExtractWith7Zip(string archive, string outputDirectory)
+    {
+        try
+        {
+            if (!File.Exists(archive)) return Fail("压缩文件不存在：" + archive, 1);
+            Directory.CreateDirectory(outputDirectory);
+            var sevenZip = EnsureEmbeddedTool(Embedded7ZipResource, "7za.exe");
+            var start = new ProcessStartInfo
+            {
+                FileName = sevenZip,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
+            };
+            start.ArgumentList.Add("x");
+            start.ArgumentList.Add(archive);
+            start.ArgumentList.Add("-o" + outputDirectory);
+            start.ArgumentList.Add("-y");
+            using var process = Process.Start(start) ?? throw new InvalidOperationException("无法启动内置 7-Zip-zstd");
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            process.WaitForExit();
+            if (process.ExitCode != 0)
+            {
+                Console.Error.WriteLine(stderr.GetAwaiter().GetResult());
+                return Fail("7-Zip-zstd 解压失败，退出码：" + process.ExitCode, 1);
+            }
+            _ = stdout.GetAwaiter().GetResult();
+            Console.WriteLine("EXTRACT_COMPLETE|" + outputDirectory);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("[错误] 解压失败：" + ex.Message);
+            return 1;
+        }
+    }
+
+    /// <summary>启动完全独立于 FFmpeg 的静态图片超分后端。</summary>
+    private static int RunImageJob(Options o)
+    {
+        if (!File.Exists(PythonExe)) return Fail("图片后端找不到便携 Python：" + PythonExe, 1);
+        if (!File.Exists(ImageBackendScript)) return Fail("图片后端脚本不存在：" + ImageBackendScript, 1);
+        if (!o.ImageOutputOriginal && string.IsNullOrWhiteSpace(o.ImageOutput))
+        {
+            return Fail("图片处理需要 --image-output <文件夹>，或使用 --image-output-original");
+        }
+
+        var model = ResolveModel(o.Model, o.Backend);
+        if (model.Length == 0) return 1;
+        if (o.Backend == "tensorrt" && !ValidateTensorRTEngine(model, printSuccess: true)) return 1;
+
+        var start = new ProcessStartInfo
+        {
+            FileName = PythonExe,
+            WorkingDirectory = Path.GetDirectoryName(ImageBackendScript)!,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        start.Environment["PYTHONUTF8"] = "1";
+        start.Environment["PYTHONIOENCODING"] = "utf-8";
+        start.ArgumentList.Add(ImageBackendScript);
+        foreach (var input in o.ImageInputs)
+        {
+            start.ArgumentList.Add("--input");
+            start.ArgumentList.Add(Path.GetFullPath(input));
+        }
+        foreach (var folder in o.ImageFolders)
+        {
+            start.ArgumentList.Add("--folder");
+            start.ArgumentList.Add(Path.GetFullPath(folder));
+        }
+        if (o.ImageOutputOriginal)
+        {
+            start.ArgumentList.Add("--output-original");
+        }
+        else
+        {
+            start.ArgumentList.Add("--output");
+            start.ArgumentList.Add(Path.GetFullPath(o.ImageOutput));
+        }
+        start.ArgumentList.Add("--suffix");
+        start.ArgumentList.Add(o.ImageSuffix);
+        start.ArgumentList.Add(o.ImagePng ? "--png" : "--no-png");
+        start.ArgumentList.Add("--backend");
+        start.ArgumentList.Add(o.Backend);
+        start.ArgumentList.Add("--model");
+        start.ArgumentList.Add(model);
+
+        using var process = new Process { StartInfo = start };
+        var job = CreateKillOnCloseJob();
+        using var imageComplete = new ManualResetEventSlim(false);
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data is null) return;
+            Console.WriteLine(e.Data);
+            if (e.Data.StartsWith("IMAGE_COMPLETE|", StringComparison.Ordinal)) imageComplete.Set();
+        };
+        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) Console.Error.WriteLine(e.Data); };
+        if (!process.Start()) return Fail("无法启动图片超分后端", 1);
+        if (job != IntPtr.Zero) AssignProcessToJobObject(job, process.Handle);
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        while (!process.WaitForExit(250))
+        {
+            if (!imageComplete.IsSet) continue;
+            // NCNN/Vulkan can hang in native object destruction after the file
+            // and IMAGE_COMPLETE record are already committed.  End only that
+            // owned inference tree and report the completed job as successful.
+            try { process.Kill(entireProcessTree: true); } catch { }
+            process.WaitForExit();
+            break;
+        }
+        var exitCode = imageComplete.IsSet ? 0 : process.ExitCode;
+        if (job != IntPtr.Zero) CloseHandle(job);
+        return exitCode;
+    }
+
     /// <summary>解析模型路径：完整路径 / models 下相对路径 / 模型名；省略时用默认模型。</summary>
     /// <remarks>cuda 接受 .pth/.pt/.pkl；tensorrt 接受预制 .engine；ncnn 接受含 .param/.bin 的模型文件夹。</remarks>
     private static string ResolveModel(string requested, string backend)
@@ -692,7 +1370,14 @@ internal static class Program
 
         foreach (var c in candidates)
         {
-            if (backend == "cuda")
+            if (backend == "flashvsr")
+            {
+                if (Directory.Exists(c) && IsFlashVsrModelDirectory(c))
+                {
+                    return c;
+                }
+            }
+            else if (backend == "cuda")
             {
                 if (File.Exists(c) && IsPthModelFile(c))
                 {
@@ -703,26 +1388,38 @@ internal static class Program
             {
                 return c;
             }
+            else if (backend == "onnx" && File.Exists(c) && IsOnnxModelFile(c))
+            {
+                return c;
+            }
             else if (Directory.Exists(c) && IsNcnnModelFolder(c))
             {
                 return c;
             }
         }
 
-        // CUDA/TensorRT：按模型名（可省略扩展名）搜索模型文件。
-        // TensorRT 会递归扫描 models，允许把引擎集中放在 models\TensorRT 等子目录。
-        if ((backend == "cuda" || backend == "tensorrt") && !string.IsNullOrWhiteSpace(requested))
+        // 按相对 models 的路径或模型名递归搜索；扩展名可省略。
+        // 空请求也会按默认模型名递归定位，兼容 models\Param-Bin 等分类目录。
+        var lookup = string.IsNullOrWhiteSpace(requested)
+            ? Path.GetFileName(DefaultModel)
+            : requested.Trim().Trim('"');
+        if (!string.IsNullOrWhiteSpace(lookup))
         {
-            var requestedName = requested.Trim().Trim('"')
+            var requestedName = lookup
                 .Replace('\\', '/')
                 .TrimStart('/');
             var requestedWithoutExtension = Path.ChangeExtension(requestedName, null) ?? requestedName;
             var baseName = Path.GetFileNameWithoutExtension(requestedName);
-            foreach (var f in backend == "tensorrt" ? DiscoverTensorRTEngineModels() : DiscoverUpscalePthModels())
+            var discovered = backend == "flashvsr" ? DiscoverFlashVsrModels()
+                : backend == "tensorrt"
+                ? DiscoverTensorRTEngineModels()
+                : backend == "cuda" ? DiscoverUpscalePthModels()
+                : backend == "onnx" ? DiscoverOnnxModels() : DiscoverModelFolders();
+            foreach (var f in discovered)
             {
-                var relativeName = backend == "tensorrt" ? TensorRTEngineDisplayName(f) : "";
+                var relativeName = UpscaleModelDisplayName(f, backend);
                 if (relativeName.Equals(requestedWithoutExtension, StringComparison.OrdinalIgnoreCase)
-                    || Path.GetFileNameWithoutExtension(f).Equals(baseName, StringComparison.OrdinalIgnoreCase))
+                    || ModelBaseName(f).Equals(baseName, StringComparison.OrdinalIgnoreCase))
                 {
                     return f;
                 }
@@ -730,21 +1427,21 @@ internal static class Program
         }
 
         Console.Error.WriteLine("[错误] 未找到可用模型：" + (string.IsNullOrWhiteSpace(requested) ? DefaultModel : requested));
-        if (backend == "cuda" || backend == "tensorrt")
+        if (backend == "cuda" || backend == "tensorrt" || backend == "onnx" || backend == "flashvsr")
         {
-            Console.Error.WriteLine(backend == "tensorrt" ? "[提示] TensorRT 后端需要 models 或其子目录下的 .engine 放大模型。" : "[提示] CUDA 后端需要 models 下的 .pth/.pt/.pkl 放大模型。");
-            var pth = backend == "tensorrt" ? DiscoverTensorRTEngineModels() : DiscoverUpscalePthModels();
+            Console.Error.WriteLine(backend == "tensorrt" ? "[提示] TensorRT 后端需要 models 或其子目录下的 .engine 放大模型。" : backend == "onnx" ? "[提示] ONNX 后端需要 models 或其子目录下的 .onnx 放大模型。" : "[提示] CUDA 后端需要 models 或其子目录下的 .pth/.pt/.pkl 放大模型。");
+            var pth = backend == "tensorrt" ? DiscoverTensorRTEngineModels() : backend == "onnx" ? DiscoverOnnxModels() : DiscoverUpscalePthModels();
             if (pth.Count > 0)
             {
-                Console.Error.WriteLine(backend == "tensorrt" ? "[提示] 可用 TensorRT 放大模型：" : "[提示] 可用 CUDA 放大模型：");
+                Console.Error.WriteLine(backend == "tensorrt" ? "[提示] 可用 TensorRT 放大模型：" : backend == "onnx" ? "[提示] 可用 ONNX 放大模型：" : "[提示] 可用 CUDA 放大模型：");
                 foreach (var m in pth)
                 {
-                    Console.Error.WriteLine("       " + (backend == "tensorrt" ? TensorRTEngineDisplayName(m) : Path.GetFileNameWithoutExtension(m)));
+                    Console.Error.WriteLine("       " + UpscaleModelDisplayName(m, backend));
                 }
             }
             else
             {
-                Console.Error.WriteLine(backend == "tensorrt" ? "[提示] models 及其子目录下未找到 .engine 放大模型文件。" : "[提示] models 下未找到 .pth 放大模型文件。");
+                Console.Error.WriteLine(backend == "tensorrt" ? "[提示] models 及其子目录下未找到 .engine 放大模型文件。" : backend == "onnx" ? "[提示] models 及其子目录下未找到 .onnx 放大模型文件。" : "[提示] models 及其子目录下未找到 .pth 放大模型文件。");
             }
             Console.Error.WriteLine("[提示] 用法：-backend " + backend + " -modelpath <模型名>");
         }
@@ -753,7 +1450,7 @@ internal static class Program
             Console.Error.WriteLine("[提示] 可用模型（models 目录）：");
             foreach (var m in DiscoverModelFolders())
             {
-                Console.Error.WriteLine("       " + Path.GetFileName(m));
+                Console.Error.WriteLine("       " + UpscaleModelDisplayName(m, "ncnn"));
             }
             Console.Error.WriteLine("[提示] 用法：-modelpath <模型名或路径>，例如 -modelpath RealESRGAN-AnimeVideoV3-2x");
         }
@@ -771,6 +1468,20 @@ internal static class Program
 
     private static bool IsTensorRTEngineFile(string path) =>
         Path.GetExtension(path).Equals(".engine", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsOnnxModelFile(string path) =>
+        Path.GetExtension(path).Equals(".onnx", StringComparison.OrdinalIgnoreCase);
+
+    private static readonly string[] FlashVsrWeights =
+    {
+        "diffusion_pytorch_model_streaming_dmd.safetensors",
+        "LQ_proj_in.ckpt",
+        "TCDecoder.ckpt",
+        "Wan2.1_VAE.pth",
+    };
+
+    private static bool IsFlashVsrModelDirectory(string path) =>
+        Directory.Exists(path) && FlashVsrWeights.All(name => File.Exists(Path.Combine(path, name)));
 
     /// <summary>从模型文件夹名解析放大倍率（RealESRGAN-AnimeVideoV3-2x → 2）。</summary>
     private static string? DetectScale(string modelFolder)
@@ -921,7 +1632,7 @@ internal static class Program
             BackendScript,
             "-i", input,
             "-o", outputFile,
-            "-b", backend is "cuda" or "tensorrt" ? (backend == "tensorrt" ? "tensorrt" : "pytorch") : "ncnn",
+            "-b", backend is "cuda" or "tensorrt" ? (backend == "tensorrt" ? "tensorrt" : "pytorch") : backend,
             "--precision", "auto",
             "--custom_encoder", " " + customEncoder + " ",
             "--tensorrt_opt_profile", "3",
@@ -929,7 +1640,7 @@ internal static class Program
             "--cwd", CoreRoot,
             "--ffmpeg_path", FfmpegExe,
         };
-        if (backend is "cuda" or "tensorrt")
+        if (backend is "cuda" or "tensorrt" or "onnx" or "flashvsr")
         {
             args.Add("--device");
             args.Add("cuda");
@@ -1366,7 +2077,7 @@ internal static class Program
     {
         Console.WriteLine();
         Console.WriteLine("[信息] 输入视频 : " + input);
-        Console.WriteLine("[信息] 推理后端 : " + (backend == "cuda" ? "CUDA（PyTorch）" : backend == "tensorrt" ? "TensorRT（NVIDIA）" : "NCNN（Vulkan）"));
+        Console.WriteLine("[信息] 推理后端 : " + (backend == "flashvsr" ? "FlashVSR（时序视频）" : backend == "cuda" ? "CUDA（PyTorch）" : backend == "tensorrt" ? "TensorRT（NVIDIA）" : backend == "onnx" ? "ONNX Runtime" : "NCNN（Vulkan）"));
         if (string.IsNullOrEmpty(model))
         {
             Console.WriteLine("[信息] 放大模型 : （未使用，仅补帧）");
@@ -1401,6 +2112,8 @@ internal static class Program
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
+        psi.Environment["PYTHONUTF8"] = "1";
+        psi.Environment["PYTHONIOENCODING"] = "utf-8";
         foreach (var a in backendArgs)
         {
             psi.ArgumentList.Add(a);
@@ -1569,6 +2282,67 @@ internal static class Program
         return exitCode;
     }
 
+    private static bool ValidateTensorRTEngine(string enginePath, bool printSuccess)
+    {
+        if (!File.Exists(TensorRTValidatorScript))
+        {
+            Console.Error.WriteLine("[错误] 缺少 TensorRT Engine 验证脚本：" + TensorRTValidatorScript);
+            return false;
+        }
+        var result = RunProcessCapture(
+            PythonExe, new[] { TensorRTValidatorScript, "--engine", enginePath }, 120);
+        var lines = (result.Output + "\n" + result.Error)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var line in lines)
+        {
+            if (line.StartsWith("ENGINE_VALID|", StringComparison.Ordinal))
+            {
+                if (printSuccess) Console.WriteLine("[TensorRT] 当前 GPU 已成功反序列化：" + Path.GetFileName(enginePath));
+            }
+            else if (line.StartsWith("ENGINE_INVALID|", StringComparison.Ordinal))
+            {
+                var parts = line.Split('|');
+                var detail = parts.Length > 2 ? parts[2] : line;
+                Console.Error.WriteLine("[TensorRT 不兼容] " + enginePath);
+                Console.Error.WriteLine("[错误] " + detail);
+                Console.Error.WriteLine("[处理建议] 该 engine 需要在当前 GPU 上重新编译。");
+            }
+        }
+        if (!result.Ok && !lines.Any(line => line.StartsWith("ENGINE_INVALID|", StringComparison.Ordinal)))
+        {
+            Console.Error.WriteLine("[TensorRT 不兼容] " + enginePath);
+            Console.Error.WriteLine("[处理建议] 该 engine 需要在当前 GPU 上重新编译。" +
+                (string.IsNullOrWhiteSpace(result.Error) ? "" : " 原因：" + result.Error.Trim()));
+        }
+        return result.Ok;
+    }
+
+    private static int ValidateAllTensorRTEngines()
+    {
+        var engines = DiscoverTensorRTEngineModels();
+        if (engines.Count == 0)
+        {
+            Console.WriteLine("[TensorRT] models 中没有找到 .engine 文件。");
+            return 0;
+        }
+        var failures = 0;
+        foreach (var engine in engines)
+        {
+            if (!ValidateTensorRTEngine(engine, printSuccess: true)) failures++;
+        }
+        Console.WriteLine($"[TensorRT] 验证完成：{engines.Count - failures} 个可加载，{failures} 个需要重新编译。");
+        return failures == 0 ? 0 : 3;
+    }
+
+    private static int ListBackendsWithEngineValidation()
+    {
+        var result = RunProcessCapture(PythonExe,
+            new[] { BackendScript, "--list_backends", "--engine_dir", ModelsDir }, 600);
+        if (!string.IsNullOrWhiteSpace(result.Output)) Console.Write(result.Output);
+        if (!string.IsNullOrWhiteSpace(result.Error)) Console.Error.Write(result.Error);
+        return result.Ok ? 0 : 3;
+    }
+
     private static bool RunCheck(bool verbose)
     {
         var ok = true;
@@ -1618,6 +2392,15 @@ internal static class Program
             Report(backendVersion.Ok, "后端脚本运行", BackendScript,
                 backendVersion.Ok ? "rve-backend v" + backendVersion.Output.Trim() : backendVersion.Error.Trim());
             ok &= backendVersion.Ok;
+
+            var engineCount = DiscoverTensorRTEngineModels().Count;
+            if (engineCount > 0)
+            {
+                var engineStatus = ValidateAllTensorRTEngines();
+                Report(engineStatus == 0, "TensorRT Engine 当前 GPU 反序列化", ModelsDir,
+                    engineStatus == 0 ? engineCount + " 个 Engine 均可加载" : "存在不兼容 Engine；需要在当前 GPU 上重新编译");
+                ok &= engineStatus == 0;
+            }
         }
 
         Console.WriteLine("[环境检查] " + (ok ? "全部通过。" : "存在缺失项，请检查上方 [缺失] 标记。"));
@@ -1649,6 +2432,8 @@ internal static class Program
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8,
             };
+            psi.Environment["PYTHONUTF8"] = "1";
+            psi.Environment["PYTHONIOENCODING"] = "utf-8";
             foreach (var a in args)
             {
                 psi.ArgumentList.Add(a);
@@ -1658,8 +2443,8 @@ internal static class Program
             {
                 return (false, "", "无法启动进程");
             }
-            var stdout = p.StandardOutput.ReadToEnd();
-            var stderr = p.StandardError.ReadToEnd();
+            var stdoutTask = p.StandardOutput.ReadToEndAsync();
+            var stderrTask = p.StandardError.ReadToEndAsync();
             if (!p.WaitForExit(timeoutSeconds * 1000))
             {
                 try
@@ -1670,8 +2455,11 @@ internal static class Program
                 {
                     // 忽略
                 }
-                return (false, stdout, "超时（" + timeoutSeconds + " 秒）");
+                p.WaitForExit();
+                return (false, stdoutTask.GetAwaiter().GetResult(), "超时（" + timeoutSeconds + " 秒）");
             }
+            var stdout = stdoutTask.GetAwaiter().GetResult();
+            var stderr = stderrTask.GetAwaiter().GetResult();
             return (p.ExitCode == 0, stdout, stderr);
         }
         catch (Exception ex)
@@ -1684,10 +2472,10 @@ internal static class Program
     {
         var isCuda = backend == "cuda";
         var isTensorRT = backend == "tensorrt";
-        var models = isCuda ? DiscoverUpscalePthModels() : isTensorRT ? DiscoverTensorRTEngineModels() : DiscoverModelFolders();
-        string DisplayName(string path) => isTensorRT
-            ? TensorRTEngineDisplayName(path)
-            : isCuda ? Path.GetFileNameWithoutExtension(path) : Path.GetFileName(path);
+        var isOnnx = backend == "onnx";
+        var isFlashVsr = backend == "flashvsr";
+        var models = isFlashVsr ? DiscoverFlashVsrModels() : isCuda ? DiscoverUpscalePthModels() : isTensorRT ? DiscoverTensorRTEngineModels() : isOnnx ? DiscoverOnnxModels() : DiscoverModelFolders();
+        string DisplayName(string path) => UpscaleModelDisplayName(path, backend);
         if (json)
         {
             // 机器可读：一行 JSON 数组（插件下拉框等调用方直接解析）
@@ -1695,14 +2483,17 @@ internal static class Program
             Console.WriteLine("[" + string.Join(",", names.Select(n => "\"" + n + "\"")) + "]");
             return 0;
         }
-        Console.WriteLine(isTensorRT
+        Console.WriteLine(isFlashVsr ? "可用 FlashVSR 时序视频模型："
+            : isTensorRT
             ? "可用放大模型（TensorRT，递归扫描 models 的 .engine 文件）："
-            : isCuda ? "可用放大模型（CUDA，models 下的 .pth/.pt/.pkl 文件）："
-            : "可用放大模型（models 目录）：");
+            : isOnnx ? "可用放大模型（ONNX Runtime，递归扫描 models 的 .onnx 文件）："
+            : isCuda ? "可用放大模型（CUDA，递归扫描 models 的 .pth/.pt/.pkl 文件，不含 RIFE）："
+            : "可用放大模型（NCNN，递归扫描 models 中含 .param/.bin 的文件夹，不含 RIFE）：");
         if (models.Count == 0)
         {
             Console.WriteLine(isTensorRT
                 ? "  (未找到任何 .engine 模型文件；TensorRT 放大需要预制 engine)"
+                : isOnnx ? "  (未找到任何 .onnx 模型文件)"
                 : isCuda ? "  (未找到任何 .pth/.pt/.pkl 模型文件；CUDA 放大需要 models 下的 .pth 模型)"
                 : "  (未找到任何含 .param/.bin 的模型文件夹)");
             return 0;
@@ -1721,13 +2512,14 @@ internal static class Program
         {
             return new List<string>();
         }
-        return Directory.GetDirectories(ModelsDir)
+        return Directory.GetDirectories(ModelsDir, "*", SearchOption.AllDirectories)
+            .Where(p => !IsInRifeDirectory(p))
             .Where(IsNcnnModelFolder)
             .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
     }
 
-    /// <summary>发现 CUDA 放大模型：models 目录顶层（不含 RIFE 子目录）的 .pth/.pt/.pkl 文件。</summary>
+    /// <summary>发现 CUDA 放大模型：递归扫描 models，但排除独立的 RIFE 补帧目录。</summary>
     private static List<string> DiscoverUpscalePthModels()
     {
         if (!Directory.Exists(ModelsDir))
@@ -1737,7 +2529,8 @@ internal static class Program
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var pattern in new[] { "*.pth", "*.pt", "*.pkl" })
         {
-            foreach (var f in Directory.GetFiles(ModelsDir, pattern, SearchOption.TopDirectoryOnly))
+            foreach (var f in Directory.GetFiles(ModelsDir, pattern, SearchOption.AllDirectories)
+                         .Where(p => !IsInRifeDirectory(p) && !IsInFlashVsrDirectory(p)))
             {
                 set.Add(f);
             }
@@ -1752,12 +2545,74 @@ internal static class Program
             .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
+    private static List<string> DiscoverOnnxModels()
+    {
+        if (!Directory.Exists(ModelsDir)) return new List<string>();
+        return Directory.GetFiles(ModelsDir, "*.onnx", SearchOption.AllDirectories)
+            .Where(p => !IsInRifeDirectory(p))
+            .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    private static List<string> DiscoverFlashVsrModels()
+    {
+        if (!Directory.Exists(ModelsDir)) return new List<string>();
+        return Directory.GetDirectories(ModelsDir, "*", SearchOption.AllDirectories)
+            .Prepend(ModelsDir)
+            .Where(IsFlashVsrModelDirectory)
+            .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
     /// <summary>TensorRT 模型显示为相对 models 的无扩展名路径，避免子目录中同名模型冲突。</summary>
     private static string TensorRTEngineDisplayName(string path)
     {
+        return RelativeModelDisplayName(path, removeExtension: true);
+    }
+
+    /// <summary>超分模型显示为相对 models 的路径，避免分类目录中的同名模型冲突。</summary>
+    private static string UpscaleModelDisplayName(string path, string backend)
+    {
+        return RelativeModelDisplayName(path, removeExtension: backend is "cuda" or "tensorrt" or "onnx");
+    }
+
+    private static string RelativeModelDisplayName(string path, bool removeExtension)
+    {
         var relative = Path.GetRelativePath(ModelsDir, path);
-        var withoutExtension = Path.ChangeExtension(relative, null) ?? relative;
-        return withoutExtension.Replace('\\', '/');
+        if (removeExtension)
+        {
+            relative = Path.ChangeExtension(relative, null) ?? relative;
+        }
+        return relative.Replace('\\', '/');
+    }
+
+    private static string ModelBaseName(string path)
+    {
+        return File.Exists(path)
+            ? Path.GetFileNameWithoutExtension(path)
+            : Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+    }
+
+    private static bool IsInRifeDirectory(string path)
+    {
+        var rifeRoot = Path.GetFullPath(Path.Combine(ModelsDir, "RIFE"))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var fullPath = Path.GetFullPath(path);
+        return fullPath.StartsWith(rifeRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsInFlashVsrDirectory(string path)
+    {
+        var root = Path.GetFullPath(Path.Combine(ModelsDir, "FlashVSR"))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? FindNcnnModelFolder(string modelName)
+    {
+        return DiscoverModelFolders().FirstOrDefault(p =>
+            ModelBaseName(p).Equals(modelName, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string FormatSize(long bytes)
@@ -1789,12 +2644,19 @@ internal static class Program
 
     private static void PrintHelp(TextWriter writer)
     {
-        writer.WriteLine("videoenhancer.exe — 视频超分辨率命令行工具  v" + ToolVersion);
+        writer.WriteLine("videoenhancer.exe — 视频/图片超分辨率命令行工具  v" + ToolVersion);
         writer.WriteLine("============================================================");
         writer.WriteLine("用法");
         writer.WriteLine("  videoenhancer.exe -i <输入视频> -modelpath <模型目录> -ffmpeg-settings \"<FFmpeg 参数 + 输出路径>\"");
         writer.WriteLine("  videoenhancer.exe -i <输入视频> -interp-model <补帧模型> [-no-upscale] -ffmpeg-settings \"<FFmpeg 参数 + 输出路径>\"");
         writer.WriteLine("  videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUDA 补帧模型> -ffmpeg-settings \"<FFmpeg 参数 + 输出路径>\"");
+        writer.WriteLine("  videoenhancer.exe --image-input <图片> --image-output <文件夹> -backend onnx -modelpath <模型>");
+        writer.WriteLine("  videoenhancer.exe --image-folder <文件夹> --image-output-original -modelpath <模型>");
+        writer.WriteLine("  videoenhancer.exe --list-download-models --json");
+        writer.WriteLine("  videoenhancer.exe --clean-download-archives");
+        writer.WriteLine("  videoenhancer.exe --download-model <镜像相对路径>");
+        writer.WriteLine("  videoenhancer.exe --download-url <链接> --download-output <文件>");
+        writer.WriteLine("  videoenhancer.exe --extract-archive <压缩包> [--extract-output <目录>]");
         writer.WriteLine();
         writer.WriteLine("必需参数");
         writer.WriteLine("  -i, --input <路径>");
@@ -1814,20 +2676,32 @@ internal static class Program
         writer.WriteLine("        （如 rife-v4.25）；可与 -modelpath 同时使用（先补帧后放大）；");
         writer.WriteLine("        -backend cuda 时改为 .pth 模型文件名（如 rife46）");
         writer.WriteLine("  -interp-factor <N>  补帧倍率（帧率倍数，默认 2，需大于 1）");
-        writer.WriteLine("  -backend <ncnn|cuda|tensorrt>  推理后端：ncnn、cuda 或 TensorRT（NVIDIA）；");
-        writer.WriteLine("        cuda 时放大模型用 models 下的 .pth/.pt/.pkl 文件、补帧模型用 models\\RIFE 下的 .pth 文件；");
-        writer.WriteLine("        tensorrt 会递归扫描 models 及其子目录中的 .engine 文件；");
+        writer.WriteLine("  -backend <ncnn|cuda|tensorrt|onnx>  推理后端；");
+        writer.WriteLine("        所有后端均递归扫描 models 子目录；RIFE 仅用于补帧，不混入放大模型；");
+        writer.WriteLine("        cuda 使用 .pth/.pt/.pkl，tensorrt 使用 .engine，onnx 使用 .onnx，ncnn 使用成对 .param/.bin；");
         writer.WriteLine("        命令行允许超分与补帧同时指定（界面层两者互斥）");
         writer.WriteLine("  -no-upscale         不放大（仅补帧模式，需配合 -interp-model）");
         writer.WriteLine("  -pause-shm <ID>     暂停共享内存名（透传给 rve-backend --pause_shared_memory_id）");
         writer.WriteLine("  -stop-shm <ID>      停止共享内存名：字节变 1 时优雅停止，已处理部分写入输出文件");
         writer.WriteLine("  --list-models, --search-models  列出可用的放大模型并退出（默认 ncnn 文件夹）");
-        writer.WriteLine("        加 -backend cuda 则列出 models 下的 .pth/.pt/.pkl 放大模型；");
+        writer.WriteLine("        三种后端均递归列出 models 子目录中的对应放大模型（排除 models\\RIFE）；");
         writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）");
         writer.WriteLine("  --list-interp-models  列出 models\\RIFE 目录下可用的补帧模型并退出");
         writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）；");
         writer.WriteLine("        加 -backend cuda 则列出 .pth 补帧模型");
         writer.WriteLine("  --check             仅检测运行环境（ffmpeg / python 库 / 模型库）并退出");
+        writer.WriteLine("  --list-backends     列出后端，并逐个在当前 GPU 上反序列化 models 中的 TensorRT Engine");
+        writer.WriteLine("  --validate-engines  递归验证全部 .engine；不兼容时提示在当前 GPU 上重新编译");
+        writer.WriteLine("  --list-download-models  从 ModelScope 镜像读取可下载文件；配合 --json 输出给界面");
+        writer.WriteLine("  --clean-download-archives  递归清理 models 与 python 中的下载压缩包");
+        writer.WriteLine("  --download-model <路径>  用内置 aria2-next 下载镜像文件；压缩包自动用内置 7-Zip-zstd 解压");
+        writer.WriteLine("  --download-url <链接> --download-output <文件>  使用内置 aria2-next 下载任意直链");
+        writer.WriteLine("  --extract-archive <文件> [--extract-output <目录>]  使用内置 7-Zip-zstd 解压");
+        writer.WriteLine("  --image-input <文件>  添加一个图片输入（可重复）");
+        writer.WriteLine("  --image-folder <目录>  递归添加目录及其子目录图片（可重复）");
+        writer.WriteLine("  --image-output <目录>  指定图片输出目录；或用 --image-output-original 输出到原目录");
+        writer.WriteLine("  --image-suffix <timestamp|model>  文件名附加处理时间戳或模型名称");
+        writer.WriteLine("  --image-png / --image-source-format  输出无损 PNG（默认）或保持源扩展格式");
         writer.WriteLine();
         writer.WriteLine("说明");
         writer.WriteLine("  · 配置：exe 同目录的 videoenhancer.ini 第一行写入 core-path=\"<核心程序路径>\"，");
@@ -1861,8 +2735,8 @@ internal static class Program
         writer.WriteLine();
         writer.WriteLine("说明：本工具是 Video Enhancer GUI 的 rve-backend 命令行中转器，后端逻辑");
         writer.WriteLine("与 GUI 完全一致（ncnn 后端、场景检测、倍率自动识别等）。");
-        writer.WriteLine("  · CUDA 推理（-backend cuda）会以 pytorch 后端 + --device cuda 运行；TensorRT 递归扫描 models 下的 .engine；");
-        writer.WriteLine("    放大模型取 models 下的 .pth/.pt/.pkl 文件，补帧模型取 models\\RIFE 下的 .pth 文件；");
+        writer.WriteLine("  · 放大模型递归扫描 models：NCNN 取 .param/.bin 文件夹，CUDA 取 .pth/.pt/.pkl，");
+        writer.WriteLine("    TensorRT 取 .engine；models\\RIFE 独立保留给补帧模型，不计入放大模型；");
         writer.WriteLine("    （rve-backend 的 spandrel/InterpolateRIFE 加载）。");
     }
 }

@@ -16,11 +16,11 @@
 
 ## 使用
 
-页面采用 LakeUI `ModernTabControl` 三分栏（顶栏标签），顶部「插件总开关」只作用于
-「超分主界面」页；「实时预览」「高级功能」页即使关闭插件总开关也能使用。
+页面采用 LakeUI `ModernTabControl` 四分栏（顶栏标签），顶部「插件总开关」只作用于
+「超分主界面」页；「实时预览」「高级功能」「模型转换器」页即使关闭插件总开关也能使用。
 
 ```text
-┌ 超分主界面 │ 实时预览 │ 高级功能 ┐
+┌ 超分主界面 │ 实时预览 │ 高级功能 │ 模型转换器 ┐
 │                                  │
 │ [插件总开关]  BooleanSwitch       │
 │ [超分开关] BooleanSwitch          │
@@ -43,7 +43,8 @@
      （`设置_v6.实例对象.替代进程文件名`），队列不再直接调用 ffmpeg；
    - 关闭（再次点击）时停止对参数面板的 hook，队列恢复直接执行 ffmpeg。
 2. 「超分开关」（BooleanSwitch）——打开时启用放大（需先开启插件总开关，与补帧互斥）；
-   右侧「选择推理方式」为 `NCNN (Vulkan)`（默认）或 `CUDA (PyTorch)`；
+   右侧「选择推理方式」支持 `NCNN (Vulkan)`（默认）、`CUDA (PyTorch)`、
+   `TensorRT (NVIDIA)` 和 `ONNX Runtime`；
    「放大模型」下拉框：首次展开会调用 `videoenhancer.exe --search-models`
    读取 models 目录可用模型并缓存（CUDA 时为 `models` 下的 `.pth/.pt/.pkl` 模型）；
    选择的模型写入插件配置。
@@ -108,6 +109,12 @@
 - 右侧选项区基于同一组 JSON 设计坐标统一执行 60% 水平缩放，预览区和顶部视频卡片
   自动扩展到新的右侧边界。无边框标题栏的图标、标题文字及其他空白区域均可拖动窗口。
 - videoenhancer.exe 路径与「更改路径」按钮已放回「超分主界面」页。
+
+### 模型转换器
+
+- 可选择或直接拖入 `.pth` 放大模型，调用后端 `convert_tensorrt.py` 离线编译。
+- 输出目录自动设置为核心目录的 `models\TensorRT-Personalized`，与预置引擎分开管理。
+- 页面说明 TensorRT 的推理效率优势、离线转换特性，以及 Engine 应在实际使用设备上重新编译。
 
 ### 队列执行流程
 

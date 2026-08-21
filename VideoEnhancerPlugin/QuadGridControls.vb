@@ -35,6 +35,35 @@ Namespace videoenhancer
         End Sub
     End Module
 
+    ''' <summary>Windows 11 Fluent 风格圆角卡片容器。</summary>
+    Friend Class FluentCardPanel
+        Inherits Panel
+
+        Friend Property FillColor As Color = Color.FromArgb(43, 43, 43)
+        Friend Property StrokeColor As Color = Color.FromArgb(62, 62, 62)
+        Friend Property CornerRadius As Integer = 10
+
+        Public Sub New()
+            BackColor = Color.Transparent
+            SetStyle(ControlStyles.AllPaintingInWmPaint Or ControlStyles.UserPaint Or
+                     ControlStyles.OptimizedDoubleBuffer Or ControlStyles.ResizeRedraw Or
+                     ControlStyles.SupportsTransparentBackColor, True)
+        End Sub
+
+        Protected Overrides Sub OnPaintBackground(e As PaintEventArgs)
+            If Width <= 1 OrElse Height <= 1 Then Return
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias
+            Using path = QuadGridDrawing.RoundedPath(New RectangleF(0.5F, 0.5F, Width - 1.0F, Height - 1.0F), CornerRadius)
+                Using brush As New SolidBrush(FillColor)
+                    e.Graphics.FillPath(brush, path)
+                End Using
+                Using pen As New Pen(StrokeColor, 1.0F)
+                    e.Graphics.DrawPath(pen, path)
+                End Using
+            End Using
+        End Sub
+    End Class
+
     ''' <summary>圆角、抗锯齿、带悬停状态的按钮；完全编译进插件，无额外运行库。</summary>
     Friend Class SmoothButton
         Inherits Button
@@ -114,7 +143,7 @@ Namespace videoenhancer
         Friend Sub SetVideo(path As String)
             _filePath = If(path, "")
             AccessibleName = If(String.IsNullOrWhiteSpace(_filePath), "空视频槽", System.IO.Path.GetFileName(_filePath))
-            _badge.BackColor1 = If(String.IsNullOrWhiteSpace(_filePath), Color.FromArgb(38, 43, 50), Color.FromArgb(28, 157, 99))
+            _badge.BackColor1 = If(String.IsNullOrWhiteSpace(_filePath), Color.FromArgb(58, 58, 58), Color.FromArgb(0, 120, 212))
             _hint.Visible = String.IsNullOrWhiteSpace(_filePath)
             _fileName.Visible = Not _hint.Visible
             _fileName.Text = If(_hint.Visible, "", System.IO.Path.GetFileName(_filePath))
@@ -137,13 +166,13 @@ Namespace videoenhancer
             _badge.TextAlign = HtmlColorLabel.TextAlignEnum.Center
             _badge.ForeColor = Color.White
             _badge.Font = New Font("Microsoft YaHei UI", 10.0F, FontStyle.Bold)
-            _badge.BackColor1 = Color.FromArgb(38, 43, 50)
-            _badge.BorderRadius = 5
+            _badge.BackColor1 = Color.FromArgb(58, 58, 58)
+            _badge.BorderRadius = 7
             _badge.BorderSize = 0
-            _hint.Text = "拖入或浏览"
+            _hint.Text = "拖放视频或点击选择"
             _hint.TextAlign = HtmlColorLabel.TextAlignEnum.Center
-            _hint.ForeColor = Color.FromArgb(200, 207, 216)
-            _hint.Font = New Font("Microsoft YaHei UI", 18.0F, FontStyle.Regular)
+            _hint.ForeColor = Color.FromArgb(205, 205, 205)
+            _hint.Font = New Font("Microsoft YaHei UI", 11.0F, FontStyle.Regular)
             _hint.BackColor1 = Color.Transparent
             _hint.BorderSize = 0
             _fileName.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
@@ -183,10 +212,10 @@ Namespace videoenhancer
             g.InterpolationMode = InterpolationMode.HighQualityBicubic
             Dim outer = New RectangleF(0.5F, 0.5F, Math.Max(1, Width - 1.0F), Math.Max(1, Height - 1.0F))
             Using path = QuadGridDrawing.RoundedPath(outer, 9)
-                Using brush As New LinearGradientBrush(ClientRectangle, Color.FromArgb(32, 37, 44), Color.FromArgb(25, 29, 35), 90.0F)
+                Using brush As New LinearGradientBrush(ClientRectangle, Color.FromArgb(50, 50, 50), Color.FromArgb(43, 43, 43), 90.0F)
                     g.FillPath(brush, path)
                 End Using
-                Using pen As New Pen(If(String.IsNullOrWhiteSpace(_filePath), Color.FromArgb(67, 75, 85), Color.FromArgb(31, 177, 112)), If(String.IsNullOrWhiteSpace(_filePath), 1.0F, 1.5F))
+                Using pen As New Pen(If(String.IsNullOrWhiteSpace(_filePath), Color.FromArgb(68, 68, 68), Color.FromArgb(96, 205, 255)), If(String.IsNullOrWhiteSpace(_filePath), 1.0F, 1.5F))
                     g.DrawPath(pen, path)
                 End Using
             End Using
@@ -202,7 +231,7 @@ Namespace videoenhancer
                 End Using
                 g.Restore(state)
             Else
-                Using brush As New SolidBrush(Color.FromArgb(22, 26, 31))
+                Using brush As New SolidBrush(Color.FromArgb(30, 30, 30))
                     Using clip = QuadGridDrawing.RoundedPath(imageRect, 6)
                         g.FillPath(brush, clip)
                     End Using
@@ -308,7 +337,7 @@ Namespace videoenhancer
             Dim centerY = Height / 2.0F
             Dim track = New RectangleF(1.0F, centerY - 3.0F, Math.Max(1, Width - 2.0F), 6.0F)
             Using path = QuadGridDrawing.RoundedPath(track, 3)
-                Using brush As New SolidBrush(Color.FromArgb(64, 72, 82))
+                Using brush As New SolidBrush(Color.FromArgb(82, 82, 82))
                     e.Graphics.FillPath(brush, path)
                 End Using
             End Using
@@ -317,7 +346,7 @@ Namespace videoenhancer
             If filledWidth > 0 Then
                 Dim filled = New RectangleF(1.0F, centerY - 3.0F, filledWidth, 6.0F)
                 Using path = QuadGridDrawing.RoundedPath(filled, 3)
-                    Using brush As New LinearGradientBrush(filled, Color.FromArgb(33, 190, 121), Color.FromArgb(39, 145, 235), 0.0F)
+                    Using brush As New SolidBrush(Color.FromArgb(96, 205, 255))
                         e.Graphics.FillPath(brush, path)
                     End Using
                 End Using

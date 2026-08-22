@@ -4,6 +4,7 @@ Imports System.Diagnostics
 Imports System.Drawing
 Imports System.IO
 Imports System.Linq
+Imports System.Net.Http
 Imports System.Text
 Imports System.Text.Json
 Imports System.Text.RegularExpressions
@@ -279,7 +280,7 @@ Namespace videoenhancer
             End If
             _config.UpscaleEnabled = _switchUpscale.Checked
             ' 开启超分：CUDA 模式下放大模型列表切换为 models 下的 .pth 模型（空列表时自动回退 ncnn）
-            If _switchUpscale.Checked AndAlso (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr") Then
+            If _switchUpscale.Checked AndAlso (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp") Then
                 RefreshUpscaleModels()
             End If
             _config.Save()
@@ -488,15 +489,17 @@ Namespace videoenhancer
                     "（TensorRT，models 下的 .engine 文件）",
                     If(_config.Backend = "onnx",
                     "（ONNX Runtime，models 下的 .onnx 文件）",
+                    If(_config.Backend = "basicvsrpp",
+                    "（BasicVSR++，连续视频帧专用 x4 PTH）",
                     If(_config.Backend = "flashvsr",
                     "（FlashVSR，连续视频帧专用模型目录）",
                     If(_config.Backend = "cuda",
                     "（CUDA，models 下的 .pth/.pt/.pkl 文件）",
-                    "（models 目录，.param/.bin 文件夹）"))))
+                    "（models 目录，.param/.bin 文件夹）")))))
                 ShowStatus($"已从 videoenhancer.exe 读取 {models.Count} 个可用模型 " & modeText, False)
             Else
-                If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr") AndAlso _config.UpscaleEnabled Then
-                    Dim missingExt = If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "tensorrt", ".engine", If(_config.Backend = "onnx", ".onnx", ".pth")))
+                If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp") AndAlso _config.UpscaleEnabled Then
+                    Dim missingExt = If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "basicvsrpp", "BasicVSR++ .pth", If(_config.Backend = "tensorrt", ".engine", If(_config.Backend = "onnx", ".onnx", ".pth"))))
                     _cmbModel.WaterText = "未找到 " & missingExt & " 放大模型"
                     ShowStatus("未找到 " & missingExt & " 放大模型，请确认 models 目录", True)
                     ' 保留用户选择的 TensorRT，不因一次扫描失败自动改回 NCNN。
@@ -575,8 +578,9 @@ Namespace videoenhancer
             If backend = _config.Backend Then
                 Return
             End If
-            If (backend = "onnx" OrElse backend = "flashvsr") AndAlso _config.InterpEnabled Then
-                ShowStatus(If(backend = "flashvsr", "FlashVSR 不能与补帧同时运行；请先关闭补帧开关。", "ONNX Runtime 当前只用于超分；请先关闭补帧开关。"), True)
+            If (backend = "onnx" OrElse backend = "flashvsr" OrElse backend = "basicvsrpp") AndAlso _config.InterpEnabled Then
+                Dim warning = If(backend = "flashvsr", "FlashVSR 不能与补帧同时运行；请先关闭补帧开关。", If(backend = "basicvsrpp", "BasicVSR++ 不能与补帧同时运行；请先关闭补帧开关。", "ONNX Runtime 当前只用于超分；请先关闭补帧开关。"))
+                ShowStatus(warning, True)
                 _syncingBackend = True
                 SyncBackendCombo()
                 _syncingBackend = False
@@ -591,11 +595,13 @@ Namespace videoenhancer
                 "TensorRT（NVIDIA）：超分用 models 下的 .engine 模型（仅 N 卡）",
                 If(backend = "onnx",
                 "ONNX Runtime：超分用 models 下的 .onnx 模型，自动优先 CUDA",
+                If(backend = "basicvsrpp",
+                "BasicVSR++（NVIDIA）：官方 x4 时序视频超分，不用于图片或补帧",
                 If(backend = "flashvsr",
                 "FlashVSR（NVIDIA）：连续视频帧专用扩散超分，不用于图片或补帧",
                 If(backend = "cuda",
                 "CUDA（PyTorch）：超分用 models 下的 .pth 模型，补帧用 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型",
-                "NCNN（Vulkan）"))))
+                "NCNN（Vulkan）")))))
             ShowStatus("推理方式：" & modeText, False)
         End Sub
 
@@ -620,6 +626,9 @@ Namespace videoenhancer
 
         Private Shared Function BackendValue(item As Object) As String
             Dim text = If(item Is Nothing, "", item.ToString())
+            If text.Contains("BasicVSR++") Then
+                Return "basicvsrpp"
+            End If
             If text.Contains("FlashVSR") Then
                 Return "flashvsr"
             End If
@@ -1015,29 +1024,8 @@ Namespace videoenhancer
             BuildOfficialAdvancedPage()
             BuildOfficialModelDownloadPage()
             BuildOfficialConverterPage()
-            BuildMarkdownPage(_pageModelInfo,
-                "# 模型选择指南" & Environment.NewLine & Environment.NewLine &
-                "## 放大模型" & Environment.NewLine &
-                "- **NCNN / Param-Bin**：兼容性最好，适合 Vulkan 显卡和日常使用。" & Environment.NewLine &
-                "- **PTH / CUDA**：适合 NVIDIA 显卡，模型选择丰富。" & Environment.NewLine &
-                "- **TensorRT Engine**：吞吐更高，但需要与当前显卡和 CUDA 环境匹配。" & Environment.NewLine &
-                "- **ONNX Runtime**：便于跨后端部署，性能取决于执行提供程序。" & Environment.NewLine & Environment.NewLine &
-                "## 补帧模型" & Environment.NewLine &
-                "- RIFE 模型用于生成中间帧；2 倍适合大多数素材，4 倍以上建议先短片测试。" & Environment.NewLine & Environment.NewLine &
-                "## 建议" & Environment.NewLine &
-                "优先从较短片段开始，确认画质、显存占用和速度后再处理完整视频。")
-            BuildMarkdownPage(_pageTutorial,
-                "# 快速上手" & Environment.NewLine & Environment.NewLine &
-                "## 1. 连接处理程序" & Environment.NewLine &
-                "在 **超分主界面** 指定 `videoenhancer.exe`，然后开启插件。" & Environment.NewLine & Environment.NewLine &
-                "## 2. 选择一种处理模式" & Environment.NewLine &
-                "- 开启 **视频超分**，选择推理后端和放大模型。" & Environment.NewLine &
-                "- 或开启 **运动补帧**，选择 RIFE 模型与倍率。" & Environment.NewLine &
-                "- 两种模式互斥，避免重复处理同一任务。" & Environment.NewLine & Environment.NewLine &
-                "## 3. 加入编码队列" & Environment.NewLine &
-                "回到 3FUI 准备文件并加入队列，插件会自动通过 CLI 中转。" & Environment.NewLine & Environment.NewLine &
-                "## 4. 查看输出" & Environment.NewLine &
-                "在 **实时预览** 查看处理中或已完成的帧；需要多视频比较时打开 **对比工作室**。")
+            BuildModelInfoPage()
+            BuildTutorialBrowserPage()
 
             Dim tabMain As New ModernTabControl.ModernTab("超分工作台") With {.BoundControl = _pageUpscale}
             Dim tabPreview As New ModernTabControl.ModernTab("实时预览") With {.BoundControl = _pagePreview}
@@ -1894,7 +1882,7 @@ Namespace videoenhancer
             _lblAdvancedHint.Text = "<font color=#9A9A9A><b>说明</b></font><br/>" &
                 "<font color=#8A8A8A>「插件总开关」仅作用于「超分主界面」页：开启后，加入编码队列的命令会被 videoenhancer.exe 中转执行 AI 超分/补帧。</font><br/>" &
                 "<font color=#8A8A8A>「实时预览」与队列监控即使关闭插件总开关也能使用。超分开关右边选择图片超分模型，开关关闭也可以使用。</font><br/>" &
-                "<font color=#8A8A8A>CLI 程序启动时读取本目录 videoenhancer.ini 的 core-path，并校验 bin\ffmpeg、python 库与模型库。</font>"
+                "<font color=#8A8A8A>CLI 使用 videoenhancer.exe 同级的核心目录，并校验 bin\ffmpeg、python 库与模型库。</font>"
             sectionHint.Controls.Add(_lblAdvancedHint)
 
             Dim sectionExe As New Panel() With {.Dock = DockStyle.Top, .Height = 44, .BackColor = Color.Transparent, .Padding = New Padding(0, 8, 0, 0)}
@@ -2037,6 +2025,7 @@ Namespace videoenhancer
             _cmbBackend.Items.Add("TensorRT (NVIDIA)")
             _cmbBackend.Items.Add("ONNX Runtime")
             _cmbBackend.Items.Add("FlashVSR (NVIDIA · 视频)")
+            _cmbBackend.Items.Add("BasicVSR++ (NVIDIA · 视频)")
             AddHandler _cmbBackend.SelectedIndexChanged, AddressOf OnBackendSelected
             rowUpscale.Controls.Add(_cmbBackend)
             _lblSwitch.Text = "<font color=#E8E8E8><b>超分开关</b></font>"
@@ -2356,8 +2345,8 @@ Namespace videoenhancer
 
         Private Sub OnStartImageProcessing(sender As Object, e As EventArgs)
             If _imageRunning Then Return
-            If _config.Backend = "flashvsr" Then
-                ShowStatus("FlashVSR 是连续视频帧模型，图片超分请选择 NCNN、CUDA、TensorRT 或 ONNX。", True)
+            If _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp" Then
+                ShowStatus(If(_config.Backend = "flashvsr", "FlashVSR", "BasicVSR++") & " 是连续视频帧模型，图片超分请选择 NCNN、CUDA、TensorRT 或 ONNX。", True)
                 Return
             End If
             If _imageFiles.Count = 0 AndAlso _imageFolders.Count = 0 Then
@@ -3179,7 +3168,7 @@ Namespace videoenhancer
             Dim header As New Panel() With {.Dock = DockStyle.Top, .Height = 76, .BackColor = Color.Transparent}
             Dim description As New HtmlColorLabel() With {
                 .Text = "<font color=#D8D8D8><b>ModelScope 模型镜像</b></font><br/>" &
-                        "<font color=#8A8A8A>文件下载到 models 对应分类；Backend 文件下载到 python。压缩包会自动解压。</font>",
+                        "<font color=#8A8A8A>核心组件分别安装到 python / bin；模型下载到 models 对应分类。压缩包会自动解压。</font>",
                 .AutoSize = False, .Dock = DockStyle.Fill,
                 .TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft, .LineSpacing = 4
             }
@@ -3214,9 +3203,13 @@ Namespace videoenhancer
         End Sub
 
         Private Function DownloadExecutablePath() As String
-            If File.Exists(_config.ExePath) Then Return _config.ExePath
-            Dim besideHost = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "videoenhancer.exe")
-            Return If(File.Exists(besideHost), besideHost, "")
+            Dim detected = PluginConfig.ResolveInstalledExePath(_config.ExePath)
+            If Not String.IsNullOrWhiteSpace(detected) AndAlso Not String.Equals(_config.ExePath, detected, StringComparison.OrdinalIgnoreCase) Then
+                _config.ExePath = detected
+                _config.Save()
+                RefreshUi()
+            End If
+            Return detected
         End Function
 
         Private Sub LoadDownloadModels(force As Boolean)
@@ -3301,13 +3294,22 @@ Namespace videoenhancer
                         })
                     Next
                 End Using
-                Dim categoryOrder = New String() {"ONNX", "Param-Bin", "RIFE", "PTH", "Backend"}
-                For Each group In entries.GroupBy(Function(entry) DownloadCategory(entry.RelativePath)).
-                        OrderBy(Function(value)
-                                    Dim index = Array.FindIndex(categoryOrder, Function(name) name.Equals(value.Key, StringComparison.OrdinalIgnoreCase))
-                                    Return If(index < 0, Integer.MaxValue, index)
-                                End Function)
-                    AddDownloadGroup(group.Key, group.ToList())
+                Dim grouped = entries.GroupBy(Function(entry) DownloadCategory(entry.RelativePath)).
+                    ToDictionary(Function(group) group.Key, Function(group) group.ToList(), StringComparer.OrdinalIgnoreCase)
+
+                AddDownloadSectionHeader("核心组件", "运行 VideoEnhancer 所需的 Python 与视频处理组件")
+                For Each category In New String() {"Backend", "Bin"}
+                    AddDownloadGroup(category, If(grouped.ContainsKey(category), grouped(category), New List(Of DownloadModelEntry)()))
+                Next
+
+                AddDownloadSectionHeader("模型列表", "按模型格式分类下载；FlashVSR 为连续视频帧专用模型")
+                For Each category In New String() {"ONNX", "Param-Bin", "FlashVSR", "RIFE", "PTH", "TensorRT-Default"}
+                    AddDownloadGroup(category, If(grouped.ContainsKey(category), grouped(category), New List(Of DownloadModelEntry)()))
+                Next
+
+                Dim known = New HashSet(Of String)(New String() {"Backend", "Bin", "ONNX", "Param-Bin", "FlashVSR", "RIFE", "PTH", "TensorRT-Default"}, StringComparer.OrdinalIgnoreCase)
+                For Each category In grouped.Keys.Where(Function(value) Not known.Contains(value)).OrderBy(Function(value) value)
+                    AddDownloadGroup(category, grouped(category))
                 Next
                 _downloadsLoaded = True
                 _downloadOnline = True
@@ -3331,10 +3333,43 @@ Namespace videoenhancer
                 Case "PARAM-BIN" : Return "Param-Bin 模型"
                 Case "RIFE" : Return "RIFE 模型"
                 Case "PTH" : Return "PTH 模型"
-                Case "BACKEND" : Return "Backend 后端"
+                Case "FLASHVSR" : Return "FlashVSR 模型"
+                Case "TENSORRT-DEFAULT" : Return "TensorRT 默认模型"
+                Case "BACKEND" : Return "Backend（核心 Python 库）"
+                Case "BIN" : Return "Bin（视频处理核心支持）"
                 Case Else : Return category
             End Select
         End Function
+
+        Private Sub AddDownloadSectionHeader(titleText As String, descriptionText As String)
+            Dim section As New Panel() With {
+                .Width = Math.Max(360, _downloadList.ClientSize.Width - 24), .Height = 58,
+                .Margin = New Padding(0, 10, 0, 4), .BackColor = Color.Transparent
+            }
+            Dim accent As New Panel() With {
+                .Location = New Point(0, 9), .Size = New Size(3, 38),
+                .BackColor = Color.FromArgb(0, 120, 212)
+            }
+            Dim title As New Label() With {
+                .Text = titleText, .Location = New Point(14, 3), .Size = New Size(500, 28),
+                .ForeColor = Color.FromArgb(242, 242, 244), .BackColor = Color.Transparent,
+                .Font = New Font("Microsoft YaHei UI", 11.0F, FontStyle.Bold),
+                .TextAlign = ContentAlignment.MiddleLeft
+            }
+            Dim description As New Label() With {
+                .Text = descriptionText, .Location = New Point(14, 30), .Size = New Size(760, 24),
+                .ForeColor = Color.FromArgb(145, 145, 150), .BackColor = Color.Transparent,
+                .Font = New Font("Microsoft YaHei UI", 8.5F),
+                .TextAlign = ContentAlignment.MiddleLeft, .AutoEllipsis = True,
+                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
+            }
+            AddHandler section.Resize, Sub(sender, e)
+                title.Width = Math.Max(180, section.ClientSize.Width - title.Left)
+                description.Width = Math.Max(180, section.ClientSize.Width - description.Left)
+            End Sub
+            section.Controls.AddRange(New Control() {accent, title, description})
+            _downloadList.Controls.Add(section)
+        End Sub
 
         Private Sub AddDownloadGroup(category As String, entries As List(Of DownloadModelEntry))
             Const headerHeight As Integer = 64
@@ -3368,12 +3403,16 @@ Namespace videoenhancer
                 .TextAlign = ContentAlignment.MiddleLeft, .AutoEllipsis = True
             }
             Dim expandButton As New ModernButton() With {
-                .Text = "展开　▼", .Size = New Size(120, 40)
+                .Text = If(entries.Count = 0, "暂无文件", "展开　▼"),
+                .Size = New Size(120, 40),
+                .Enabled = (entries.Count > 0)
             }
             ConfigureSecondaryButton(expandButton)
             Dim allButton As New ModernButton() With {
-                .Text = "下载全部", .Size = New Size(160, 40),
-                .Tag = entries.Select(Function(entry) entry.RelativePath).ToList()
+                .Text = If(entries.Count = 0, "暂无文件", "下载全部"),
+                .Size = New Size(160, 40),
+                .Enabled = (entries.Count > 0),
+                .Tag = If(entries.Count = 0, Nothing, entries.Select(Function(entry) entry.RelativePath).ToList())
             }
             ConfigurePrimaryButton(allButton)
             Dim content As New FlowLayoutPanel() With {
@@ -3791,7 +3830,7 @@ Namespace videoenhancer
             _pageConverter.Controls.Add(root)
         End Sub
 
-        Private Sub BuildMarkdownPage(page As Panel, markdown As String)
+        Private Function BuildMarkdownPage(page As Panel, markdown As String) As WebBrowser
             page.Dock = DockStyle.Fill
             page.BackColor = Color.Transparent
             page.Padding = New Padding(0, 8, 0, 0)
@@ -3802,6 +3841,126 @@ Namespace videoenhancer
             }
             browser.DocumentText = MarkdownDocument(markdown)
             page.Controls.Add(browser)
+            Return browser
+        End Function
+
+        Private Sub BuildModelInfoPage()
+            Dim browser = BuildMarkdownPage(_pageModelInfo, "# 模型简介")
+            Try
+                Using stream = GetType(PluginPanel).Assembly.GetManifestResourceStream("videoenhancer-model-introduction.jpg")
+                    If stream Is Nothing Then Throw New InvalidOperationException("内置模型介绍图片资源不存在")
+                    Dim bytes(CInt(stream.Length) - 1) As Byte
+                    Dim offset = 0
+                    While offset < bytes.Length
+                        Dim count = stream.Read(bytes, offset, bytes.Length - offset)
+                        If count <= 0 Then Exit While
+                        offset += count
+                    End While
+                    Dim imageHtml = "<img src='data:image/jpeg;base64," & Convert.ToBase64String(bytes) & "' alt='VideoEnhancer 模型介绍'/>"
+                    browser.DocumentText = MarkdownDocument("# 模型简介").Replace("</body>", imageHtml & "</body>")
+                End Using
+            Catch ex As Exception
+                browser.DocumentText = MarkdownDocument(
+                    "# 模型简介" & Environment.NewLine & Environment.NewLine &
+                    "模型介绍图片加载失败：`" & ex.Message & "`")
+            End Try
+        End Sub
+
+        Private Sub BuildTutorialBrowserPage()
+            Const homeUrl As String = "https://github.com/user-Wing/VideoEnhancer/blob/main/README.md"
+            _pageTutorial.Dock = DockStyle.Fill
+            _pageTutorial.BackColor = Color.Transparent
+            _pageTutorial.Padding = New Padding(12)
+
+            Dim card As New Panel With {
+                .Dock = DockStyle.Fill,
+                .BackColor = Color.FromArgb(36, 36, 40),
+                .Padding = New Padding(1)
+            }
+            Dim content As New Panel With {
+                .Dock = DockStyle.Fill,
+                .BackColor = Color.FromArgb(24, 24, 28),
+                .Padding = New Padding(14, 12, 14, 14)
+            }
+            Dim toolbar As New Panel With {
+                .Dock = DockStyle.Top,
+                .Height = 50,
+                .BackColor = Color.FromArgb(24, 24, 28),
+                .Padding = New Padding(0, 2, 0, 10)
+            }
+            Dim openButton As New ModernButton With {
+                .Text = "打开",
+                .Dock = DockStyle.Right,
+                .Width = 92,
+                .BorderRadius = 8,
+                .BackColor1 = Color.FromArgb(0, 120, 212),
+                .HoverBackColor1 = Color.FromArgb(17, 94, 163),
+                .PressedBackColor1 = Color.FromArgb(0, 91, 158),
+                .ForeColor = Color.White
+            }
+            Dim addressHost As New Panel With {
+                .Dock = DockStyle.Fill,
+                .BackColor = Color.FromArgb(52, 52, 57),
+                .Padding = New Padding(12, 7, 12, 5),
+                .Margin = New Padding(0, 0, 10, 0)
+            }
+            Dim address As New TextBox With {
+                .Dock = DockStyle.Fill,
+                .Text = homeUrl,
+                .BorderStyle = BorderStyle.None,
+                .BackColor = Color.FromArgb(52, 52, 57),
+                .ForeColor = Color.FromArgb(238, 238, 240),
+                .Font = New Font("Microsoft YaHei UI", 10.0F)
+            }
+            Dim browser As New WebBrowser With {
+                .Dock = DockStyle.Fill,
+                .AllowWebBrowserDrop = False,
+                .IsWebBrowserContextMenuEnabled = True,
+                .WebBrowserShortcutsEnabled = True,
+                .ScriptErrorsSuppressed = True,
+                .ScrollBarsEnabled = True
+            }
+
+            Dim navigate As Action =
+                Sub()
+                    Dim target = address.Text.Trim()
+                    If String.IsNullOrWhiteSpace(target) Then target = homeUrl
+                    If Not target.Contains("://") Then target = "https://" & target
+                    Dim uri As Uri = Nothing
+                    If Not Uri.TryCreate(target, UriKind.Absolute, uri) OrElse
+                       (uri.Scheme <> Uri.UriSchemeHttp AndAlso uri.Scheme <> Uri.UriSchemeHttps) Then
+                        ShowStatus("请输入有效的 http/https 网页地址", True)
+                        Return
+                    End If
+                    address.Text = uri.AbsoluteUri
+                    browser.Navigate(uri)
+                End Sub
+
+            AddHandler openButton.Click, Sub(sender, e) navigate()
+            AddHandler address.KeyDown,
+                Sub(sender, e)
+                    If e.KeyCode = Keys.Enter Then
+                        e.SuppressKeyPress = True
+                        navigate()
+                    End If
+                End Sub
+            AddHandler browser.Navigated,
+                Sub(sender, e)
+                    If browser.Url IsNot Nothing Then address.Text = browser.Url.AbsoluteUri
+                End Sub
+            AddHandler browser.Navigating,
+                Sub(sender, e)
+                    If e.Url IsNot Nothing Then address.Text = e.Url.AbsoluteUri
+                End Sub
+
+            addressHost.Controls.Add(address)
+            toolbar.Controls.Add(addressHost)
+            toolbar.Controls.Add(openButton)
+            content.Controls.Add(browser)
+            content.Controls.Add(toolbar)
+            card.Controls.Add(content)
+            _pageTutorial.Controls.Add(card)
+            browser.Navigate(homeUrl)
         End Sub
 
         Private Shared Function MarkdownDocument(markdown As String) As String
@@ -3837,6 +3996,7 @@ Namespace videoenhancer
                 "h2{font-size:16px;font-weight:400;color:#d0d0d0;margin:18px 0 8px;}h3{font-size:15px;color:#c8c8c8;}" &
                 "p,li{font-size:13px;line-height:1.65;}p{margin:4px 0 10px;}ul{padding:0 0 0 24px;margin:4px 0 12px;}" &
                 "li{padding:2px 0;}strong{color:#dcdcdc}code{background:#383838;padding:3px 6px;border-radius:5px;color:#9bc8ff}a{color:#479cff;}" &
+                "img{display:block;max-width:100%;height:auto;margin:18px auto;border-radius:8px;}" &
                 "::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#181818}::-webkit-scrollbar-thumb{background:#484848;border-radius:4px}</style></head><body>" &
                 body.ToString() & "</body></html>"
         End Function
@@ -3845,6 +4005,7 @@ Namespace videoenhancer
             Dim value = System.Net.WebUtility.HtmlEncode(If(text, ""))
             value = Regex.Replace(value, "\*\*(.+?)\*\*", "<strong>$1</strong>")
             value = Regex.Replace(value, "`(.+?)`", "<code>$1</code>")
+            value = Regex.Replace(value, "!\[(.*?)\]\((https?://[^\s)]+)\)", "<img src='$2' alt='$1'/>")
             value = Regex.Replace(value, "\[(.+?)\]\((https?://[^\s)]+)\)", "<a href='$2'>$1</a>")
             Return value
         End Function
@@ -4076,7 +4237,7 @@ Namespace videoenhancer
             Dim converter = Path.Combine(coreRoot, "python", "backend", "convert_tensorrt.py")
             Dim outputDir = GetPersonalizedTensorRtDirectory()
             If Not File.Exists(pythonExe) OrElse Not File.Exists(converter) Then
-                SetConverterStatus("找不到便携 Python 或 convert_tensorrt.py，请检查 videoenhancer.exe 的 core-path。", True)
+                SetConverterStatus("找不到便携 Python 或 convert_tensorrt.py，请确认核心组件位于 videoenhancer.exe 同级目录。", True)
                 Return
             End If
 
@@ -4129,25 +4290,8 @@ Namespace videoenhancer
         End Function
 
         Private Function ResolveCoreRoot() As String
-            Dim exeDir = If(File.Exists(_config.ExePath), Path.GetDirectoryName(_config.ExePath), AppDomain.CurrentDomain.BaseDirectory)
-            Dim iniPath = Path.Combine(exeDir, "videoenhancer.ini")
-            Try
-                If File.Exists(iniPath) Then
-                    For Each rawLine In File.ReadLines(iniPath)
-                        Dim line = rawLine.Trim()
-                        If line.StartsWith("core-path", StringComparison.OrdinalIgnoreCase) Then
-                            Dim equalsAt = line.IndexOf("="c)
-                            If equalsAt >= 0 Then
-                                Dim value = line.Substring(equalsAt + 1).Trim().Trim(""""c)
-                                If Not Path.IsPathRooted(value) Then value = Path.GetFullPath(Path.Combine(exeDir, value))
-                                If Directory.Exists(value) Then Return value
-                            End If
-                        End If
-                    Next
-                End If
-            Catch
-            End Try
-            Return exeDir
+            Dim exePath = PluginConfig.ResolveInstalledExePath(_config.ExePath)
+            Return If(File.Exists(exePath), Path.GetDirectoryName(exePath), AppDomain.CurrentDomain.BaseDirectory)
         End Function
 
         Private Function GetPersonalizedTensorRtDirectory() As String
@@ -4463,7 +4607,7 @@ Namespace videoenhancer
             If _cmbBackend.Items.Count = 0 Then
                 Return
             End If
-            _cmbBackend.SelectedIndex = If(_config.Backend = "flashvsr", 4, If(_config.Backend = "onnx", 3, If(_config.Backend = "tensorrt", 2, If(_config.Backend = "cuda", 1, 0))))
+            _cmbBackend.SelectedIndex = If(_config.Backend = "basicvsrpp", 5, If(_config.Backend = "flashvsr", 4, If(_config.Backend = "onnx", 3, If(_config.Backend = "tensorrt", 2, If(_config.Backend = "cuda", 1, 0)))))
         End Sub
 
         ''' <summary>把配置的补帧倍率同步到下拉框（2/3/4/8）。</summary>

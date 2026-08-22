@@ -1749,7 +1749,7 @@ Namespace videoenhancer
 
         Private Sub StartEncode(inputs As List(Of String), outputPath As String)
             If _ffmpeg = "" Then
-                SetStatusText("未找到 ffmpeg（请先启用 videoenhancer.exe 并配置 core-path）", True)
+                SetStatusText("未找到 ffmpeg（请确认 videoenhancer.exe 同级已安装 bin 核心组件）", True)
                 Return
             End If
             Dim w As Integer = 0
@@ -2061,28 +2061,7 @@ Namespace videoenhancer
                 If exeDir = "" Then
                     exeDir = Environment.CurrentDirectory
                 End If
-                Dim core As String = ""
-                Try
-                    Dim ini = System.IO.Path.Combine(exeDir, "videoenhancer.ini")
-                    If File.Exists(ini) Then
-                        For Each line In File.ReadAllLines(ini)
-                            If line.TrimStart().StartsWith("core-path=", StringComparison.OrdinalIgnoreCase) Then
-                                Dim idx = line.IndexOf("="c)
-                                If idx >= 0 Then
-                                    Dim v = line.Substring(idx + 1).Trim()
-                                    v = v.Trim(Convert.ToChar(34))
-                                    If v.Length > 0 Then
-                                        core = v
-                                    End If
-                                End If
-                            End If
-                        Next
-                    End If
-                Catch
-                End Try
-                If core = "" Then
-                    core = exeDir
-                End If
+                Dim core As String = exeDir
                 Dim ff1 = System.IO.Path.Combine(core, "bin", "ffmpeg", "ffmpeg.exe")
                 Dim ff2 = System.IO.Path.Combine(core, "bin", "ffmpeg.exe")
                 If File.Exists(ff1) Then

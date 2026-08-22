@@ -12,7 +12,7 @@ if (Test-Path -LiteralPath $stage) {
 # 单文件自包含发布
 dotnet publish $proj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $stage
 
-# 只复制单个 exe 到当前 1.3 发布目录
+# 只复制单个 exe 到当前 1.4 发布目录
 $exe = Join-Path $stage 'videoenhancer.exe'
 $dest = Join-Path $releaseRoot 'videoenhancer.exe'
 Copy-Item -LiteralPath $exe -Destination $dest -Force

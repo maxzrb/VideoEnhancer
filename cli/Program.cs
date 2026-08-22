@@ -446,6 +446,8 @@ internal static class Program
             return ListRemoteModels(o.Json);
         }
 
+        MigrateLegacyFfmpegLayout();
+
         if (o.CleanDownloadArchives)
         {
             return CleanDownloadArchives();
@@ -997,6 +999,7 @@ internal static class Program
     {
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("VideoEnhancer/" + ToolVersion);
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         var json = client.GetStringAsync(ModelScopeTreeApi).GetAwaiter().GetResult();
         using var document = JsonDocument.Parse(json);
         var files = document.RootElement.GetProperty("Data").GetProperty("Files");
@@ -1018,6 +1021,25 @@ internal static class Program
                 file.TryGetProperty("Sha256", out var hash) ? hash.GetString() ?? "" : ""));
         }
         return result.OrderBy(m => m.Path, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static bool IsNetworkFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is HttpRequestException or TaskCanceledException or TimeoutException)
+                return true;
+        }
+        return false;
+    }
+
+    private static void WriteRemoteFailure(string operation, Exception exception)
+    {
+        if (IsNetworkFailure(exception))
+            Console.Error.WriteLine("NO_NETWORK|无法连接 ModelScope");
+        else
+            Console.Error.WriteLine("REMOTE_ERROR|ModelScope 返回的数据无法解析");
+        Console.Error.WriteLine($"[错误] {operation}：{exception.Message}");
     }
 
     private static int ListRemoteModels(bool json)
@@ -1052,8 +1074,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("NO_NETWORK|当前无网络");
-            Console.Error.WriteLine("[错误] 无法读取模型列表：" + ex.Message);
+            WriteRemoteFailure("无法读取模型列表", ex);
             return 3;
         }
     }
@@ -1067,8 +1088,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("NO_NETWORK|当前无网络");
-            Console.Error.WriteLine("[错误] 无法连接模型镜像：" + ex.Message);
+            WriteRemoteFailure("无法连接模型镜像", ex);
             return 3;
         }
 
@@ -1178,6 +1198,47 @@ internal static class Program
         if (failures.Count == 0) return 0;
         foreach (var failure in failures) Console.Error.WriteLine("[清理失败] " + failure);
         return 2;
+    }
+
+    /// <summary>把旧下载逻辑生成的 models 下 FFmpeg 目录迁移到标准 bin 目录。</summary>
+    private static void MigrateLegacyFfmpegLayout()
+    {
+        if (File.Exists(FfmpegExe))
+        {
+            return;
+        }
+
+        var targetRoot = Path.Combine(CoreRoot, "bin", "ffmpeg");
+        var legacyRoots = new[]
+        {
+            Path.Combine(CoreRoot, "models", "ffmpeg"),
+            Path.Combine(CoreRoot, "models", "Bin", "ffmpeg"),
+        };
+        foreach (var legacyRoot in legacyRoots)
+        {
+            var legacyFfmpeg = Path.Combine(legacyRoot, "ffmpeg.exe");
+            if (!File.Exists(legacyFfmpeg))
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(legacyRoot, "*", SearchOption.AllDirectories))
+                {
+                    var relative = Path.GetRelativePath(legacyRoot, file);
+                    var destination = Path.Combine(targetRoot, relative);
+                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                    File.Copy(file, destination, overwrite: false);
+                }
+                Console.WriteLine("[兼容] 已将旧位置的 FFmpeg 迁移到：" + targetRoot);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[警告] FFmpeg 旧目录迁移失败，将继续使用旧路径检查：" + ex.Message);
+            }
+            return;
+        }
     }
 
     private static string EnsureEmbeddedTool(string resourceName, string fileName)

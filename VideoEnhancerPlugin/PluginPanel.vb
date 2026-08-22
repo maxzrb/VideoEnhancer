@@ -454,7 +454,7 @@ Namespace videoenhancer
         End Sub
 
         Private Sub ApplyModelList(models As List(Of String))
-            ' CLI 版本不一致或旧进程缓存时，直接从 exe 同级 models 目录补扫 TensorRT engine。
+            ' CLI 版本不一致或旧进程缓存时，从候选 models 目录补扫 TensorRT PTH/Engine。
             If models.Count = 0 AndAlso String.Equals(_config.Backend, "tensorrt", StringComparison.OrdinalIgnoreCase) Then
                 Try
                     Dim dirs = New List(Of String) From {
@@ -464,9 +464,14 @@ Namespace videoenhancer
                     }
                     For Each modelDir In dirs.Distinct(StringComparer.OrdinalIgnoreCase)
                         If Not Directory.Exists(modelDir) Then Continue For
-                        For Each p In Directory.GetFiles(modelDir, "*.engine", SearchOption.TopDirectoryOnly)
-                            Dim n = Path.GetFileNameWithoutExtension(p)
-                            If Not String.IsNullOrWhiteSpace(n) AndAlso Not models.Contains(n, StringComparer.OrdinalIgnoreCase) Then models.Add(n)
+                        For Each pattern In New String() {"*.engine", "*.pth", "*.pt", "*.pkl"}
+                            For Each p In Directory.GetFiles(modelDir, pattern, SearchOption.AllDirectories)
+                                Dim relative = Path.GetRelativePath(modelDir, p).Replace(Convert.ToChar(92), "/"c)
+                                If relative.StartsWith("RIFE/", StringComparison.OrdinalIgnoreCase) Then Continue For
+                                If relative.StartsWith("TensorRT-Cache/", StringComparison.OrdinalIgnoreCase) Then Continue For
+                                Dim n = Path.ChangeExtension(relative, Nothing)
+                                If Not String.IsNullOrWhiteSpace(n) AndAlso Not models.Contains(n, StringComparer.OrdinalIgnoreCase) Then models.Add(n)
+                            Next
                         Next
                     Next
                 Catch
@@ -486,7 +491,7 @@ Namespace videoenhancer
                     _cmbModel.SelectedIndex = 0
                 End If
                 Dim modeText = If(_config.Backend = "tensorrt",
-                    "（TensorRT，models 下的 .engine 文件）",
+                    "（TensorRT，PTH 首次使用自动构建 Engine）",
                     If(_config.Backend = "onnx",
                     "（ONNX Runtime，models 下的 .onnx 文件）",
                     If(_config.Backend = "basicvsrpp",
@@ -499,7 +504,7 @@ Namespace videoenhancer
                 ShowStatus($"已从 videoenhancer.exe 读取 {models.Count} 个可用模型 " & modeText, False)
             Else
                 If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp") AndAlso _config.UpscaleEnabled Then
-                    Dim missingExt = If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "basicvsrpp", "BasicVSR++ .pth", If(_config.Backend = "tensorrt", ".engine", If(_config.Backend = "onnx", ".onnx", ".pth"))))
+                    Dim missingExt = If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "basicvsrpp", "BasicVSR++ .pth", If(_config.Backend = "tensorrt", "PTH 或 .engine", If(_config.Backend = "onnx", ".onnx", ".pth"))))
                     _cmbModel.WaterText = "未找到 " & missingExt & " 放大模型"
                     ShowStatus("未找到 " & missingExt & " 放大模型，请确认 models 目录", True)
                     ' 保留用户选择的 TensorRT，不因一次扫描失败自动改回 NCNN。
@@ -592,7 +597,7 @@ Namespace videoenhancer
             RefreshUpscaleModels()
             RefreshInterpModels()
             Dim modeText = If(backend = "tensorrt",
-                "TensorRT（NVIDIA）：超分用 models 下的 .engine 模型（仅 N 卡）",
+                "TensorRT（NVIDIA）：可选 PTH 或预制 Engine；缓存缺失时按 GPU、TensorRT 版本和输入尺寸自动构建",
                 If(backend = "onnx",
                 "ONNX Runtime：超分用 models 下的 .onnx 模型，自动优先 CUDA",
                 If(backend = "basicvsrpp",

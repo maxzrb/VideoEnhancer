@@ -9,6 +9,10 @@
 [Pp]ublish/
 .publish/
 
+# 本地回退归档与 Python 运行缓存不进入功能提交
+/archive/
+**/__pycache__/
+
 # Root build artifacts
 /videoenhancer.exe
 /videoenhancer.3fui.dll

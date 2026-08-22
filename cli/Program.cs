@@ -16,7 +16,7 @@ namespace VideoEnhancer;
 /// </summary>
 internal static class Program
 {
-    private const string ToolVersion = "1.9.2";
+    private const string ToolVersion = "1.9.6-preview.1";
     private const string EmbeddedPluginResource = "VideoEnhancer.Embedded.videoenhancer.3fui.dll";
     private const string EmbeddedAriaResource = "VideoEnhancer.Embedded.aria2-next.exe";
     private const string Embedded7ZipResource = "VideoEnhancer.Embedded.7za.exe";
@@ -472,16 +472,18 @@ internal static class Program
             o.Backend = b;
         }
 
+        // 在线列表只读取远端元数据，不依赖本地核心目录。必须在配置校验前处理，
+        // 否则无效的 core-path 会被界面误报为“当前无网络”。
+        if (o.ListDownloadModels)
+        {
+            return ListRemoteModels(o.Json);
+        }
+
         // 读取 videoenhancer.ini（第一行 core-path="<核心程序路径>"）确定核心程序根目录
         var configError = LoadCorePathConfig();
         if (configError is not null)
         {
             return Fail(configError, 1);
-        }
-
-        if (o.ListDownloadModels)
-        {
-            return ListRemoteModels(o.Json);
         }
 
         if (o.CleanDownloadArchives)
@@ -976,12 +978,13 @@ internal static class Program
     {
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("VideoEnhancer/" + ToolVersion);
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         var json = client.GetStringAsync(ModelScopeTreeApi).GetAwaiter().GetResult();
         using var document = JsonDocument.Parse(json);
         var files = document.RootElement.GetProperty("Data").GetProperty("Files");
         var result = new List<RemoteModel>();
         var allowedRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "Backend", "ONNX", "Param-Bin", "RIFE", "PTH" };
+            { "Backend", "Bin", "FlashVSR", "ONNX", "Param-Bin", "RIFE", "PTH", "TensorRT-Default" };
         foreach (var file in files.EnumerateArray())
         {
             if (!string.Equals(file.GetProperty("Type").GetString(), "blob", StringComparison.OrdinalIgnoreCase)) continue;
@@ -997,6 +1000,25 @@ internal static class Program
                 file.TryGetProperty("Sha256", out var hash) ? hash.GetString() ?? "" : ""));
         }
         return result.OrderBy(m => m.Path, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static bool IsNetworkFailure(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is HttpRequestException or TaskCanceledException or TimeoutException)
+                return true;
+        }
+        return false;
+    }
+
+    private static void WriteRemoteFailure(string operation, Exception exception)
+    {
+        if (IsNetworkFailure(exception))
+            Console.Error.WriteLine("NO_NETWORK|无法连接 ModelScope");
+        else
+            Console.Error.WriteLine("REMOTE_ERROR|ModelScope 返回的数据无法解析");
+        Console.Error.WriteLine($"[错误] {operation}：{exception.Message}");
     }
 
     private static int ListRemoteModels(bool json)
@@ -1031,8 +1053,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("NO_NETWORK|当前无网络");
-            Console.Error.WriteLine("[错误] 无法读取模型列表：" + ex.Message);
+            WriteRemoteFailure("无法读取模型列表", ex);
             return 3;
         }
     }
@@ -1046,8 +1067,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("NO_NETWORK|当前无网络");
-            Console.Error.WriteLine("[错误] 无法连接模型镜像：" + ex.Message);
+            WriteRemoteFailure("无法连接模型镜像", ex);
             return 3;
         }
 

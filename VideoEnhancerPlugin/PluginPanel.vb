@@ -3262,10 +3262,18 @@ Namespace videoenhancer
                             If runningProcess IsNot Nothing Then
                                 Dim outputTask = runningProcess.StandardOutput.ReadToEndAsync()
                                 Dim errorTask = runningProcess.StandardError.ReadToEndAsync()
-                                runningProcess.WaitForExit(45000)
-                                stdout = outputTask.GetAwaiter().GetResult()
-                                stderr = errorTask.GetAwaiter().GetResult()
-                                exitCode = runningProcess.ExitCode
+                                If runningProcess.WaitForExit(45000) Then
+                                    stdout = outputTask.GetAwaiter().GetResult()
+                                    stderr = errorTask.GetAwaiter().GetResult()
+                                    exitCode = runningProcess.ExitCode
+                                Else
+                                    Try
+                                        runningProcess.Kill(True)
+                                    Catch
+                                    End Try
+                                    stderr = "[错误] 读取 ModelScope 模型列表超时"
+                                    exitCode = -2
+                                End If
                             End If
                         End Using
                     Catch ex As Exception
@@ -3284,8 +3292,13 @@ Namespace videoenhancer
             _downloadList.Controls.Clear()
             If exitCode <> 0 OrElse String.IsNullOrWhiteSpace(stdout) Then
                 _downloadsLoaded = False
-                _downloadOnline = False
-                ShowOfflineDownloadStatus()
+                If stderr.Contains("NO_NETWORK|", StringComparison.Ordinal) Then
+                    _downloadOnline = False
+                    ShowOfflineDownloadStatus()
+                Else
+                    _downloadOnline = True
+                    ShowStatus(CliErrorMessage(stderr, "模型列表读取失败"), True)
+                End If
                 Return
             End If
 
@@ -3301,7 +3314,7 @@ Namespace videoenhancer
                         })
                     Next
                 End Using
-                Dim categoryOrder = New String() {"ONNX", "Param-Bin", "RIFE", "PTH", "Backend"}
+                Dim categoryOrder = New String() {"Backend", "Bin", "ONNX", "Param-Bin", "FlashVSR", "RIFE", "PTH", "TensorRT-Default"}
                 For Each group In entries.GroupBy(Function(entry) DownloadCategory(entry.RelativePath)).
                         OrderBy(Function(value)
                                     Dim index = Array.FindIndex(categoryOrder, Function(name) name.Equals(value.Key, StringComparison.OrdinalIgnoreCase))
@@ -3314,6 +3327,7 @@ Namespace videoenhancer
                 ShowStatus("模型列表已更新，共 " & entries.Count & " 个文件", False)
             Catch ex As Exception
                 _downloadsLoaded = False
+                _downloadOnline = True
                 ShowStatus("模型列表格式错误：" & ex.Message, True)
             End Try
         End Sub
@@ -3487,7 +3501,7 @@ Namespace videoenhancer
             Else
                 button.Text = "重试"
                 SetDownloadActionsEnabled(True)
-                ShowStatus("模型下载失败", True)
+                ShowStatus(CliErrorMessage(result.Errors, "模型下载失败"), True)
             End If
         End Sub
 
@@ -3502,6 +3516,7 @@ Namespace videoenhancer
             SetDownloadActionsEnabled(False)
             Dim completed = 0
             Dim failed = False
+            Dim failureMessage = ""
             For Each relativePath In paths
                 Dim current = completed + 1
                 button.Text = current & "/" & paths.Count
@@ -3513,6 +3528,7 @@ Namespace videoenhancer
                     End Sub))
                 If result.ExitCode <> 0 Then
                     failed = True
+                    failureMessage = CliErrorMessage(result.Errors, "模型下载失败")
                     If result.Errors.Contains("NO_NETWORK|") Then
                         _downloadOnline = False
                         ShowOfflineDownloadStatus()
@@ -3529,7 +3545,7 @@ Namespace videoenhancer
             SetDownloadActionsEnabled(True)
             If failed Then
                 button.Text = "继续下载"
-                ShowStatus("批量下载在第 " & (completed + 1) & " 个文件处失败", True)
+                ShowStatus("批量下载在第 " & (completed + 1) & " 个文件处失败：" & failureMessage, True)
             Else
                 button.Text = "全部完成"
                 ShowStatus("该分类 " & completed & " 个文件已全部下载完成", False)
@@ -3617,7 +3633,7 @@ Namespace videoenhancer
                 emptyCard.Controls.AddRange(New Control() {emptyText, emptyHint})
                 _downloadList.Controls.Add(emptyCard)
             End If
-            _lblStatus.Text = "<font color=#E07878>当前无网络</font>"
+            _lblStatus.Text = "<font color=#E07878>无法连接 ModelScope，请检查网络或代理设置</font>"
             SetDownloadActionsEnabled(False)
         End Sub
 
@@ -4166,6 +4182,23 @@ Namespace videoenhancer
                 If Not String.IsNullOrWhiteSpace(lines(i)) Then Return lines(i).Trim()
             Next
             Return "未返回详细信息"
+        End Function
+
+        ''' <summary>从 CLI 标准错误中提取可直接展示给用户的错误正文。</summary>
+        Private Shared Function CliErrorMessage(text As String, fallback As String) As String
+            If String.IsNullOrWhiteSpace(text) Then Return fallback
+            Dim lines = text.Replace(Convert.ToChar(13), Convert.ToChar(10)).Split(Convert.ToChar(10))
+            For Each rawLine In lines
+                Dim line = rawLine.Trim()
+                If line.StartsWith("[错误]", StringComparison.Ordinal) Then
+                    Return line.Substring(4).Trim()
+                End If
+            Next
+            For Each rawLine In lines
+                Dim line = rawLine.Trim()
+                If line.Length > 0 AndAlso Not line.Contains("|") Then Return line
+            Next
+            Return fallback
         End Function
 
         ' ────────────────────────── 预览事件 / 工具 ──────────────────────────

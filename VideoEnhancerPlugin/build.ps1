@@ -46,8 +46,11 @@ $lines.Add('"-r:' + (Join-Path $hostBin 'LakeUI.dll') + '"')
 Get-ChildItem $scriptDir -Filter *.vb | Sort-Object Name | ForEach-Object { $lines.Add('"' + $_.FullName + '"') }
 $payload = Join-Path $outDir 'EmbeddedFffNativePayload.vb'
 if (Test-Path $payload) { $lines.Add('"' + $payload + '"') }
-$layoutJson = Join-Path $scriptDir '..\PluginDesigner\bin\Release\net10.0-windows\videoenhancer-layout.json'
-if (-not (Test-Path -LiteralPath $layoutJson)) { throw "layout JSON not found: $layoutJson" }
+$layoutJson = @(
+    (Join-Path $scriptDir '..\PluginDesigner\bin\Release\net10.0-windows\videoenhancer-layout.json'),
+    (Join-Path $scriptDir '..\videoenhancer-layout.json')
+) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($layoutJson)) { throw 'layout JSON not found' }
 $lines.Add('"-resource:' + $layoutJson + ',videoenhancer-layout.json"')
 
 $rsp = Join-Path $outDir 'vbc.rsp'
@@ -59,7 +62,10 @@ if ($LASTEXITCODE -ne 0) { throw 'vbc compile failed' }
 $dll = Join-Path $outDir 'videoenhancer.dll'
 $releaseDll = Join-Path (Split-Path -Parent $scriptDir) 'videoenhancer.3fui.dll'
 Copy-Item $dll $releaseDll -Force
-Copy-Item -LiteralPath $layoutJson -Destination (Join-Path (Split-Path -Parent $scriptDir) 'videoenhancer-layout.json') -Force
+$releaseLayout = Join-Path (Split-Path -Parent $scriptDir) 'videoenhancer-layout.json'
+if ([IO.Path]::GetFullPath($layoutJson) -ne [IO.Path]::GetFullPath($releaseLayout)) {
+    Copy-Item -LiteralPath $layoutJson -Destination $releaseLayout -Force
+}
 if (-not $SkipInstall) {
     $pluginDir = 'C:\Users\ARXChem\Documents\LakeUIApps\Video Enhancer GUI\Plugin'
     try {

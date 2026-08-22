@@ -37,14 +37,15 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 
 - `-i` / `--input`：输入视频路径，含空格时加双引号。
 - `-modelpath` / `--modelpath` / `--model`：放大模型（完整路径 / models 下相对路径 / 模型名），省略用默认模型。NCNN、CUDA、TensorRT 都会递归搜索 `models` 的分类子目录，并排除独立的 `models\RIFE` 补帧目录；配合 `-no-upscale` 时可不提供（仅补帧模式）。
-- `-interp-model` / `--interp-model`：补帧模型（RIFE，位于 `models\RIFE\<子文件夹>`，如 `rife-v4.25`，含 `flownet.param` / `flownet.bin`）；可与 `-modelpath` 同时使用（先补帧后放大）；`-backend cuda` 时改为 `.pth` 模型文件名（如 `rife46`）。
+- `-interp-model` / `--interp-model`：补帧模型（RIFE，位于 `models\RIFE\<子文件夹>`，如 `rife-v4.25`，含 `flownet.param` / `flownet.bin`）；可与 `-modelpath` 同时使用，顺序由 `-process-order` 决定；CUDA/TensorRT 时改为 `.pth` 模型文件名（如 `rife46`）。
 - `-interp-factor <N>`：补帧倍率（帧率倍数，默认 2，需大于 1；透传给 RIFE `--interpolate_factor`）。
 - `-interp-backend <ncnn|cuda|tensorrt>`：独立的 RIFE 后端；RIFE 支持 NCNN、CUDA/PyTorch、TensorRT（TensorRT 使用 `.pth` 并由 RVE 自动构建 Engine）。
 - `-scene-threshold <N>`：转场检测阈值，使用 RVE 官方外部 0-10 标尺，默认 4；数值越低越敏感，越容易跳过转场处的插帧，直接透传给 RVE。
 - `-dynamic-optical-flow`：开启动态光流尺度，仅 CUDA/PyTorch RIFE 有效；TensorRT 会由 RVE 自动禁用。
 - `-tile-size <N>`：超分分块边长，0 表示 RVE 默认处理（不按显存自动试探）；显式值是输入帧边长，用于降低峰值显存但会增加处理时间。支持 NCNN、CUDA/PyTorch、TensorRT；ONNX 和 FlashVSR 不使用该参数。
-- `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内逐帧执行，只进行一次最终编码且不产生整段中间视频；跨后端时才使用无损 RGB FFV1 中间视频。当前 RVE 的 SDR 内部帧为 8-bit `rgb24`，最终输出指定 10-bit 像素格式不代表 10-bit 模型推理。
-- `-backend <ncnn|cuda|tensorrt>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
+- `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内逐帧执行，只进行一次最终编码且不产生整段中间视频；跨后端时才使用无损 RGB FFV1 中间视频（SDR `gbrp10le`，HDR `gbrp16le`），任务结束后自动清理。当前 RVE 的 SDR 内部帧为 8-bit `rgb24`，最终输出指定 10-bit 像素格式不代表 10-bit 模型推理。
+- 位深与 HDR：PQ/HLG HDR 使用 16-bit `rgb48le`，且只允许 CUDA/PyTorch 或 TensorRT；NCNN、ONNX、FlashVSR 遇到 HDR 会明确报错，避免静默降为 SDR。
+- `-backend <ncnn|cuda|tensorrt|onnx|flashvsr>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
   放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），
   补帧模型使用 `models\RIFE` 下的 `.pth` 文件；超分与补帧可独立使用。
   `tensorrt` 使用 `models` 及其所有子目录中的 `.engine` 文件；NCNN 使用递归发现的 `.param/.bin` 模型文件夹。放大模型列表统一以相对 `models` 的路径显示。

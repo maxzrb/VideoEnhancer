@@ -4,7 +4,6 @@ Imports System.Diagnostics
 Imports System.Drawing
 Imports System.IO
 Imports System.Linq
-Imports System.Reflection
 Imports System.Text
 Imports System.Text.Json
 Imports System.Text.RegularExpressions
@@ -18,6 +17,98 @@ Namespace videoenhancer
     ''' <summary>"视频超分"插件页面：插件总开关 + 超分/补帧两行开关与模型选择 + 状态信息。</summary>
     Public Class PluginPanel
         Inherits UserControl
+
+        ' 透明布局仍由 WinForms 负责尺寸计算，但在单个缓冲表面提交，
+        ' 避免窗口缩放时逐层擦除后再请求 LakeUI 背景源重画。
+        Private NotInheritable Class BufferedTableLayoutPanel
+            Inherits TableLayoutPanel
+
+            Public Sub New()
+                SetStyle(ControlStyles.SupportsTransparentBackColor Or
+                    ControlStyles.AllPaintingInWmPaint Or
+                    ControlStyles.OptimizedDoubleBuffer, True)
+                DoubleBuffered = True
+                ResizeRedraw = False
+                UpdateStyles()
+            End Sub
+        End Class
+
+        ' 参照 3FUI 参数页的普通 Panel 布局：正数为固定宽度，负数为剩余空间权重。
+        ' 这里只计算子控件边界，不额外创建透明绘图层。
+        Private NotInheritable Class HorizontalLayoutPanel
+            Inherits Panel
+
+            Private ReadOnly _columns As Single()
+            Private ReadOnly _columnByControl As New Dictionary(Of Control, Integer)()
+
+            Public Sub New(ParamArray columns As Single())
+                _columns = columns
+                Margin = Padding.Empty
+                Padding = Padding.Empty
+                ResizeRedraw = False
+            End Sub
+
+            Public Sub AddColumn(control As Control, columnIndex As Integer)
+                control.Dock = DockStyle.None
+                _columnByControl(control) = columnIndex
+                Controls.Add(control)
+            End Sub
+
+            Protected Overrides Sub OnLayout(levent As LayoutEventArgs)
+                MyBase.OnLayout(levent)
+                If _columns.Length = 0 Then Return
+
+                Dim fixedWidth As Single = 0
+                Dim totalWeight As Single = 0
+                For Each column In _columns
+                    If column >= 0 Then
+                        fixedWidth += column
+                    Else
+                        totalWeight += -column
+                    End If
+                Next
+
+                Dim available = Math.Max(0.0F, CSng(ClientSize.Width) - fixedWidth)
+                Dim left As Integer = 0
+                Dim widths(_columns.Length - 1) As Integer
+                For index = 0 To _columns.Length - 1
+                    Dim width = If(_columns(index) >= 0,
+                        _columns(index),
+                        If(totalWeight > 0, available * (-_columns(index)) / totalWeight, 0.0F))
+                    widths(index) = If(index = _columns.Length - 1,
+                        Math.Max(0, ClientSize.Width - left),
+                        Math.Max(0, CInt(Math.Round(width))))
+                    left += widths(index)
+                Next
+
+                left = 0
+                For index = 0 To widths.Length - 1
+                    For Each pair In _columnByControl
+                        If pair.Value <> index Then Continue For
+                        Dim margin = pair.Key.Margin
+                        If pair.Key.Anchor = AnchorStyles.None Then
+                            ' BooleanSwitch 等定尺寸控件保持 DPI 尺寸并在列内居中，避免被拉成圆形。
+                            Dim controlWidth = Math.Min(pair.Key.Width,
+                                Math.Max(0, widths(index) - margin.Horizontal))
+                            Dim controlHeight = Math.Min(pair.Key.Height,
+                                Math.Max(0, ClientSize.Height - margin.Vertical))
+                            pair.Key.SetBounds(
+                                left + Math.Max(0, (widths(index) - controlWidth) \ 2),
+                                Math.Max(0, (ClientSize.Height - controlHeight) \ 2),
+                                controlWidth,
+                                controlHeight)
+                        Else
+                            pair.Key.SetBounds(
+                                left + margin.Left,
+                                margin.Top,
+                                Math.Max(0, widths(index) - margin.Horizontal),
+                                Math.Max(0, ClientSize.Height - margin.Vertical))
+                        End If
+                    Next
+                    left += widths(index)
+                Next
+            End Sub
+        End Class
 
         ' 与官方 API 示例插件保持一致：#181818 背景、半透明灰控件、低饱和文字和单一蓝色强调。
         Private Shared ReadOnly UiCanvas As Color = Color.FromArgb(24, 24, 24)
@@ -74,15 +165,17 @@ Namespace videoenhancer
         Private _uiReady As Boolean = False
         ' ── 选项卡分栏：超分主界面 / 实时预览 / 高级功能 / 模型转换器 ──
         Private ReadOnly _tabs As New ModernTabControl()
-        ' 3FUI 会优先按字段名反射并绑定个性化背景；必须是稳定字段，不能只在 InitializeUi 中用局部变量。
+        ' 3FUI 通过字段名和控件名 ModernPanel1 绑定 LakeUI 背景穿透缓存。
         Private ReadOnly ModernPanel1 As New ModernPanel()
-        Private ReadOnly _pageUpscale As New Panel()
+        Private ReadOnly _pageUpscale As New ModernPanel()
         Private ReadOnly _pagePreview As New Panel()
         Private ReadOnly _pageAdvanced As New Panel()
         Private ReadOnly _pageDownloader As New Panel()
         Private ReadOnly _pageConverter As New Panel()
         Private ReadOnly _pageModelInfo As New Panel()
         Private ReadOnly _pageTutorial As New Panel()
+        Private ReadOnly _markdownSources As New Dictionary(Of Panel, String)()
+        Private ReadOnly _markdownReady As New HashSet(Of Panel)()
         ' ── 独立图片超分页（位于超分主界面内）──
         Private ReadOnly _btnImageFiles As New ModernButton()
         Private ReadOnly _btnImageFolder As New ModernButton()
@@ -122,7 +215,9 @@ Namespace videoenhancer
         Private _convertInputPath As String = ""
         Private _conversionRunning As Boolean = False
         ' ── 模型下载页 ──
-        Private ReadOnly _downloadList As New FlowLayoutPanel()
+        Private Const DownloadActionColumn As Integer = 3
+        Private Const MaxParallelDownloads As Integer = 3
+        Private ReadOnly _downloadList As New UltraDetailListView()
         Private ReadOnly _btnRefreshDownloads As New ModernButton()
         Private ReadOnly _btnCleanArchives As New ModernButton()
         Private _downloadsLoaded As Boolean = False
@@ -130,13 +225,22 @@ Namespace videoenhancer
         Private _downloadOnline As Boolean = True
         Private _archiveCleanupBusy As Boolean = False
         Private _downloadActiveCount As Integer = 0
+        Private _downloadActionsEnabled As Boolean = True
+        Private _downloadListConfigured As Boolean = False
         Private ReadOnly _activeDownloadPaths As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-        Private _downloadScrollResetPending As Boolean = False
+        Private ReadOnly _activeDownloadGroups As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        Private ReadOnly _downloadItemsByPath As New Dictionary(Of String, UltraDetailListView.ListItem)(StringComparer.OrdinalIgnoreCase)
+        Private ReadOnly _downloadGroupItems As New Dictionary(Of String, UltraDetailListView.ListItem)(StringComparer.OrdinalIgnoreCase)
         Private NotInheritable Class DownloadModelEntry
             Public Property Name As String
             Public Property RelativePath As String
             Public Property Size As Long
             Public Property Installed As Boolean
+        End Class
+        Private NotInheritable Class DownloadListRowTag
+            Public Property Entry As DownloadModelEntry
+            Public Property Category As String
+            Public Property BatchPaths As List(Of String)
         End Class
         Private NotInheritable Class DownloadExecutionResult
             Public Property ExitCode As Integer = -1
@@ -150,19 +254,12 @@ Namespace videoenhancer
         Private _quadForm As QuadGridForm
         Private _engine As PreviewEngine
         Private _lastPreviewImage As Image
-        Private _hostForm As Form
-        Private _lastHostWindowState As FormWindowState = FormWindowState.Normal
-        Private _restoreRedrawPending As Boolean
-
         ''' <summary>插件面板实例（编码队列右键「预览输出」等外部入口使用）。</summary>
         Friend Shared Current As PluginPanel
 
         Public Sub New(config As PluginConfig, Optional previewOnly As Boolean = False)
             _config = config
             Current = Me
-            SetStyle(ControlStyles.UserPaint Or ControlStyles.AllPaintingInWmPaint Or
-                ControlStyles.OptimizedDoubleBuffer Or ControlStyles.ResizeRedraw, True)
-            UpdateStyles()
             InitializeUi()
             If previewOnly Then
                 _uiReady = True
@@ -170,57 +267,6 @@ Namespace videoenhancer
             Else
                 AddHandler Load, AddressOf OnPanelLoad
             End If
-        End Sub
-
-        Protected Overrides Sub OnHandleCreated(e As EventArgs)
-            MyBase.OnHandleCreated(e)
-            AttachHostForm()
-        End Sub
-
-        Protected Overrides Sub OnParentChanged(e As EventArgs)
-            MyBase.OnParentChanged(e)
-            AttachHostForm()
-        End Sub
-
-        ''' <summary>跟踪 3FUI 主窗体的最小化/恢复状态，恢复时触发整页同步重绘。</summary>
-        Private Sub AttachHostForm()
-            Dim form = FindForm()
-            If form Is _hostForm Then Return
-            If _hostForm IsNot Nothing Then
-                RemoveHandler _hostForm.Resize, AddressOf OnHostFormResize
-            End If
-            _hostForm = form
-            If _hostForm IsNot Nothing Then
-                _lastHostWindowState = _hostForm.WindowState
-                AddHandler _hostForm.Resize, AddressOf OnHostFormResize
-            End If
-        End Sub
-
-        Private Sub OnHostFormResize(sender As Object, e As EventArgs)
-            If _hostForm Is Nothing Then Return
-            Dim currentState = _hostForm.WindowState
-            Dim restored = _lastHostWindowState = FormWindowState.Minimized AndAlso
-                currentState <> FormWindowState.Minimized
-            _lastHostWindowState = currentState
-            If restored Then RequestRestoreRedraw()
-        End Sub
-
-        Private Sub RequestRestoreRedraw()
-            If _restoreRedrawPending OrElse IsDisposed OrElse Not IsHandleCreated Then Return
-            _restoreRedrawPending = True
-            BeginInvoke(New Action(
-                Sub()
-                    _restoreRedrawPending = False
-                    If IsDisposed OrElse _hostForm Is Nothing OrElse
-                        _hostForm.WindowState = FormWindowState.Minimized Then Return
-                    ' 一次性标记全部子控件，并在同一 UI 消息内同步提交，避免透明层逐块露出宿主壁纸。
-                    ModernPanel1.Invalidate(True)
-                    _tabs.Invalidate(True)
-                    Invalidate(True)
-                    ModernPanel1.Update()
-                    _tabs.Update()
-                    Update()
-                End Sub))
         End Sub
 
         Public ReadOnly Property IsEnabled As Boolean
@@ -815,6 +861,8 @@ Namespace videoenhancer
                                  .StandardErrorEncoding = Encoding.UTF8
                              }
                              psi.ArgumentList.Add("--check")
+                             psi.ArgumentList.Add("-backend")
+                             psi.ArgumentList.Add(_config.Backend)
                              Using p = Process.Start(psi)
                                  If p Is Nothing Then
                                      Return
@@ -865,6 +913,7 @@ Namespace videoenhancer
                 .Dock = DockStyle.Fill,
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty,
+                .BackColor = Color.Transparent,
                 .BackColor1 = Color.Transparent,
                 .BorderSize = 0,
                 .ForeColor = UiTextMuted,
@@ -876,24 +925,28 @@ Namespace videoenhancer
 
         Private Shared Function CreateOfficialField(caption As String, editor As Control,
                                                      Optional rightMargin As Integer = 12) As Control
-            Dim layout As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 1,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
+            Dim layout As New Panel With {
                 .Margin = New Padding(0, 0, rightMargin, 0),
                 .Padding = Padding.Empty
             }
-            layout.RowStyles.Add(New RowStyle(SizeType.Absolute, 28))
-            layout.RowStyles.Add(New RowStyle(SizeType.Percent, 100))
             Dim label = CreateTextLabel(caption, 9.0F, FontStyle.Regular, UiTextMuted)
-            label.Dock = DockStyle.Fill
+            label.Dock = DockStyle.None
             label.Margin = New Padding(2, 0, 2, 0)
             label.TextAlign = ContentAlignment.BottomLeft
-            editor.Dock = DockStyle.Fill
-            editor.Margin = New Padding(0, 5, 0, 5)
-            layout.Controls.Add(label, 0, 0)
-            layout.Controls.Add(editor, 0, 1)
+            editor.Dock = DockStyle.None
+            editor.AutoSize = False
+            editor.MinimumSize = New Size(0, 32)
+            editor.Margin = Padding.Empty
+            layout.Controls.Add(label)
+            layout.Controls.Add(editor)
+            Dim arrange =
+                Sub()
+                    label.SetBounds(2, 0, Math.Max(0, layout.ClientSize.Width - 4), 28)
+                    editor.SetBounds(0, 31, layout.ClientSize.Width,
+                        Math.Max(32, layout.ClientSize.Height - 34))
+                End Sub
+            AddHandler layout.Layout, Sub(sender, e) arrange()
+            arrange()
             Return layout
         End Function
 
@@ -986,6 +1039,12 @@ Namespace videoenhancer
         End Sub
 
         Private Shared Sub ConfigureCombo(combo As ModernComboBox)
+            ' AutoSize=False + 最小高度：下拉框高度完全由所在单元格决定且不小于箭头区域，
+            ' 与宿主一致（宿主下拉框固定 30px 高、Dock=Fill、Overlay 下拉）。
+            combo.AutoSize = False
+            combo.MinimumSize = New Size(0, 32)
+            combo.Dock = DockStyle.Fill
+            combo.DropDownMode = ModernComboBox.DropDownDisplayMode.Overlay
             combo.Font = New Font("Microsoft YaHei UI", 10.0F)
             combo.ForeColor = UiText
             combo.WaterTextForeColor = UiTextMuted
@@ -1012,16 +1071,6 @@ Namespace videoenhancer
             combo.DropDownSelectedForeColor = UiText
             combo.DropDownScrollBarColor = UiAccent
             combo.DropDownScrollBarTrackColor = Color.Transparent
-        End Sub
-
-        ''' <summary>为根级容器启用 WinForms 双缓冲；失败时保持 LakeUI 默认绘制路径。</summary>
-        Private Shared Sub EnableControlDoubleBuffer(control As Control)
-            Try
-                Dim propertyInfo = GetType(Control).GetProperty("DoubleBuffered",
-                    BindingFlags.Instance Or BindingFlags.NonPublic)
-                If propertyInfo IsNot Nothing Then propertyInfo.SetValue(control, True)
-            Catch
-            End Try
         End Sub
 
         Private Sub OnInterpBackendSelected(sender As Object, e As EventArgs)
@@ -1065,17 +1114,16 @@ Namespace videoenhancer
             MinimumSize = New Size(900, 680)
             Font = New Font("Microsoft YaHei UI", 10.0F)
 
-            ' 官方 API 插件约定：宿主通过名为 ModernPanel1 的 Fill 面板接入个性化背景。
+            ' 保持宿主插件契约，由 3FUI 将主窗体设置为 BackgroundSource。
             ModernPanel1.Name = "ModernPanel1"
             ModernPanel1.Dock = DockStyle.Fill
             ModernPanel1.Margin = Padding.Empty
             ModernPanel1.Padding = New Padding(24, 20, 24, 18)
-            ModernPanel1.BackColor = UiCanvas
-            ModernPanel1.BackColor1 = UiCanvas
+            ModernPanel1.BackColor = Color.Transparent
+            ModernPanel1.BackColor1 = Color.Transparent
             ModernPanel1.BorderSize = 0
             ModernPanel1.BorderRadius = 0
-            EnableControlDoubleBuffer(ModernPanel1)
-            Dim root As New TableLayoutPanel With {
+            Dim root As New BufferedTableLayoutPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 1,
                 .RowCount = 2,
@@ -1086,12 +1134,15 @@ Namespace videoenhancer
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 48.0F))
 
-            BuildTabs()
-            EnableControlDoubleBuffer(_tabs)
-            EnableControlDoubleBuffer(root)
+            _tabs.SuspendLayout()
+            Try
+                BuildTabs()
+            Finally
+                _tabs.ResumeLayout(False)
+            End Try
             root.Controls.Add(_tabs, 0, 0)
 
-            Dim sectionStatus As New TableLayoutPanel With {
+            Dim sectionStatus As New BufferedTableLayoutPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 2,
                 .RowCount = 1,
@@ -1179,12 +1230,32 @@ Namespace videoenhancer
                 "## 2. 选择处理模式" & Environment.NewLine &
                 "- 开启 **视频超分**，选择推理后端和放大模型。" & Environment.NewLine &
                 "- 开启 **运动补帧**，选择 RIFE 模型与倍率；可与超分同时开启。" & Environment.NewLine &
+                "- **组合处理顺序**只有在视频超分和运动补帧同时开启时才可选择；关闭任一功能后，该选项会自动变灰。" & Environment.NewLine &
                 "- **画质优先：先超分，再补帧。** 默认使用该顺序，同一后端在单进程内按帧完成。" & Environment.NewLine &
-                "- **速度/算力优先：先补帧，再超分。** 同后端时可使用后端原生单程管线。" & Environment.NewLine & Environment.NewLine &
-                "## 3. 加入编码队列" & Environment.NewLine &
+                "- **速度/算力优先：先补帧，再超分。** 同后端时使用后端原生单程管线；先超分再补帧时使用内置帧传递包装器，均不会生成整段中间视频。" & Environment.NewLine &
+                Environment.NewLine &
+                "## 3. 同后端与跨后端" & Environment.NewLine &
+                "- 当超分后端和补帧后端相同时，两阶段在同一个 RVE 进程内逐帧传递；最终只按一次用户选择的编码器输出，不会为改变顺序生成整段临时视频。" & Environment.NewLine &
+                "- 当两者后端不同时，程序会分成两个阶段，并在输出目录生成隐藏的 `.videoenhancer-*.mkv` 临时文件。该文件使用 RGB FFV1 无损编码：SDR 为 `gbrp10le`，检测到 PQ/HLG HDR 时为 `gbrp16le`，音频和字幕直接复制。" & Environment.NewLine &
+                "- 跨后端临时文件只在阶段切换期间存在，任务成功、失败或中止后都会自动清理；处理前仍需为它预留可用磁盘空间，4K/高帧率素材会明显增大。FFV1 是阶段间的无损传递，不是最终输出编码。" & Environment.NewLine &
+                "- 当前 RVE 2.4.1 的 SDR 帧管线固定使用 8-bit `rgb24`；最终选择 `yuv420p10le` 只控制输出编码格式，不会把内部推理提升为原生 10-bit。跨后端的 `gbrp10le` FFV1 能无损保存第一阶段已经产生的帧，但不能恢复输入在读帧时丢失的 10/12-bit 精度。" & Environment.NewLine &
+                "- PQ/HLG HDR 使用 16-bit `rgb48le` 帧管线，目前只允许 CUDA/PyTorch 或 TensorRT。NCNN、ONNX 和 FlashVSR 不具备完整 HDR 帧能力，程序会明确中止，避免静默降为 SDR。" & Environment.NewLine &
+                Environment.NewLine &
+                "## 4. 加入编码队列" & Environment.NewLine &
                 "回到 3FUI 准备文件并加入队列，插件会自动通过 CLI 中转。" & Environment.NewLine & Environment.NewLine &
-                "## 4. 查看输出" & Environment.NewLine &
+                "## 5. 查看输出" & Environment.NewLine &
                 "在 **实时预览** 查看处理中或已完成的帧；需要多视频比较时打开 **对比工作室**。")
+
+            For Each page As Panel In New Panel() {
+                _pageUpscale, _pagePreview, _pageAdvanced, _pageDownloader,
+                _pageConverter, _pageModelInfo, _pageTutorial
+            }
+                page.BackColor = Color.Transparent
+                Dim modernPage = TryCast(page, ModernPanel)
+                If modernPage IsNot Nothing Then
+                    modernPage.BackColor1 = Color.Transparent
+                End If
+            Next
 
             Dim tabMain As New ModernTabControl.ModernTab("超分工作台") With {.BoundControl = _pageUpscale}
             Dim tabPreview As New ModernTabControl.ModernTab("实时预览") With {.BoundControl = _pagePreview}
@@ -1242,48 +1313,32 @@ Namespace videoenhancer
         End Sub
 
         Private Shared Function CreateOfficialSeparator() As Control
-            Dim host As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 1,
-                .RowCount = 3,
-                .BackColor = Color.Transparent,
+            Dim host As New Panel With {
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
-            host.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            host.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
-            host.RowStyles.Add(New RowStyle(SizeType.Absolute, 1.0F))
-            host.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
-            host.Controls.Add(New Panel With {
-                .Dock = DockStyle.Fill,
-                .Margin = Padding.Empty,
+            Dim line As New Panel With {
                 .BackColor = Color.FromArgb(58, 220, 220, 220)
-            }, 0, 1)
+            }
+            line.Anchor = AnchorStyles.Left Or AnchorStyles.Right Or AnchorStyles.Top
+            host.Controls.Add(line)
+            AddHandler host.Layout,
+                Sub(sender, e)
+                    line.SetBounds(0, Math.Max(0, (host.ClientSize.Height - 1) \ 2),
+                        host.ClientSize.Width, 1)
+                End Sub
             Return host
         End Function
 
         Private Shared Function BuildOfficialModeHeader(title As String, description As String,
                                                         switchControl As LakeUI.BooleanSwitch,
                                                         stateLabel As HtmlColorLabel) As Control
-            Dim row As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 5,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
             Dim titleLabel = CreateTextLabel(title, 12.0F, FontStyle.Regular, UiText)
-            titleLabel.Dock = DockStyle.Fill
             titleLabel.Margin = Padding.Empty
             titleLabel.TextAlign = ContentAlignment.MiddleLeft
             Dim titleWidth = Math.Max(84, TextRenderer.MeasureText(title, titleLabel.Font).Width + 4)
-            row.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, CSng(titleWidth)))
-            row.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 10.0F))
-            row.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 42.0F))
-            row.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            row.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 112.0F))
-            row.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim row As New HorizontalLayoutPanel(
+                CSng(titleWidth), 10.0F, 42.0F, -1.0F, 112.0F)
             switchControl.Anchor = AnchorStyles.None
             switchControl.Margin = Padding.Empty
             Dim descriptionLabel = CreateOfficialCaption(description)
@@ -1293,66 +1348,85 @@ Namespace videoenhancer
             stateLabel.Margin = Padding.Empty
             stateLabel.AutoSize = False
             stateLabel.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleRight
-            row.Controls.Add(titleLabel, 0, 0)
-            row.Controls.Add(switchControl, 2, 0)
-            row.Controls.Add(descriptionLabel, 3, 0)
-            row.Controls.Add(stateLabel, 4, 0)
+            row.AddColumn(titleLabel, 0)
+            row.AddColumn(switchControl, 2)
+            row.AddColumn(descriptionLabel, 3)
+            row.AddColumn(stateLabel, 4)
             Return row
         End Function
+
+        Private Shared Sub AddWorkbenchControl(root As ModernPanel, control As Control,
+                                               top As Integer, height As Integer,
+                                               leftRatio As Single, rightRatio As Single,
+                                               Optional leftOffset As Integer = 0,
+                                               Optional rightOffset As Integer = 0)
+            control.Dock = DockStyle.None
+            control.Anchor = AnchorStyles.Top Or AnchorStyles.Left
+            Dim arrange =
+                Sub()
+                    Dim left = CInt(Math.Round(root.ClientSize.Width * leftRatio)) + leftOffset
+                    Dim right = CInt(Math.Round(root.ClientSize.Width * rightRatio)) + rightOffset
+                    control.SetBounds(left, top, Math.Max(0, right - left), height)
+                End Sub
+            root.Controls.Add(control)
+            AddHandler root.Layout, Sub(sender, e) arrange()
+            arrange()
+        End Sub
+
+        Private Shared Sub AddWorkbenchRow(root As ModernPanel, control As Control,
+                                           top As Integer, height As Integer)
+            AddWorkbenchControl(root, control, top, height, 0.0F, 1.0F)
+        End Sub
 
         Private Sub BuildOfficialUpscalePage()
             _pageUpscale.Dock = DockStyle.Fill
             _pageUpscale.BackColor = Color.Transparent
+            _pageUpscale.BackColor1 = Color.Transparent
+            _pageUpscale.BorderSize = 0
             _pageUpscale.Padding = Padding.Empty
+            ' 使用 LakeUI ModernPanel 原生滚动，避免 WinForms 白色非客户区滚动条。
             _pageUpscale.AutoScroll = False
+            _pageUpscale.LayoutMode = ModernPanel.LayoutModeEnum.Absolute
+            _pageUpscale.ScrollBarMode = ModernPanel.ScrollMode.Vertical
+            _pageUpscale.ScrollBarWidth = 10
+            _pageUpscale.ScrollBarTrackColor = Color.FromArgb(18, 18, 18)
+            _pageUpscale.ScrollBarThumbColor = Color.FromArgb(72, 72, 72)
+            _pageUpscale.ScrollBarThumbHoverColor = Color.FromArgb(104, 104, 104)
+            _pageUpscale.VerticalScrollStep = 48
             _pageUpscale.AllowDrop = True
             AddHandler _pageUpscale.DragEnter, AddressOf OnImageDragEnter
             AddHandler _pageUpscale.DragDrop, AddressOf OnImageDragDrop
 
-            Dim root As New TableLayoutPanel With {
-                .Dock = DockStyle.Top,
-                .Height = 586,
-                .MinimumSize = New Size(820, 586),
-                .ColumnCount = 1,
-                .RowCount = 12,
+            ' 根容器保持固定内容高度并左右锚定；窗口较小时由页面滚动承载。
+            ' 宽度交给标准 Anchor 布局事务，避免尺寸事件中强制重排整棵表格树。
+            Dim root As New ModernPanel With {
+                .Dock = DockStyle.None,
+                .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right,
+                .AutoSize = False,
+                .MinimumSize = New Size(0, 850),
+                .Height = 850,
                 .BackColor = Color.Transparent,
+                .BackColor1 = Color.Transparent,
+                .BackgroundSource = ModernPanel1,
+                .LayoutMode = ModernPanel.LayoutModeEnum.Absolute,
+                .ScrollBarMode = ModernPanel.ScrollMode.None,
+                .BorderSize = 0,
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty,
                 .AllowDrop = True
             }
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 40.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 48.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 25.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 112.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 60.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 25.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 54.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 54.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 54.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 42.0F))
             AddHandler root.DragEnter, AddressOf OnImageDragEnter
             AddHandler root.DragDrop, AddressOf OnImageDragDrop
+            root.SetBounds(0, 0, Math.Max(0,
+                _pageUpscale.ClientSize.Width - _pageUpscale.ScrollBarWidth - 2), 850)
 
             ConfigureDpiSwitch(_switchMaster)
             _switchMaster.Checked = _config.Enabled
             AddHandler _switchMaster.CheckedChanged, AddressOf OnMasterSwitchChanged
-            root.Controls.Add(BuildOfficialModeHeader(
-                "插件总开关", "", _switchMaster, _lblMaster), 0, 0)
+            AddWorkbenchRow(root, BuildOfficialModeHeader(
+                "插件总开关", "", _switchMaster, _lblMaster), 0, 40)
 
-            Dim exeRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            exeRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
-            exeRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
-            exeRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            exeRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim exeRow As New HorizontalLayoutPanel(150.0F, 12.0F, -1.0F)
             _btnPickExe.Text = "选择处理程序"
             _btnPickExe.Dock = DockStyle.Fill
             _btnPickExe.Margin = New Padding(0, 6, 0, 6)
@@ -1361,54 +1435,20 @@ Namespace videoenhancer
             _lblExe.AutoSize = False
             _lblExe.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _lblExe.ForeColor = UiText
-            exeRow.Controls.Add(_btnPickExe, 0, 0)
-            exeRow.Controls.Add(CreateOfficialValueBox(_lblExe), 2, 0)
-            root.Controls.Add(exeRow, 0, 1)
-            root.Controls.Add(CreateOfficialSeparator(), 0, 2)
+            exeRow.AddColumn(_btnPickExe, 0)
+            exeRow.AddColumn(CreateOfficialValueBox(_lblExe), 2)
+            AddWorkbenchRow(root, exeRow, 40, 48)
+            AddWorkbenchRow(root, CreateOfficialSeparator(), 88, 25)
 
-            root.Controls.Add(CreateOfficialSectionHeading(
-                "视频处理", "超分与补帧可同时开启；默认按画质优先先超分、再补帧"), 0, 3)
+            AddWorkbenchRow(root, CreateOfficialSectionHeading(
+                "视频处理", "超分与补帧可同时开启；默认按画质优先先超分、再补帧"), 113, 36)
 
-            Dim modes As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 2,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            modes.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
-            modes.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
-            modes.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-
-            Dim upscalePane As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 1,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
-                .Margin = New Padding(0, 0, 12, 0),
-                .Padding = Padding.Empty
-            }
-            upscalePane.RowStyles.Add(New RowStyle(SizeType.Absolute, 38.0F))
-            upscalePane.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             ConfigureDpiSwitch(_switchUpscale)
             _switchUpscale.Checked = _config.UpscaleEnabled
             _switchUpscale.Enabled = _config.Enabled
             AddHandler _switchUpscale.CheckedChanged, AddressOf OnUpscaleSwitchChanged
-            upscalePane.Controls.Add(BuildOfficialModeHeader(
-                "视频超分", "", _switchUpscale, _lblSwitch), 0, 0)
-            Dim upscaleFields As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 2,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            upscaleFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 46.0F))
-            upscaleFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 54.0F))
-            upscaleFields.RowStyles.Add(New RowStyle(SizeType.Percent, 52.0F))
-            upscaleFields.RowStyles.Add(New RowStyle(SizeType.Percent, 48.0F))
+            Dim upscaleHeader = BuildOfficialModeHeader(
+                "视频超分", "", _switchUpscale, _lblSwitch)
             _cmbBackend.WaterText = "选择推理方式…"
             ConfigureCombo(_cmbBackend)
             _cmbBackend.Items.Add("NCNN (Vulkan)")
@@ -1422,8 +1462,8 @@ Namespace videoenhancer
             AddHandler _cmbModel.DropDownOpened, AddressOf OnModelDropDownOpened
             AddHandler _cmbModel.Click, AddressOf OnModelComboClicked
             AddHandler _cmbModel.SelectedIndexChanged, AddressOf OnModelSelected
-            upscaleFields.Controls.Add(CreateOfficialField("推理后端", _cmbBackend), 0, 0)
-            upscaleFields.Controls.Add(CreateOfficialField("放大模型", _cmbModel, 0), 1, 0)
+            Dim upscaleBackendField = CreateOfficialField("推理后端", _cmbBackend)
+            Dim upscaleModelField = CreateOfficialField("放大模型", _cmbModel, 0)
             _cmbTileSize.WaterText = "RVE 默认（0）"
             ConfigureCombo(_cmbTileSize)
             _cmbTileSize.Items.Add("RVE 默认（0）")
@@ -1434,42 +1474,16 @@ Namespace videoenhancer
             _cmbTileSize.Items.Add("768 px")
             _cmbTileSize.Items.Add("1024 px")
             AddHandler _cmbTileSize.SelectedIndexChanged, AddressOf OnTileSizeSelected
-            upscaleFields.Controls.Add(CreateOfficialField("超分分块尺寸", _cmbTileSize), 0, 1)
+            Dim upscaleTileField = CreateOfficialField("超分分块尺寸", _cmbTileSize)
             Dim tileHint = CreateOfficialCaption("0=RVE默认；越小越省显存但更慢", UiTextMuted)
             tileHint.TextAlign = ContentAlignment.BottomLeft
-            upscaleFields.Controls.Add(tileHint, 1, 1)
-            upscalePane.Controls.Add(upscaleFields, 0, 1)
-            modes.Controls.Add(upscalePane, 0, 0)
-
-            Dim interpPane As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 1,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
-                .Margin = New Padding(12, 0, 0, 0),
-                .Padding = Padding.Empty
-            }
-            interpPane.RowStyles.Add(New RowStyle(SizeType.Absolute, 38.0F))
-            interpPane.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            tileHint.Margin = Padding.Empty
             ConfigureDpiSwitch(_switchInterp)
             _switchInterp.Checked = _config.InterpEnabled
             _switchInterp.Enabled = _config.Enabled
             AddHandler _switchInterp.CheckedChanged, AddressOf OnInterpSwitchChanged
-            interpPane.Controls.Add(BuildOfficialModeHeader(
-                "运动补帧", "", _switchInterp, _lblSwitchInterp), 0, 0)
-            Dim interpFields As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 30.0F))
-            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
-            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 20.0F))
-            interpFields.RowStyles.Add(New RowStyle(SizeType.Percent, 52.0F))
-            interpFields.RowStyles.Add(New RowStyle(SizeType.Percent, 48.0F))
+            Dim interpHeader = BuildOfficialModeHeader(
+                "运动补帧", "", _switchInterp, _lblSwitchInterp)
             _cmbInterpBackend.WaterText = "选择后端…"
             ConfigureCombo(_cmbInterpBackend)
             _cmbInterpBackend.Items.Add("NCNN (Vulkan)")
@@ -1488,9 +1502,9 @@ Namespace videoenhancer
             _cmbFactor.Items.Add("4 倍")
             _cmbFactor.Items.Add("8 倍")
             AddHandler _cmbFactor.SelectedIndexChanged, AddressOf OnFactorSelected
-            interpFields.Controls.Add(CreateOfficialField("补帧后端", _cmbInterpBackend), 0, 0)
-            interpFields.Controls.Add(CreateOfficialField("补帧模型", _cmbInterp), 1, 0)
-            interpFields.Controls.Add(CreateOfficialField("补帧倍率", _cmbFactor, 0), 2, 0)
+            Dim interpBackendField = CreateOfficialField("补帧后端", _cmbInterpBackend)
+            Dim interpModelField = CreateOfficialField("补帧模型", _cmbInterp)
+            Dim interpFactorField = CreateOfficialField("补帧倍率", _cmbFactor, 0)
             _cmbSceneThreshold.WaterText = "标准 4.0"
             ConfigureCombo(_cmbSceneThreshold)
             _cmbSceneThreshold.Items.Add("敏感 1.0")
@@ -1506,24 +1520,24 @@ Namespace videoenhancer
             _cmbDynamicOpticalFlow.Items.Add("关闭")
             _cmbDynamicOpticalFlow.Items.Add("开启")
             AddHandler _cmbDynamicOpticalFlow.SelectedIndexChanged, AddressOf OnDynamicOpticalFlowSelected
-            interpFields.Controls.Add(CreateOfficialField("转场阈值", _cmbSceneThreshold), 0, 1)
-            interpFields.Controls.Add(CreateOfficialField("动态光流尺度", _cmbDynamicOpticalFlow), 1, 1)
-            interpPane.Controls.Add(interpFields, 0, 1)
-            modes.Controls.Add(interpPane, 1, 0)
-            root.Controls.Add(modes, 0, 4)
+            Dim interpThresholdField = CreateOfficialField("转场阈值", _cmbSceneThreshold)
+            Dim interpFlowField = CreateOfficialField("动态光流尺度", _cmbDynamicOpticalFlow)
 
-            Dim orderRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
+            AddWorkbenchRow(root, upscaleHeader, 149, 38)
+            AddWorkbenchControl(root, upscaleBackendField, 187, 76, 0.0F, 0.46F, 0, -12)
+            AddWorkbenchControl(root, upscaleModelField, 187, 76, 0.46F, 1.0F)
+            AddWorkbenchControl(root, upscaleTileField, 263, 70, 0.0F, 0.46F, 0, -12)
+            AddWorkbenchControl(root, tileHint, 263, 70, 0.46F, 1.0F)
+            AddWorkbenchRow(root, interpHeader, 345, 38)
+            AddWorkbenchControl(root, interpBackendField, 383, 76, 0.0F, 0.29F, 0, -12)
+            AddWorkbenchControl(root, interpModelField, 383, 76, 0.29F, 0.76F, 0, -12)
+            AddWorkbenchControl(root, interpFactorField, 383, 76, 0.76F, 1.0F)
+            AddWorkbenchControl(root, interpThresholdField, 459, 70, 0.0F, 0.29F, 0, -12)
+            AddWorkbenchControl(root, interpFlowField, 459, 70, 0.29F, 0.76F, 0, -12)
+
+            Dim orderRow As New HorizontalLayoutPanel(150.0F, -54.0F, -46.0F) With {
+                .Margin = New Padding(0, 8, 0, 0)
             }
-            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
-            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 54.0F))
-            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 46.0F))
-            orderRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             Dim orderCaption = CreateOfficialCaption("组合处理顺序")
             orderCaption.AutoSize = False
             orderCaption.Dock = DockStyle.Fill
@@ -1534,39 +1548,28 @@ Namespace videoenhancer
             _cmbProcessOrder.WaterText = "选择组合处理顺序…"
             ConfigureCombo(_cmbProcessOrder)
             _cmbProcessOrder.Editable = False
-            _cmbProcessOrder.AutoSize = False
-            _cmbProcessOrder.Dock = DockStyle.Fill
-            _cmbProcessOrder.MinimumSize = New Size(0, 36)
+            Dim processOrderIndex = If(String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase), 1, 0)
+            _cmbProcessOrder.SelectedIndex = -1
+            _cmbProcessOrder.SelectedIndex = processOrderIndex
             _cmbProcessOrder.Margin = New Padding(0, 6, 12, 6)
             AddHandler _cmbProcessOrder.SelectedIndexChanged, AddressOf OnProcessOrderSelected
             _lblProcessOrder.AutoSize = False
             _lblProcessOrder.Dock = DockStyle.Fill
             _lblProcessOrder.Margin = Padding.Empty
             _lblProcessOrder.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            orderRow.Controls.Add(orderCaption, 0, 0)
-            orderRow.Controls.Add(_cmbProcessOrder, 1, 0)
-            orderRow.Controls.Add(_lblProcessOrder, 2, 0)
-            root.Controls.Add(orderRow, 0, 5)
-            root.Controls.Add(CreateOfficialSeparator(), 0, 6)
+            orderRow.AddColumn(orderCaption, 0)
+            orderRow.AddColumn(_cmbProcessOrder, 1)
+            orderRow.AddColumn(_lblProcessOrder, 2)
+            AddWorkbenchRow(root, orderRow, 529, 56)
+            AddWorkbenchRow(root, CreateOfficialSeparator(), 585, 25)
 
-            root.Controls.Add(CreateOfficialSectionHeading(
-                "图片增强", "沿用上方超分后端与模型，可选择文件、文件夹或直接拖入"), 0, 7)
+            AddWorkbenchRow(root, CreateOfficialSectionHeading(
+                "图片增强", "沿用上方超分后端与模型，可选择文件、文件夹或直接拖入"), 610, 36)
 
-            Dim imageInputRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 5,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty,
+            Dim imageInputRow As New HorizontalLayoutPanel(
+                150.0F, 12.0F, 170.0F, 12.0F, -1.0F) With {
                 .AllowDrop = True
             }
-            imageInputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
-            imageInputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
-            imageInputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
-            imageInputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
-            imageInputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            imageInputRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             ConfigureImageButton(_btnImageFiles, "选择图片", 150)
             ConfigureImageButton(_btnImageFolder, "选择文件夹", 170)
             _btnImageFiles.Dock = DockStyle.Fill
@@ -1578,25 +1581,14 @@ Namespace videoenhancer
             _lblImageInputs.AutoSize = False
             _lblImageInputs.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _lblImageInputs.Text = "<font color=#888888>尚未选择图片</font>"
-            imageInputRow.Controls.Add(_btnImageFiles, 0, 0)
-            imageInputRow.Controls.Add(_btnImageFolder, 2, 0)
-            imageInputRow.Controls.Add(CreateOfficialValueBox(_lblImageInputs), 4, 0)
+            imageInputRow.AddColumn(_btnImageFiles, 0)
+            imageInputRow.AddColumn(_btnImageFolder, 2)
+            imageInputRow.AddColumn(CreateOfficialValueBox(_lblImageInputs), 4)
             AddHandler imageInputRow.DragEnter, AddressOf OnImageDragEnter
             AddHandler imageInputRow.DragDrop, AddressOf OnImageDragDrop
-            root.Controls.Add(imageInputRow, 0, 8)
+            AddWorkbenchRow(root, imageInputRow, 646, 54)
 
-            Dim imageOutputRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            imageOutputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
-            imageOutputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
-            imageOutputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            imageOutputRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim imageOutputRow As New HorizontalLayoutPanel(170.0F, 12.0F, -1.0F)
             ConfigureImageButton(_btnImageOutput, "选择输出目录", 170)
             _btnImageOutput.Dock = DockStyle.Fill
             _btnImageOutput.Margin = New Padding(0, 6, 0, 6)
@@ -1607,27 +1599,12 @@ Namespace videoenhancer
             _config.ImageOutput = initialOutput
             _config.ImageOutputOriginal = String.IsNullOrWhiteSpace(initialOutput)
             AddHandler _txtImageOutput.TextChanged, AddressOf OnImageOutputTextChanged
-            imageOutputRow.Controls.Add(_btnImageOutput, 0, 0)
-            imageOutputRow.Controls.Add(_txtImageOutput, 2, 0)
-            root.Controls.Add(imageOutputRow, 0, 9)
+            imageOutputRow.AddColumn(_btnImageOutput, 0)
+            imageOutputRow.AddColumn(_txtImageOutput, 2)
+            AddWorkbenchRow(root, imageOutputRow, 700, 54)
 
-            Dim imageOptionsRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 8,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 82.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 220.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 20.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 82.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 220.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 16.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
-            imageOptionsRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim imageOptionsRow As New HorizontalLayoutPanel(
+                82.0F, 220.0F, 20.0F, 82.0F, 220.0F, -1.0F, 16.0F, 170.0F)
 
             Dim suffixLabel = CreateOfficialCaption("命名方式")
             suffixLabel.TextAlign = ContentAlignment.MiddleLeft
@@ -1659,25 +1636,14 @@ Namespace videoenhancer
             ConfigurePrimaryButton(_btnImageStart)
             AddHandler _btnImageStart.Click, AddressOf OnStartImageProcessing
 
-            imageOptionsRow.Controls.Add(suffixLabel, 0, 0)
-            imageOptionsRow.Controls.Add(_cmbImageSuffix, 1, 0)
-            imageOptionsRow.Controls.Add(formatLabel, 3, 0)
-            imageOptionsRow.Controls.Add(_cmbImageFormat, 4, 0)
-            imageOptionsRow.Controls.Add(_btnImageStart, 7, 0)
-            root.Controls.Add(imageOptionsRow, 0, 10)
+            imageOptionsRow.AddColumn(suffixLabel, 0)
+            imageOptionsRow.AddColumn(_cmbImageSuffix, 1)
+            imageOptionsRow.AddColumn(formatLabel, 3)
+            imageOptionsRow.AddColumn(_cmbImageFormat, 4)
+            imageOptionsRow.AddColumn(_btnImageStart, 7)
+            AddWorkbenchRow(root, imageOptionsRow, 754, 54)
 
-            Dim progressRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            progressRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            progressRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 16.0F))
-            progressRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 300.0F))
-            progressRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim progressRow As New HorizontalLayoutPanel(-1.0F, 16.0F, 300.0F)
             _imageProgress.Minimum = 0
             _imageProgress.Maximum = 1000
             _imageProgress.Dock = DockStyle.Fill
@@ -1690,41 +1656,14 @@ Namespace videoenhancer
             _lblImageProgress.Margin = Padding.Empty
             _lblImageProgress.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _lblImageProgress.Text = "<font color=#888888>等待开始</font>"
-            progressRow.Controls.Add(_imageProgress, 0, 0)
-            progressRow.Controls.Add(_lblImageProgress, 2, 0)
-            root.Controls.Add(progressRow, 0, 11)
-
-            ' 最小窗口保留紧凑布局；宿主窗口较高时主动拉开分区和操作行，
-            ' 避免所有控件挤在页面顶部，同时不让按钮本身变得过高。
-            Dim applyDensity As Action =
-                Sub()
-                    Dim spacious = _pageUpscale.ClientSize.Height >= 650
-                    Dim rowHeights = If(
-                        spacious,
-                         New Single() {46.0F, 56.0F, 33.0F, 42.0F, 160.0F, 68.0F, 33.0F, 42.0F, 60.0F, 60.0F, 60.0F, 46.0F},
-                         New Single() {40.0F, 48.0F, 25.0F, 36.0F, 160.0F, 60.0F, 25.0F, 36.0F, 54.0F, 54.0F, 54.0F, 42.0F})
-
-                    root.SuspendLayout()
-                    Dim totalHeight As Integer = 0
-                    For index As Integer = 0 To rowHeights.Length - 1
-                        root.RowStyles(index).Height = rowHeights(index)
-                        totalHeight += CInt(rowHeights(index))
-                    Next
-                    upscalePane.RowStyles(0).Height = If(spacious, 44.0F, 38.0F)
-                    interpPane.RowStyles(0).Height = If(spacious, 44.0F, 38.0F)
-                    upscalePane.Margin = If(spacious, New Padding(0, 0, 16, 0), New Padding(0, 0, 12, 0))
-                    interpPane.Margin = If(spacious, New Padding(16, 0, 0, 0), New Padding(12, 0, 0, 0))
-                    root.Height = totalHeight
-                    root.ResumeLayout(True)
-                End Sub
-
-            AddHandler _pageUpscale.ClientSizeChanged,
-                Sub(sender, e)
-                    applyDensity()
-                End Sub
+            progressRow.AddColumn(_imageProgress, 0)
+            progressRow.AddColumn(_lblImageProgress, 2)
+            AddWorkbenchRow(root, progressRow, 808, 42)
 
             _pageUpscale.Controls.Add(root)
-            applyDensity()
+            ' 为 LakeUI 覆盖式滚动条保留绘制带，避免子窗口覆盖父面板的 GPU 滚动条。
+            root.SetBounds(0, 0, Math.Max(0,
+                _pageUpscale.ClientSize.Width - _pageUpscale.ScrollBarWidth - 2), 850)
             UpdateModeStateLabels()
         End Sub
 
@@ -2960,22 +2899,64 @@ Namespace videoenhancer
             header.Controls.Add(_btnRefreshDownloads, 1, 0)
             root.Controls.Add(header, 0, 0)
 
-            _downloadList.Dock = DockStyle.Fill
-            _downloadList.AutoScroll = True
-            _downloadList.WrapContents = False
-            _downloadList.FlowDirection = FlowDirection.TopDown
-            _downloadList.BackColor = Color.Transparent
-            _downloadList.Margin = Padding.Empty
-            _downloadList.Padding = New Padding(0, 8, 4, 4)
-            AddHandler _downloadList.ClientSizeChanged,
-                Sub(sender, e)
-                    For Each row As Panel In _downloadList.Controls.OfType(Of Panel)()
-                        row.Width = Math.Max(360, _downloadList.ClientSize.Width - 24)
-                    Next
-                    QueueDownloadScrollWidthReset()
-                End Sub
+            ConfigureDownloadList()
             root.Controls.Add(_downloadList, 0, 1)
             _pageDownloader.Controls.Add(root)
+        End Sub
+
+        Private Sub ConfigureDownloadList()
+            If _downloadListConfigured Then Return
+            _downloadListConfigured = True
+            _downloadList.Dock = DockStyle.Fill
+            _downloadList.Margin = Padding.Empty
+            _downloadList.AutoScroll = False
+            _downloadList.Font = New Font("Microsoft YaHei UI", 9.2F)
+            _downloadList.BackColor = Color.Transparent
+            _downloadList.BackgroundColor = Color.Transparent
+            _downloadList.BackgroundSource = ModernPanel1
+            _downloadList.BorderColor = Color.Transparent
+            _downloadList.BorderSize = 0
+            _downloadList.BorderRadius = 0
+            _downloadList.HeaderVisible = True
+            _downloadList.HeaderHeight = 38
+            _downloadList.HeaderBackColor = Color.FromArgb(36, 36, 36)
+            _downloadList.HeaderForeColor = UiTextSecondary
+            _downloadList.HeaderBorderColor = Color.FromArgb(52, 52, 52)
+            _downloadList.HeaderBorderWidth = 1
+            _downloadList.AllowColumnResize = True
+            _downloadList.MultiSelect = False
+            _downloadList.AllowDragReorder = False
+            _downloadList.ItemForeColor = UiTextSecondary
+            _downloadList.ItemHoverBackColor = Color.FromArgb(48, 255, 255, 255)
+            _downloadList.ItemSelectedBackColor = Color.FromArgb(54, 71, 156, 255)
+            _downloadList.ItemCornerRadius = 4
+            _downloadList.ItemPadding = New Padding(12, 8, 10, 8)
+            _downloadList.ItemSpacing = 2
+            _downloadList.ContentPadding = New Padding(0, 4, 0, 4)
+            _downloadList.GroupHeight = 38
+            _downloadList.GroupBackColor = Color.FromArgb(31, 31, 31)
+            _downloadList.GroupForeColor = UiText
+            _downloadList.GroupBorderColor = Color.FromArgb(48, 48, 48)
+            _downloadList.ScrollBarWidth = 10
+            _downloadList.ScrollBarTrackColor = Color.FromArgb(18, 18, 18)
+            _downloadList.ScrollBarThumbColor = Color.FromArgb(72, 72, 72)
+            _downloadList.ScrollBarThumbHoverColor = Color.FromArgb(104, 104, 104)
+            _downloadList.Columns.AddRange(New UltraDetailListView.ListColumn() {
+                New UltraDetailListView.ListColumn("资源名称", 520),
+                New UltraDetailListView.ListColumn("大小", 110),
+                New UltraDetailListView.ListColumn("状态", 130),
+                New UltraDetailListView.ListColumn("操作", 138)
+            })
+            AddHandler _downloadList.ItemClick, AddressOf OnDownloadListItemClick
+            AddHandler _downloadList.ClientSizeChanged,
+                Sub(sender, e)
+                    If _downloadList.Columns.Count = 0 Then Return
+                    Dim resourceWidth = Math.Max(260, _downloadList.ClientSize.Width - 10 - 110 - 130 - 138)
+                    If _downloadList.Columns(0).Width <> resourceWidth Then
+                        _downloadList.Columns(0).Width = resourceWidth
+                        _downloadList.RefreshItems()
+                    End If
+                End Sub
         End Sub
 
         Private Sub BuildPreviewPage()
@@ -3331,41 +3312,12 @@ Namespace videoenhancer
 
         ' ────────────────────────── 模型下载页 ──────────────────────────
 
-        Private Sub QueueDownloadScrollWidthReset()
-            If _downloadScrollResetPending OrElse _downloadList.IsDisposed OrElse Not _downloadList.IsHandleCreated Then Return
-            _downloadScrollResetPending = True
-            Try
-                _downloadList.BeginInvoke(New Action(
-                    Sub()
-                        _downloadScrollResetPending = False
-                        If _downloadList.IsDisposed Then Return
-                        ' FlowLayoutPanel 会缓存窗口放大前的虚拟宽度；在本轮布局结束后
-                        ' 清空缓存，避免只需要纵向滚动时仍出现白色横向滚动条。
-                        _downloadList.AutoScrollMinSize = Size.Empty
-                        _downloadList.PerformLayout()
-                    End Sub))
-            Catch
-                _downloadScrollResetPending = False
-            End Try
-        End Sub
-
         Private Sub BuildModelDownloadPage()
             _pageDownloader.Dock = DockStyle.Fill
             _pageDownloader.BackColor = Color.Transparent
             _pageDownloader.Padding = New Padding(8, 14, 8, 10)
 
-            _downloadList.Dock = DockStyle.Fill
-            _downloadList.AutoScroll = True
-            _downloadList.WrapContents = False
-            _downloadList.FlowDirection = FlowDirection.TopDown
-            _downloadList.BackColor = Color.Transparent
-            _downloadList.Padding = New Padding(0, 4, 4, 4)
-            AddHandler _downloadList.ClientSizeChanged,
-                Sub(sender, e)
-                    For Each row As Panel In _downloadList.Controls.OfType(Of Panel)()
-                        row.Width = Math.Max(360, _downloadList.ClientSize.Width - 24)
-                    Next
-                End Sub
+            ConfigureDownloadList()
             _pageDownloader.Controls.Add(_downloadList)
 
             Dim headerHost As New Panel() With {
@@ -3420,18 +3372,7 @@ Namespace videoenhancer
             header.Controls.Add(_btnRefreshDownloads)
             _pageDownloader.Controls.Add(header)
 
-            _downloadList.Dock = DockStyle.Fill
-            _downloadList.AutoScroll = True
-            _downloadList.WrapContents = False
-            _downloadList.FlowDirection = FlowDirection.TopDown
-            _downloadList.BackColor = Color.Transparent
-            _downloadList.Padding = New Padding(0, 4, 4, 4)
-            AddHandler _downloadList.ClientSizeChanged,
-                Sub(sender, e)
-                    For Each row As Panel In _downloadList.Controls.OfType(Of Panel)()
-                        row.Width = Math.Max(320, _downloadList.ClientSize.Width - 24)
-                    Next
-                End Sub
+            ConfigureDownloadList()
             _pageDownloader.Controls.Add(_downloadList)
             ' Fill 先加入、Top 后加入，确保标题栏占位后列表填满其余区域。
             _pageDownloader.Controls.SetChildIndex(_downloadList, 0)
@@ -3444,6 +3385,23 @@ Namespace videoenhancer
             Return If(File.Exists(besideHost), besideHost, "")
         End Function
 
+        Private Sub ResetDownloadList()
+            _downloadList.Items.Clear()
+            _downloadList.Groups.Clear()
+            _downloadItemsByPath.Clear()
+            _downloadGroupItems.Clear()
+        End Sub
+
+        Private Sub AddDownloadMessage(title As String, detail As String, color As Color)
+            Dim item = New UltraDetailListView.ListItem(New UltraDetailListView.ListSubItem() {
+                New UltraDetailListView.ListSubItem(title, New Font("Microsoft YaHei UI", 9.4F, FontStyle.Bold), color),
+                New UltraDetailListView.ListSubItem(""),
+                New UltraDetailListView.ListSubItem(detail, Nothing, UiTextMuted),
+                New UltraDetailListView.ListSubItem("")
+            })
+            _downloadList.Items.Add(item)
+        End Sub
+
         Private Sub LoadDownloadModels(force As Boolean)
             If _downloadsLoading OrElse _archiveCleanupBusy OrElse _downloadActiveCount > 0 OrElse
                 (_downloadsLoaded AndAlso Not force) Then Return
@@ -3455,21 +3413,14 @@ Namespace videoenhancer
             _downloadsLoading = True
             _btnRefreshDownloads.Enabled = False
             _btnCleanArchives.Enabled = False
-            _downloadList.Controls.Clear()
-            Dim loading As New ModernPanel() With {
-                .Width = Math.Max(360, _downloadList.ClientSize.Width - 24), .Height = 72,
-                .BackColor = Color.Transparent,
-                .BackColor1 = Color.FromArgb(48, 220, 220, 220),
-                .BorderColor = Color.Transparent,
-                .BorderSize = 0,
-                .BorderRadius = 12,
-                .Margin = New Padding(0, 0, 0, 10)
-            }
-            Dim loadingText As Label = CreateTextLabel("正在同步模型资源…", 9.2F, FontStyle.Regular, UiTextSecondary)
-            loadingText.Dock = DockStyle.Fill
-            loadingText.Padding = New Padding(18, 0, 0, 0)
-            loading.Controls.Add(loadingText)
-            _downloadList.Controls.Add(loading)
+            _downloadActionsEnabled = False
+            _downloadList.BeginUpdate()
+            Try
+                ResetDownloadList()
+                AddDownloadMessage("正在同步模型资源...", "请稍候", UiTextSecondary)
+            Finally
+                _downloadList.EndUpdate()
+            End Try
 
             Task.Run(
                 Sub()
@@ -3516,49 +3467,56 @@ Namespace videoenhancer
         Private Sub RenderDownloadModels(stdout As String, stderr As String, exitCode As Integer)
             _downloadsLoading = False
             _btnRefreshDownloads.Enabled = True
-            _downloadList.Controls.Clear()
-            If exitCode <> 0 OrElse String.IsNullOrWhiteSpace(stdout) Then
-                _downloadsLoaded = False
-                If stderr.Contains("NO_NETWORK|", StringComparison.Ordinal) Then
-                    _downloadOnline = False
-                    ShowOfflineDownloadStatus()
-                Else
-                    _downloadOnline = True
-                    ShowStatus(CliErrorMessage(stderr, "模型列表读取失败"), True)
-                End If
-                Return
-            End If
-
+            _downloadActionsEnabled = True
+            _downloadList.BeginUpdate()
             Try
-                Dim entries As New List(Of DownloadModelEntry)()
-                Using document = JsonDocument.Parse(stdout.Trim())
-                    For Each item In document.RootElement.EnumerateArray()
-                        Dim name = item.GetProperty("name").GetString()
-                        Dim relativePath = item.GetProperty("path").GetString()
-                        Dim size = item.GetProperty("size").GetInt64()
-                        entries.Add(New DownloadModelEntry With {
-                            .Name = If(name, relativePath), .RelativePath = If(relativePath, ""), .Size = size,
-                            .Installed = IsDownloadInstalled(If(relativePath, ""))
-                        })
+                ResetDownloadList()
+                If exitCode <> 0 OrElse String.IsNullOrWhiteSpace(stdout) Then
+                    _downloadsLoaded = False
+                    If stderr.Contains("NO_NETWORK|", StringComparison.Ordinal) Then
+                        _downloadOnline = False
+                        ShowOfflineDownloadStatus()
+                    Else
+                        _downloadOnline = True
+                        AddDownloadMessage("模型列表读取失败", "点击右上角刷新资源重试", UiDanger)
+                        ShowStatus(CliErrorMessage(stderr, "模型列表读取失败"), True)
+                    End If
+                    Return
+                End If
+
+                Try
+                    Dim entries As New List(Of DownloadModelEntry)()
+                    Using document = JsonDocument.Parse(stdout.Trim())
+                        For Each item In document.RootElement.EnumerateArray()
+                            Dim name = item.GetProperty("name").GetString()
+                            Dim relativePath = item.GetProperty("path").GetString()
+                            Dim size = item.GetProperty("size").GetInt64()
+                            entries.Add(New DownloadModelEntry With {
+                                .Name = If(name, relativePath), .RelativePath = If(relativePath, ""), .Size = size,
+                                .Installed = IsDownloadInstalled(If(relativePath, ""))
+                            })
+                        Next
+                    End Using
+                    Dim categoryOrder = New String() {"Backend", "Bin", "ONNX", "Param-Bin", "FlashVSR", "RIFE", "PTH", "TensorRT-Default"}
+                    For Each group In entries.GroupBy(Function(entry) DownloadCategory(entry.RelativePath)).
+                            OrderBy(Function(value)
+                                        Dim index = Array.FindIndex(categoryOrder, Function(name) name.Equals(value.Key, StringComparison.OrdinalIgnoreCase))
+                                        Return If(index < 0, Integer.MaxValue, index)
+                                    End Function)
+                        AddDownloadGroup(group.Key, group.ToList())
                     Next
-                End Using
-                Dim categoryOrder = New String() {"Backend", "Bin", "ONNX", "Param-Bin", "FlashVSR", "RIFE", "PTH", "TensorRT-Default"}
-                For Each group In entries.GroupBy(Function(entry) DownloadCategory(entry.RelativePath)).
-                        OrderBy(Function(value)
-                                    Dim index = Array.FindIndex(categoryOrder, Function(name) name.Equals(value.Key, StringComparison.OrdinalIgnoreCase))
-                                    Return If(index < 0, Integer.MaxValue, index)
-                                End Function)
-                    AddDownloadGroup(group.Key, group.ToList())
-                Next
-                _downloadsLoaded = True
-                _downloadOnline = True
-                ShowStatus("模型列表已更新，共 " & entries.Count & " 个文件", False)
-            Catch ex As Exception
-                _downloadsLoaded = False
-                _downloadOnline = True
-                ShowStatus("模型列表格式错误：" & ex.Message, True)
+                    _downloadsLoaded = True
+                    _downloadOnline = True
+                    ShowStatus("模型列表已更新，共 " & entries.Count & " 个文件", False)
+                Catch ex As Exception
+                    _downloadsLoaded = False
+                    _downloadOnline = True
+                    ShowStatus("模型列表格式错误：" & ex.Message, True)
+                End Try
+                UpdateDownloadUtilityButtons()
+            Finally
+                _downloadList.EndUpdate()
             End Try
-            UpdateDownloadUtilityButtons()
         End Sub
 
         Private Shared Function DownloadCategory(relativePath As String) As String
@@ -3633,123 +3591,43 @@ Namespace videoenhancer
         End Function
 
         Private Sub AddDownloadGroup(category As String, entries As List(Of DownloadModelEntry))
-            Const headerHeight As Integer = 64
-            Const rowHeightWithGap As Integer = 52
-            Dim groupPanel As New ModernPanel() With {
-                .Width = Math.Max(360, _downloadList.ClientSize.Width - 24), .Height = headerHeight,
-                .Margin = New Padding(0, 0, 0, 10),
-                .Padding = Padding.Empty,
-                .BackColor = Color.Transparent,
-                .BackColor1 = Color.FromArgb(48, 220, 220, 220),
-                .BorderColor = Color.Transparent,
-                .BorderSize = 0,
-                .BorderRadius = 12
+            Dim group = New UltraDetailListView.ListGroup(category,
+                DownloadCategoryTitle(category) & "  ·  " & entries.Count & " 个文件") With {
+                .ForeColor = If(category.Equals("Backend", StringComparison.OrdinalIgnoreCase), UiSuccess, UiText)
             }
-            Dim header As New Panel() With {
-                .Location = New Point(0, 0), .Height = headerHeight, .Width = groupPanel.Width,
-                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty
+            _downloadList.Groups.Add(group)
+
+            Dim paths = entries.Select(Function(entry) entry.RelativePath).ToList()
+            Dim installedCount = entries.Where(Function(entry) entry.Installed).Count()
+            Dim batchItem = New UltraDetailListView.ListItem(New UltraDetailListView.ListSubItem() {
+                New UltraDetailListView.ListSubItem("本组资源"),
+                New UltraDetailListView.ListSubItem(entries.Count & " 个文件"),
+                New UltraDetailListView.ListSubItem(installedCount & "/" & entries.Count & " 已存在"),
+                New UltraDetailListView.ListSubItem(If(installedCount = entries.Count, "已全部存在", "下载本组"))
+            }) With {
+                .GroupName = category,
+                .Tag = New DownloadListRowTag With {.Category = category, .BatchPaths = paths}
             }
-            Dim categoryMark As New Label() With {
-                .Text = "●", .Location = New Point(16, 0), .Size = New Size(20, headerHeight),
-                .ForeColor = If(category.Equals("Backend", StringComparison.OrdinalIgnoreCase), UiSuccess, UiAccent),
-                .BackColor = Color.Transparent, .Font = New Font("Segoe UI Symbol", 7.0F),
-                .TextAlign = ContentAlignment.MiddleCenter
-            }
-            Dim title As New Label() With {
-                .Text = DownloadCategoryTitle(category) & "  ·  " & entries.Count & " 个文件",
-                .Location = New Point(42, 0), .Height = headerHeight, .ForeColor = UiText,
-                .Font = New Font("Microsoft YaHei UI", 10.0F, FontStyle.Bold),
-                .TextAlign = ContentAlignment.MiddleLeft, .AutoEllipsis = True
-            }
-            Dim expandButton As New ModernButton() With {
-                .Text = "展开　▼", .Size = New Size(120, 40)
-            }
-            ConfigureSecondaryButton(expandButton)
-            Dim allButton As New ModernButton() With {
-                .Text = "下载全部", .Size = New Size(160, 40),
-                .Tag = entries.Where(Function(entry) Not entry.Installed).Select(Function(entry) entry.RelativePath).ToList()
-            }
-            ConfigurePrimaryButton(allButton)
-            If entries.All(Function(entry) entry.Installed) Then
-                allButton.Text = "已全部存在"
-                allButton.Enabled = False
-            End If
-            Dim content As New FlowLayoutPanel() With {
-                .Location = New Point(0, headerHeight), .Width = groupPanel.Width,
-                .Height = Math.Max(1, entries.Count * rowHeightWithGap + 14), .Visible = False,
-                .WrapContents = False, .FlowDirection = FlowDirection.TopDown,
-                .AutoScroll = False, .BackColor = Color.Transparent, .Margin = Padding.Empty,
-                .Padding = New Padding(8, 6, 8, 8)
-            }
+            batchItem.SubItems(0).Font = New Font("Microsoft YaHei UI", 9.2F, FontStyle.Bold)
+            batchItem.SubItems(DownloadActionColumn).ForeColor = If(installedCount = entries.Count, UiTextMuted, UiAccent)
+            _downloadList.Items.Add(batchItem)
+            _downloadGroupItems(category) = batchItem
+
             For Each entry In entries
-                content.Controls.Add(CreateDownloadRow(entry, content.Width))
+                Dim item = New UltraDetailListView.ListItem(New UltraDetailListView.ListSubItem() {
+                    New UltraDetailListView.ListSubItem(entry.Name),
+                    New UltraDetailListView.ListSubItem(If(entry.Size > 0, FormatDownloadSize(entry.Size), "-")),
+                    New UltraDetailListView.ListSubItem(If(entry.Installed, "本地已安装", "未安装")),
+                    New UltraDetailListView.ListSubItem(If(entry.Installed, "已存在", "下载"))
+                }) With {
+                    .GroupName = category,
+                    .Tag = New DownloadListRowTag With {.Entry = entry, .Category = category}
+                }
+                item.SubItems(2).ForeColor = If(entry.Installed, UiSuccess, UiTextMuted)
+                item.SubItems(DownloadActionColumn).ForeColor = If(entry.Installed, UiTextMuted, UiAccent)
+                _downloadList.Items.Add(item)
+                _downloadItemsByPath(entry.RelativePath) = item
             Next
-            expandButton.Tag = New Object() {groupPanel, content}
-            AddHandler expandButton.Click, AddressOf OnToggleDownloadGroup
-            AddHandler allButton.Click, AddressOf OnDownloadAllClick
-            Dim arrangeHeader As Action =
-                Sub()
-                    allButton.Left = Math.Max(250, header.ClientSize.Width - allButton.Width - 12)
-                    allButton.Top = 12
-                    expandButton.Left = allButton.Left - expandButton.Width - 8
-                    expandButton.Top = 12
-                    title.Width = Math.Max(120, expandButton.Left - title.Left - 10)
-                    content.Width = groupPanel.ClientSize.Width
-                    For Each row As Panel In content.Controls.OfType(Of Panel)()
-                        row.Width = Math.Max(320, content.ClientSize.Width - content.Padding.Horizontal)
-                    Next
-                End Sub
-            AddHandler header.Resize, Sub(sender, e) arrangeHeader()
-            AddHandler groupPanel.Resize, Sub(sender, e) arrangeHeader()
-            header.Controls.AddRange(New Control() {categoryMark, title, expandButton, allButton})
-            groupPanel.Controls.AddRange(New Control() {header, content})
-            _downloadList.Controls.Add(groupPanel)
-            arrangeHeader()
-        End Sub
-
-        Private Function CreateDownloadRow(entry As DownloadModelEntry, rowWidth As Integer) As Panel
-            Dim row As New ModernPanel() With {
-                .Width = Math.Max(320, rowWidth), .Height = 48,
-                .Margin = New Padding(0, 0, 0, 4),
-                .Padding = Padding.Empty,
-                .BackColor = Color.Transparent,
-                .BackColor1 = Color.FromArgb(68, 8, 10, 14),
-                .BorderColor = Color.Transparent,
-                .BorderSize = 0,
-                .BorderRadius = 9
-            }
-            Dim sizeText = If(entry.Size > 0, "  ·  " & FormatDownloadSize(entry.Size), "")
-            Dim label As New Label() With {
-                .Text = entry.Name & sizeText, .ForeColor = UiTextSecondary,
-                .Dock = DockStyle.Fill, .Padding = New Padding(14, 0, 8, 0),
-                .TextAlign = ContentAlignment.MiddleLeft, .AutoEllipsis = True
-            }
-            Dim button As New ModernButton() With {
-                .Text = If(entry.Installed, "已存在", "下载"), .Dock = DockStyle.Right, .Width = 132,
-                .Margin = Padding.Empty, .Tag = entry.RelativePath
-            }
-            ConfigureSecondaryButton(button)
-            button.Enabled = Not entry.Installed
-            AddHandler button.Click, AddressOf OnDownloadModelClick
-            row.Controls.Add(label)
-            row.Controls.Add(button)
-            Return row
-        End Function
-
-        Private Sub OnToggleDownloadGroup(sender As Object, e As EventArgs)
-            Dim button = TryCast(sender, ModernButton)
-            Dim state = If(button Is Nothing, Nothing, TryCast(button.Tag, Object()))
-            If state Is Nothing OrElse state.Length < 2 Then Return
-            Dim groupPanel = TryCast(state(0), Panel)
-            Dim content = TryCast(state(1), FlowLayoutPanel)
-            If groupPanel Is Nothing OrElse content Is Nothing Then Return
-            content.Visible = Not content.Visible
-            groupPanel.Height = If(content.Visible, 64 + content.Height, 64)
-            button.Text = If(content.Visible, "收起　▲", "展开　▼")
-            _downloadList.PerformLayout()
-            QueueDownloadScrollWidthReset()
         End Sub
 
         Private Shared Function FormatDownloadSize(bytes As Long) As String
@@ -3759,121 +3637,139 @@ Namespace videoenhancer
             Return bytes & " B"
         End Function
 
-        Private Async Sub OnDownloadModelClick(sender As Object, e As EventArgs)
-            If Not _downloadOnline Then Return
-            Dim button = TryCast(sender, ModernButton)
-            If button Is Nothing OrElse button.Tag Is Nothing Then Return
+        Private Async Sub OnDownloadListItemClick(sender As Object, e As UltraDetailListView.ListItemEventArgs)
+            If e.ColumnIndex <> DownloadActionColumn OrElse e.Item Is Nothing Then Return
+            If Not _downloadActionsEnabled OrElse Not _downloadOnline OrElse _downloadsLoading OrElse _archiveCleanupBusy Then Return
+            Dim row = TryCast(e.Item.Tag, DownloadListRowTag)
+            If row Is Nothing Then Return
+            If row.Entry IsNot Nothing Then
+                Await DownloadSingleItemAsync(row.Entry)
+            ElseIf row.BatchPaths IsNot Nothing Then
+                Await DownloadGroupItemsAsync(row.Category, row.BatchPaths)
+            End If
+        End Sub
+
+        Private Async Function DownloadSingleItemAsync(entry As DownloadModelEntry) As Task
+            If entry Is Nothing OrElse entry.Installed Then Return
+            If _downloadActiveCount >= MaxParallelDownloads Then
+                ShowStatus("当前已有 3 个并行下载，请等待任一文件完成。", True)
+                Return
+            End If
             Dim exePath = DownloadExecutablePath()
             If String.IsNullOrWhiteSpace(exePath) Then Return
-            Dim relativePath = button.Tag.ToString()
+            Dim relativePath = entry.RelativePath
             If Not TryBeginDownload(relativePath) Then
                 ShowStatus("该资源正在下载，请等待当前任务完成。", True)
                 Return
             End If
-            button.Enabled = False
-            button.Text = "准备中…"
-            Dim result As DownloadExecutionResult
-            Try
-                result = Await Task.Run(Function() ExecuteModelDownload(exePath, relativePath,
-                    Sub(text)
-                        Try
-                            BeginInvoke(New Action(Sub() button.Text = text))
-                        Catch
-                        End Try
-                    End Sub))
-            Finally
-                EndDownload(relativePath)
-            End Try
+            SetDownloadRowState(relativePath, "下载中", "准备中...", UiAccent, UiAccent)
+            Dim result = Await ExecuteDownloadAsync(exePath, relativePath,
+                Sub(text)
+                    Try
+                        BeginInvoke(New Action(Sub() SetDownloadRowState(relativePath, "下载中", text, UiAccent, UiAccent)))
+                    Catch
+                    End Try
+                End Sub)
             If result.ExitCode = 0 Then
-                button.Text = "已完成"
-                button.Enabled = True
+                entry.Installed = True
+                SetDownloadRowState(relativePath, "本地已安装", "已完成", UiSuccess, UiTextMuted)
                 ShowStatus("模型下载完成：" & relativePath, False)
             ElseIf result.Errors.Contains("NO_NETWORK|") Then
-                button.Text = "下载"
+                SetDownloadRowState(relativePath, "网络中断", "重试", UiDanger, UiAccent)
                 _downloadOnline = False
                 SetDownloadActionsEnabled(False)
                 ShowOfflineDownloadStatus()
             Else
-                button.Text = "重试"
-                button.Enabled = True
+                SetDownloadRowState(relativePath, "下载失败", "重试", UiDanger, UiAccent)
                 ShowStatus(CliErrorMessage(result.Errors, "模型下载失败"), True)
             End If
-        End Sub
+            RefreshDownloadGroupSummary(DownloadCategory(relativePath))
+        End Function
 
-        Private Async Sub OnDownloadAllClick(sender As Object, e As EventArgs)
-            If Not _downloadOnline Then Return
-            Dim button = TryCast(sender, ModernButton)
-            Dim paths = If(button Is Nothing, Nothing, TryCast(button.Tag, List(Of String)))
-            If paths Is Nothing OrElse paths.Count = 0 Then Return
+        Private Async Function DownloadGroupItemsAsync(category As String, allPaths As List(Of String)) As Task
+            If allPaths Is Nothing OrElse allPaths.Count = 0 OrElse _activeDownloadGroups.Contains(category) Then Return
+            If _downloadActiveCount >= MaxParallelDownloads Then
+                ShowStatus("当前已有 3 个并行下载，请等待任一文件完成。", True)
+                Return
+            End If
+            Dim paths = allPaths.Where(Function(path)
+                Dim item As UltraDetailListView.ListItem = Nothing
+                If Not _downloadItemsByPath.TryGetValue(path, item) Then Return False
+                Dim row = TryCast(item.Tag, DownloadListRowTag)
+                Return row IsNot Nothing AndAlso row.Entry IsNot Nothing AndAlso Not row.Entry.Installed AndAlso
+                    Not _activeDownloadPaths.Contains(path)
+            End Function).ToList()
+            If paths.Count = 0 Then
+                RefreshDownloadGroupSummary(category)
+                Return
+            End If
             Dim exePath = DownloadExecutablePath()
             If String.IsNullOrWhiteSpace(exePath) Then Return
-            If Not button.Enabled Then Return
-            button.Enabled = False
+            _activeDownloadGroups.Add(category)
             Dim completed = 0
             Dim nextIndex = 0
             Dim failed = False
             Dim failureMessage = ""
-            Const maxParallel As Integer = 3
             ' 滑动窗口：始终保持最多 3 个活动下载，任一任务完成就立即补下一个。
             Dim running As New List(Of Task(Of DownloadExecutionResult))()
             Dim runningPaths As New Dictionary(Of Task(Of DownloadExecutionResult), String)()
-            While nextIndex < paths.Count OrElse running.Count > 0
-                While nextIndex < paths.Count AndAlso running.Count < maxParallel AndAlso Not failed
-                    Dim relativePath = paths(nextIndex)
-                    nextIndex += 1
-                    If Not TryBeginDownload(relativePath) Then
-                        failed = True
-                        failureMessage = "资源正在被其他下载任务占用：" & relativePath
-                        Exit While
-                    End If
-                    Dim currentPath = relativePath
-                    Dim task = ExecuteDownloadAsync(exePath, currentPath,
-                        Sub(text)
-                            If text.EndsWith("%", StringComparison.Ordinal) Then
+            Try
+                SetDownloadGroupState(category, "0/" & paths.Count & " 已完成", "下载中", UiAccent)
+                While nextIndex < paths.Count OrElse running.Count > 0
+                    While nextIndex < paths.Count AndAlso _downloadActiveCount < MaxParallelDownloads AndAlso Not failed
+                        Dim relativePath = paths(nextIndex)
+                        nextIndex += 1
+                        If Not TryBeginDownload(relativePath) Then Continue While
+                        Dim currentPath = relativePath
+                        SetDownloadRowState(currentPath, "下载中", "准备中...", UiAccent, UiAccent)
+                        Dim task = ExecuteDownloadAsync(exePath, currentPath,
+                            Sub(text)
                                 Try
                                     BeginInvoke(New Action(Sub()
-                                        button.Text = currentPath & "  " & text & "  " & completed & "/" & paths.Count
+                                        SetDownloadRowState(currentPath, "下载中", text, UiAccent, UiAccent)
                                     End Sub))
                                 Catch
                                 End Try
-                            End If
-                        End Sub)
-                    running.Add(task)
-                    runningPaths(task) = currentPath
-                End While
+                            End Sub)
+                        running.Add(task)
+                        runningPaths(task) = currentPath
+                    End While
 
-                If running.Count = 0 Then Exit While
-                Dim finished = Await Task.WhenAny(running)
-                running.Remove(finished)
-                Dim result = Await finished
-                runningPaths.Remove(finished)
-                If result.ExitCode <> 0 Then
-                    failed = True
-                    failureMessage = CliErrorMessage(result.Errors, "模型下载失败")
-                    If result.Errors.Contains("NO_NETWORK|") Then
-                        _downloadOnline = False
+                    If running.Count = 0 Then Exit While
+                    Dim finished = Await Task.WhenAny(running)
+                    running.Remove(finished)
+                    Dim finishedPath = runningPaths(finished)
+                    runningPaths.Remove(finished)
+                    Dim result = Await finished
+                    If result.ExitCode <> 0 Then
+                        failed = True
+                        failureMessage = CliErrorMessage(result.Errors, "模型下载失败")
+                        SetDownloadRowState(finishedPath, "下载失败", "重试", UiDanger, UiAccent)
+                        If result.Errors.Contains("NO_NETWORK|") Then _downloadOnline = False
+                    Else
+                        completed += 1
+                        MarkDownloadInstalled(finishedPath)
                     End If
-                Else
-                    completed += 1
-                End If
-                button.Text = completed & "/" & paths.Count
-            End While
-            If Not _downloadOnline Then ShowOfflineDownloadStatus()
+                    SetDownloadGroupState(category, completed & "/" & paths.Count & " 已完成",
+                        If(failed, "等待当前任务", "下载中"), If(failed, UiTextMuted, UiAccent))
+                End While
+            Finally
+                _activeDownloadGroups.Remove(category)
+            End Try
+
+            RefreshDownloadGroupSummary(category)
             If Not _downloadOnline Then
-                button.Text = "一键全部下载"
                 SetDownloadActionsEnabled(False)
+                ShowOfflineDownloadStatus()
                 Return
             End If
             If failed Then
-                button.Text = "继续下载"
-                button.Enabled = True
-                ShowStatus("批量下载在第 " & (completed + 1) & " 个文件处失败：" & failureMessage, True)
+                SetDownloadGroupState(category, completed & "/" & paths.Count & " 已完成", "继续下载", UiAccent)
+                ShowStatus("批量下载过程中有文件失败：" & failureMessage, True)
             Else
-                button.Text = "全部完成"
-                button.Enabled = True
                 ShowStatus("该分类 " & completed & " 个文件已全部下载完成", False)
             End If
-        End Sub
+        End Function
 
         Private Async Function ExecuteDownloadAsync(exePath As String, relativePath As String,
                                                      progress As Action(Of String)) As Task(Of DownloadExecutionResult)
@@ -3921,29 +3817,80 @@ Namespace videoenhancer
             Return result
         End Function
 
-        Private Iterator Function AllDownloadButtons(parent As Control) As IEnumerable(Of ModernButton)
-            For Each child As Control In parent.Controls
-                Dim button = TryCast(child, ModernButton)
-                If button IsNot Nothing AndAlso (TypeOf button.Tag Is String OrElse TypeOf button.Tag Is List(Of String)) Then
-                    Yield button
-                End If
-                If child.HasChildren Then
-                    For Each nested In AllDownloadButtons(child)
-                        Yield nested
-                    Next
+        Private Sub SetDownloadRowState(relativePath As String, status As String, action As String,
+                                        statusColor As Color, actionColor As Color)
+            Dim item As UltraDetailListView.ListItem = Nothing
+            If Not _downloadItemsByPath.TryGetValue(relativePath, item) Then Return
+            Dim changed = item.SubItems(2).Text <> status OrElse item.SubItems(DownloadActionColumn).Text <> action OrElse
+                item.SubItems(2).ForeColor <> statusColor OrElse item.SubItems(DownloadActionColumn).ForeColor <> actionColor
+            If Not changed Then Return
+            item.SubItems(2).Text = status
+            item.SubItems(2).ForeColor = statusColor
+            item.SubItems(DownloadActionColumn).Text = action
+            item.SubItems(DownloadActionColumn).ForeColor = actionColor
+            _downloadList.RefreshItems()
+        End Sub
+
+        Private Sub SetDownloadGroupState(category As String, status As String, action As String, actionColor As Color)
+            Dim item As UltraDetailListView.ListItem = Nothing
+            If Not _downloadGroupItems.TryGetValue(category, item) Then Return
+            item.SubItems(2).Text = status
+            item.SubItems(DownloadActionColumn).Text = action
+            item.SubItems(DownloadActionColumn).ForeColor = actionColor
+            _downloadList.RefreshItems()
+        End Sub
+
+        Private Sub MarkDownloadInstalled(relativePath As String)
+            Dim item As UltraDetailListView.ListItem = Nothing
+            If Not _downloadItemsByPath.TryGetValue(relativePath, item) Then Return
+            Dim row = TryCast(item.Tag, DownloadListRowTag)
+            If row IsNot Nothing AndAlso row.Entry IsNot Nothing Then row.Entry.Installed = True
+            SetDownloadRowState(relativePath, "本地已安装", "已完成", UiSuccess, UiTextMuted)
+        End Sub
+
+        Private Sub RefreshDownloadGroupSummary(category As String)
+            Dim item As UltraDetailListView.ListItem = Nothing
+            If Not _downloadGroupItems.TryGetValue(category, item) Then Return
+            Dim row = TryCast(item.Tag, DownloadListRowTag)
+            If row Is Nothing OrElse row.BatchPaths Is Nothing Then Return
+            Dim installed = 0
+            For Each path In row.BatchPaths
+                Dim resourceItem As UltraDetailListView.ListItem = Nothing
+                If Not _downloadItemsByPath.TryGetValue(path, resourceItem) Then Continue For
+                Dim resourceRow = TryCast(resourceItem.Tag, DownloadListRowTag)
+                If resourceRow IsNot Nothing AndAlso resourceRow.Entry IsNot Nothing AndAlso resourceRow.Entry.Installed Then
+                    installed += 1
                 End If
             Next
-        End Function
+            Dim allInstalled = installed = row.BatchPaths.Count
+            SetDownloadGroupState(category, installed & "/" & row.BatchPaths.Count & " 已存在",
+                If(allInstalled, "已全部存在", "下载本组"), If(allInstalled, UiTextMuted, UiAccent))
+        End Sub
 
         Private Sub SetDownloadActionsEnabled(enabled As Boolean)
-            For Each button In AllDownloadButtons(_downloadList)
-                button.Enabled = enabled AndAlso _downloadOnline AndAlso Not button.Text.StartsWith("已", StringComparison.Ordinal)
+            _downloadActionsEnabled = enabled
+            For Each item In _downloadList.Items
+                Dim row = TryCast(item.Tag, DownloadListRowTag)
+                If row Is Nothing Then Continue For
+                Dim available = enabled AndAlso _downloadOnline
+                If row.Entry IsNot Nothing Then
+                    item.SubItems(DownloadActionColumn).ForeColor = If(available AndAlso Not row.Entry.Installed, UiAccent, UiTextMuted)
+                ElseIf row.BatchPaths IsNot Nothing Then
+                    Dim allInstalled = row.BatchPaths.All(Function(path)
+                        Dim resourceItem As UltraDetailListView.ListItem = Nothing
+                        If Not _downloadItemsByPath.TryGetValue(path, resourceItem) Then Return False
+                        Dim resourceRow = TryCast(resourceItem.Tag, DownloadListRowTag)
+                        Return resourceRow IsNot Nothing AndAlso resourceRow.Entry IsNot Nothing AndAlso resourceRow.Entry.Installed
+                    End Function)
+                    item.SubItems(DownloadActionColumn).ForeColor = If(available AndAlso Not allInstalled, UiAccent, UiTextMuted)
+                End If
             Next
+            _downloadList.RefreshItems()
             UpdateDownloadUtilityButtons()
         End Sub
 
         Private Function TryBeginDownload(relativePath As String) As Boolean
-            If _activeDownloadPaths.Contains(relativePath) Then Return False
+            If _downloadActiveCount >= MaxParallelDownloads OrElse _activeDownloadPaths.Contains(relativePath) Then Return False
             _activeDownloadPaths.Add(relativePath)
             _downloadActiveCount += 1
             UpdateDownloadUtilityButtons()
@@ -3968,24 +3915,8 @@ Namespace videoenhancer
                 _statusClearTimer.Stop()
             Catch
             End Try
-            If _downloadList.Controls.Count = 0 Then
-                Dim emptyCard As New ModernPanel() With {
-                    .Width = Math.Max(360, _downloadList.ClientSize.Width - 24), .Height = 96,
-                    .BackColor = Color.Transparent,
-                    .BackColor1 = Color.FromArgb(48, 220, 220, 220),
-                    .BorderColor = Color.Transparent,
-                    .BorderSize = 0,
-                    .BorderRadius = 12,
-                    .Margin = New Padding(0, 0, 0, 10)
-                }
-                Dim emptyText As Label = CreateTextLabel("暂时无法连接模型镜像", 10.0F, FontStyle.Bold, UiText)
-                emptyText.Location = New Point(18, 14)
-                emptyText.Size = New Size(520, 30)
-                Dim emptyHint As Label = CreateTextLabel("检查网络连接后点击右上角的刷新资源按钮重试。", 8.8F, FontStyle.Regular, UiTextMuted)
-                emptyHint.Location = New Point(18, 46)
-                emptyHint.Size = New Size(620, 28)
-                emptyCard.Controls.AddRange(New Control() {emptyText, emptyHint})
-                _downloadList.Controls.Add(emptyCard)
+            If _downloadList.Items.Count = 0 Then
+                AddDownloadMessage("暂时无法连接模型镜像", "检查网络后刷新资源", UiDanger)
             End If
             _lblStatus.Text = "<font color=#E07878>无法连接 ModelScope，请检查网络或代理设置</font>"
             SetDownloadActionsEnabled(False)
@@ -4031,6 +3962,7 @@ Namespace videoenhancer
                     End Try
                 End Function)
             _archiveCleanupBusy = False
+            SetDownloadActionsEnabled(True)
             UpdateDownloadUtilityButtons()
             Dim complete = output.ToString().Split(New Char() {Convert.ToChar(13), Convert.ToChar(10)}, StringSplitOptions.RemoveEmptyEntries).
                 FirstOrDefault(Function(line) line.StartsWith("CLEAN_COMPLETE|", StringComparison.Ordinal))
@@ -4170,6 +4102,15 @@ Namespace videoenhancer
             page.Dock = DockStyle.Fill
             page.BackColor = Color.Transparent
             page.Padding = New Padding(0, 8, 0, 0)
+            ' WebBrowser 初始化会加载系统浏览器引擎，延迟到用户首次打开对应选项卡，
+            ' 避免两个教程页阻塞插件首屏布局。
+            _markdownSources(page) = If(markdown, "")
+        End Sub
+
+        Private Sub EnsureMarkdownPage(page As Panel)
+            If page Is Nothing OrElse _markdownReady.Contains(page) Then Return
+            Dim markdown As String = ""
+            If Not _markdownSources.TryGetValue(page, markdown) Then Return
             Dim browser As New WebBrowser With {
                 .Dock = DockStyle.Fill, .AllowWebBrowserDrop = False,
                 .IsWebBrowserContextMenuEnabled = False, .WebBrowserShortcutsEnabled = False,
@@ -4177,6 +4118,7 @@ Namespace videoenhancer
             }
             browser.DocumentText = MarkdownDocument(markdown)
             page.Controls.Add(browser)
+            _markdownReady.Add(page)
         End Sub
 
         Private Shared Function MarkdownDocument(markdown As String) As String
@@ -4720,6 +4662,11 @@ Namespace videoenhancer
             If _engine IsNot Nothing Then
                 _engine.PreviewVisible = (_tabs.SelectedIndex = 1)
             End If
+            If _tabs.SelectedIndex = 5 Then
+                EnsureMarkdownPage(_pageModelInfo)
+            ElseIf _tabs.SelectedIndex = 6 Then
+                EnsureMarkdownPage(_pageTutorial)
+            End If
             ' 切换页面时清除底部状态提示
             ClearStatus()
             _btnCleanArchives.Visible = (_tabs.SelectedIndex = 3)
@@ -4765,12 +4712,16 @@ Namespace videoenhancer
 
         Protected Overrides Sub Dispose(disposing As Boolean)
             If disposing Then
+                ' LakeUI 3.22.0 在 TabControl 隐藏时会重新显示当前绑定页。
+                ' 先解除绑定，避免父窗体销毁期间访问已经 Dispose 的 ModernPanel。
+                Try
+                    For Each tab In _tabs.Items
+                        tab.BoundControl = Nothing
+                    Next
+                Catch
+                End Try
                 If Current Is Me Then
                     Current = Nothing
-                End If
-                If _hostForm IsNot Nothing Then
-                    RemoveHandler _hostForm.Resize, AddressOf OnHostFormResize
-                    _hostForm = Nothing
                 End If
                 Try
                     _statusClearTimer.Stop()
@@ -4821,12 +4772,23 @@ Namespace videoenhancer
 
         Private Sub UpdateProcessOrderState()
             Dim combined = _config.UpscaleEnabled AndAlso _config.InterpEnabled
-            _cmbProcessOrder.Enabled = _config.Enabled
-            If String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase) Then
+            _cmbProcessOrder.Enabled = _config.Enabled AndAlso combined
+            Dim interpFirst = String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase)
+            If interpFirst Then
                 _lblProcessOrder.Text = "<font color=#B1BCCA>当前：先补帧，再超分。</font>"
             Else
                 _config.ProcessOrder = "upscale-first"
                 _lblProcessOrder.Text = "<font color=#B1BCCA>当前：先超分，再补帧。</font>"
+            End If
+            If _cmbProcessOrder.Items.Count >= 2 Then
+                Dim index = If(interpFirst, 1, 0)
+                Dim previousSync = _syncingProcessOrder
+                _syncingProcessOrder = True
+                ' LakeUI 通过 SelectedIndex 变化同步内部 SingleLineTextBoxRenderer；
+                ' 同索引赋值会被短路，因此先清空再选中，而不是直接写 Text。
+                _cmbProcessOrder.SelectedIndex = -1
+                _cmbProcessOrder.SelectedIndex = index
+                _syncingProcessOrder = previousSync
             End If
             _lblProcessOrder.Visible = combined
         End Sub

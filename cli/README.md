@@ -43,7 +43,7 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 - `-scene-threshold <N>`：转场检测阈值，使用 RVE 官方外部 0-10 标尺，默认 4；数值越低越敏感，越容易跳过转场处的插帧，直接透传给 RVE。
 - `-dynamic-optical-flow`：开启动态光流尺度，仅 CUDA/PyTorch RIFE 有效；TensorRT 会由 RVE 自动禁用。
 - `-tile-size <N>`：超分分块边长，0 表示 RVE 默认处理（不按显存自动试探）；显式值是输入帧边长，用于降低峰值显存但会增加处理时间。支持 NCNN、CUDA/PyTorch、TensorRT；ONNX 和 FlashVSR 不使用该参数。
-- `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内按帧执行，不产生整段中间视频；跨后端时才使用无损 FFV1 中间视频。
+- `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内逐帧执行，只进行一次最终编码且不产生整段中间视频；跨后端时才使用无损 RGB FFV1 中间视频。当前 RVE 的 SDR 内部帧为 8-bit `rgb24`，最终输出指定 10-bit 像素格式不代表 10-bit 模型推理。
 - `-backend <ncnn|cuda|tensorrt>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
   放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），
   补帧模型使用 `models\RIFE` 下的 `.pth` 文件；超分与补帧可独立使用。

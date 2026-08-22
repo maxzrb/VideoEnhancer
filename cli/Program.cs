@@ -22,6 +22,7 @@ internal static class Program
     private const string EmbeddedPluginResource = "VideoEnhancer.Embedded.videoenhancer.3fui.dll";
     private const string EmbeddedAriaResource = "VideoEnhancer.Embedded.aria2-next.exe";
     private const string Embedded7ZipResource = "VideoEnhancer.Embedded.7za.exe";
+    private const string EmbeddedOrderedBackendResource = "VideoEnhancer.Embedded.rve-ordered-backend.py";
     private const string ModelScopeTreeApi = "https://www.modelscope.cn/api/v1/datasets/ARXChem/VideoEnhancer-Models/repo/tree?Revision=master&Recursive=true";
     private const string ModelScopeResolveRoot = "https://www.modelscope.cn/datasets/ARXChem/VideoEnhancer-Models/resolve/master/";
 
@@ -1250,7 +1251,16 @@ internal static class Program
         var path = Path.Combine(directory, fileName);
         using var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException("内置工具资源不存在：" + fileName);
-        if (!File.Exists(path) || new FileInfo(path).Length != resource.Length)
+        var needsUpdate = !File.Exists(path);
+        if (!needsUpdate)
+        {
+            using var existing = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var resourceHash = SHA256.HashData(resource);
+            var existingHash = SHA256.HashData(existing);
+            needsUpdate = !resourceHash.AsSpan().SequenceEqual(existingHash);
+            resource.Position = 0;
+        }
+        if (needsUpdate)
         {
             using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
             resource.CopyTo(output);
@@ -1766,12 +1776,12 @@ internal static class Program
     /// <summary>构建 rve-backend.py 的命令行参数，逻辑与 GUI 的 RvePaths.BuildBackendArgs 一致。</summary>
     private static List<string> BuildBackendArgs(
         string input, string outputFile, string modelFolder, string customEncoder, bool overwrite, string? scale, string pauseShm,
-        string? interpModel, string? interpFactor, string backend,
+        string? interpModel, string? interpFactor, string backend, string? backendScript = null,
         bool dynamicOpticalFlow = false, double sceneThreshold = 4.0, int tileSize = 0)
     {
         var args = new List<string>
         {
-            BackendScript,
+            string.IsNullOrWhiteSpace(backendScript) ? BackendScript : backendScript,
             "-i", input,
             "-o", outputFile,
             "-b", backend is "cuda" or "tensorrt" ? (backend == "tensorrt" ? "tensorrt" : "pytorch") : backend,
@@ -1962,6 +1972,11 @@ internal static class Program
 
     private static readonly Regex OomHintRegex = new(
         @"MemoryError|Could not allocate bytes object|Out of memory|Cannot allocate|Unable to allocate",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex BackendFatalRegex = new(
+        @"Traceback \(most recent call last\):|Exception in thread|VIDEOENHANCER_FATAL:|"
+        + @"(?:ValueError|RuntimeError|AssertionError):|FFmpeg failed to render the video",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     /// <summary>清洗后端行：丢弃空行/纯空白行（rve-backend 用 \r 清屏产生的伪行），去除行尾空白。</summary>
@@ -2191,8 +2206,8 @@ internal static class Program
     }
 
     /// <summary>
-    /// 运行视频增强管线。后端原生双模型顺序固定为先补后超；先超后补则使用 FFV1 无损中间视频分两阶段执行。
-    /// 两种后端不同时也自动分阶段，避免把 NCNN RIFE 模型错误地交给 TensorRT/ONNX。
+    /// 运行视频增强管线。同后端组合在单进程内按帧处理；后端格式不兼容时才使用 FFV1 无损中间视频。
+    /// 这样既不把 NCNN RIFE 模型错误地交给 TensorRT/ONNX，也不让同后端任务产生整段临时视频。
     /// </summary>
     private static int RunVideoPipeline(
         string input, string outputFile, string model, string customEncoder, bool overwrite, string? scale,
@@ -2225,6 +2240,19 @@ internal static class Program
                 dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
             return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
                 interpModel, interpFactor, upscaleBackend, pauseShm, "先补帧，再超分", isFinalStage: true);
+        }
+
+        // 同后端的先超后补通过内置包装器在同一进程内交换帧处理顺序，
+        // 避免为了改变顺序把整段视频编码成临时文件。
+        if (upscaleFirst && upscaleBackend == interpBackend)
+        {
+            var orderedBackend = EnsureEmbeddedTool(
+                EmbeddedOrderedBackendResource, "rve-ordered-backend.py");
+            var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
+                pauseShm, interpModel, interpFactor, upscaleBackend, orderedBackend,
+                dynamicOpticalFlow, sceneThreshold, tileSize);
+            return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
+                interpModel, interpFactor, upscaleBackend, pauseShm, "先超分，再补帧", isFinalStage: true);
         }
 
         var outputDir = Path.GetDirectoryName(outputFile);
@@ -2393,6 +2421,8 @@ internal static class Program
         };
         psi.Environment["PYTHONUTF8"] = "1";
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
+        // 先超后补的同后端包装器需要导入核心后端目录中的 src 包。
+        psi.Environment["VIDEOENHANCER_BACKEND_DIR"] = Path.GetDirectoryName(BackendScript)!;
         foreach (var a in backendArgs)
         {
             psi.ArgumentList.Add(a);
@@ -2403,6 +2433,7 @@ internal static class Program
         var throttle = new ProgressThrottle();
         var fpsTracker = new FpsTracker(pauseShm);
         var oomHintPrinted = false;
+        var fatalBackendError = 0;
 
         // 启动前检查停止请求（用户可能在环境检测阶段就点了停止）
         if (stopWatcher is not null && stopWatcher.IsStopRequested())
@@ -2426,6 +2457,10 @@ internal static class Program
                 return;
             }
             line = fpsTracker.Rewrite(line);
+            if (BackendFatalRegex.IsMatch(line))
+            {
+                Interlocked.Exchange(ref fatalBackendError, 1);
+            }
             if (!throttle.ShouldForward(line))
             {
                 return;
@@ -2523,6 +2558,9 @@ internal static class Program
             return result;
         }
 
+        // 确保异步 stdout/stderr 回调全部排空，再判断是否出现后台线程异常。
+        process.WaitForExit();
+
         if (job != IntPtr.Zero)
         {
             try
@@ -2542,7 +2580,8 @@ internal static class Program
             && new FileInfo(outputFile).Length > 0;
         var sizeText = outputOk ? "（" + FormatSize(new FileInfo(outputFile).Length) + "）" : "";
 
-        if (exitCode == 0 || outputOk)
+        var hasFatalBackendError = Volatile.Read(ref fatalBackendError) != 0;
+        if (exitCode == 0 && !hasFatalBackendError)
         {
             Console.WriteLine(isFinalStage
                 ? "[完成] 视频增强处理成功结束。"
@@ -2551,16 +2590,15 @@ internal static class Program
             {
                 Console.WriteLine("[信息] 输出文件 : " + outputFile + " " + sizeText);
             }
-            if (exitCode != 0)
-            {
-                Console.Error.WriteLine(
-                    "[警告] 后端退出码 " + exitCode + "（非零，通常为退出时驱动/库清理问题），但输出文件已生成，可正常使用。");
-            }
             return 0;
         }
 
+        if (hasFatalBackendError)
+        {
+            Console.Error.WriteLine("[失败] 后端报告渲染异常；已有输出可能不完整，不能作为成功结果使用。");
+        }
         Console.WriteLine("[失败] rve-backend 退出码 " + exitCode + "，请查看上方错误信息。");
-        return exitCode;
+        return exitCode == 0 ? 1 : exitCode;
     }
 
     /// <summary>

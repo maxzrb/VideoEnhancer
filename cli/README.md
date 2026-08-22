@@ -44,6 +44,7 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 - `-dynamic-optical-flow`：开启动态光流尺度，仅 CUDA/PyTorch RIFE 有效；TensorRT 会由 RVE 自动禁用。
 - `-tile-size <N>`：超分分块边长，0 表示 RVE 默认处理（不按显存自动试探）；显式值是输入帧边长，用于降低峰值显存但会增加处理时间。支持 NCNN、CUDA/PyTorch、TensorRT；ONNX 和 FlashVSR 不使用该参数。
 - `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内逐帧执行，只进行一次最终编码且不产生整段中间视频；跨后端时才使用无损 RGB FFV1 中间视频。当前 RVE 的 SDR 内部帧为 8-bit `rgb24`，最终输出指定 10-bit 像素格式不代表 10-bit 模型推理。
+- HDR 与位深：程序通过 `ffprobe` 的结构化颜色元数据识别 PQ（SMPTE ST 2084）和 HLG，并为 CUDA/PyTorch、TensorRT 启用 16-bit `rgb48le` 帧模式；跨后端中间视频的 SDR/HDR 像素格式分别为 `gbrp10le` / `gbrp16le`。普通 10/12-bit SDR 仍受 RVE 8-bit `rgb24` 读帧限制，不属于源位深原样传递。
 - `-backend <ncnn|cuda|tensorrt>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
   放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），
   补帧模型使用 `models\RIFE` 下的 `.pth` 文件；超分与补帧可独立使用。

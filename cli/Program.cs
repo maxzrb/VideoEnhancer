@@ -37,6 +37,7 @@ internal static class Program
     private static string TensorRTValidatorScript => Path.Combine(CoreRoot, "python", "backend", "validate_tensorrt_engines.py");
     private static string TensorRTConverterScript => Path.Combine(CoreRoot, "python", "backend", "convert_tensorrt.py");
     private static string FfmpegExe => Path.Combine(CoreRoot, "bin", "ffmpeg", "ffmpeg.exe");
+    private static string FfprobeExe => Path.Combine(CoreRoot, "bin", "ffmpeg", "ffprobe.exe");
     private static string ModelsDir => Path.Combine(CoreRoot, "models");
     private static string TensorRTCacheDir => Path.Combine(ModelsDir, "TensorRT-Cache");
     private static string SceneDetectModel => FindNcnnModelFolder("EfficientNet-SceneDetect")
@@ -654,10 +655,25 @@ internal static class Program
             }
         }
 
-        // 6. 按顺序运行单阶段或无损中间文件双阶段管线。
+        // 6. PQ/HLG 使用 RVE 的 16-bit RGB 帧模式；不支持该路径的后端明确拒绝。
+        var hdrMode = DetectHdrMode(input);
+        if (hdrMode)
+        {
+            if (!string.IsNullOrEmpty(model) && o.Backend is not ("cuda" or "tensorrt"))
+            {
+                return Fail("检测到 PQ/HLG HDR 视频，但超分后端 " + o.Backend +
+                    " 不支持完整的 16-bit RGB 帧管线；请改用 CUDA/PyTorch 或 TensorRT");
+            }
+            if (interpModel is not null && o.InterpBackend is not ("cuda" or "tensorrt"))
+            {
+                return Fail("检测到 PQ/HLG HDR 视频，但补帧后端 " + o.InterpBackend +
+                    " 不支持完整的 16-bit RGB 帧管线；请改用 CUDA/PyTorch 或 TensorRT RIFE");
+            }
+            Console.WriteLine("[HDR] 检测到 PQ/HLG 视频；RVE 帧管线和跨后端中间视频将使用 16-bit RGB。");
+        }
         return RunVideoPipeline(input, outputFile, model, customEncoder, overwrite, scale,
             o.PauseShm, stopWatcher, interpModel, interpFactor, o.Backend, o.InterpBackend, o.ProcessOrder,
-            o.DynamicOpticalFlow, sceneThreshold, tileSize);
+            hdrMode, o.DynamicOpticalFlow, sceneThreshold, tileSize);
     }
 
     private static Options ParseArgs(string[] args)
@@ -1776,7 +1792,7 @@ internal static class Program
     /// <summary>构建 rve-backend.py 的命令行参数，逻辑与 GUI 的 RvePaths.BuildBackendArgs 一致。</summary>
     private static List<string> BuildBackendArgs(
         string input, string outputFile, string modelFolder, string customEncoder, bool overwrite, string? scale, string pauseShm,
-        string? interpModel, string? interpFactor, string backend, string? backendScript = null,
+        string? interpModel, string? interpFactor, string backend, string? backendScript = null, bool hdrMode = false,
         bool dynamicOpticalFlow = false, double sceneThreshold = 4.0, int tileSize = 0)
     {
         var args = new List<string>
@@ -1801,6 +1817,11 @@ internal static class Program
         {
             args.Add("--ncnn_gpu_id");
             args.Add("0");
+        }
+
+        if (hdrMode)
+        {
+            args.Add("--hdr_mode");
         }
 
         if (!string.IsNullOrEmpty(modelFolder))
@@ -2212,7 +2233,7 @@ internal static class Program
     private static int RunVideoPipeline(
         string input, string outputFile, string model, string customEncoder, bool overwrite, string? scale,
         string pauseShm, StopWatcher? stopWatcher, string? interpModel, string? interpFactor,
-        string upscaleBackend, string interpBackend, string processOrder,
+        string upscaleBackend, string interpBackend, string processOrder, bool hdrMode,
         bool dynamicOpticalFlow, double sceneThreshold, int tileSize)
     {
         var useUpscale = !string.IsNullOrEmpty(model);
@@ -2221,7 +2242,7 @@ internal static class Program
         {
             var activeBackend = useUpscale ? upscaleBackend : interpBackend;
             var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
-                pauseShm, interpModel, interpFactor, activeBackend,
+                pauseShm, interpModel, interpFactor, activeBackend, hdrMode: hdrMode,
                 dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
             return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
                 interpModel, interpFactor, activeBackend, pauseShm, "单阶段处理", isFinalStage: true);
@@ -2236,7 +2257,7 @@ internal static class Program
         if (!upscaleFirst && upscaleBackend == interpBackend)
         {
             var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
-                pauseShm, interpModel, interpFactor, upscaleBackend,
+                pauseShm, interpModel, interpFactor, upscaleBackend, hdrMode: hdrMode,
                 dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
             return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
                 interpModel, interpFactor, upscaleBackend, pauseShm, "先补帧，再超分", isFinalStage: true);
@@ -2249,7 +2270,7 @@ internal static class Program
             var orderedBackend = EnsureEmbeddedTool(
                 EmbeddedOrderedBackendResource, "rve-ordered-backend.py");
             var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
-                pauseShm, interpModel, interpFactor, upscaleBackend, orderedBackend,
+                pauseShm, interpModel, interpFactor, upscaleBackend, orderedBackend, hdrMode,
                 dynamicOpticalFlow, sceneThreshold, tileSize);
             return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
                 interpModel, interpFactor, upscaleBackend, pauseShm, "先超分，再补帧", isFinalStage: true);
@@ -2260,8 +2281,11 @@ internal static class Program
         Directory.CreateDirectory(outputDir);
         var intermediate = Path.Combine(outputDir,
             "." + Path.GetFileNameWithoutExtension(outputFile) + ".videoenhancer-" + Guid.NewGuid().ToString("N") + ".mkv");
-        const string losslessEncoder = "-c:v ffv1 -level 3 -coder 1 -context 1 -g 1 -pix_fmt gbrp16le -c:a copy -c:s copy";
-        Console.WriteLine("[管线] 当前组合需要两个阶段；中间视频使用 FFV1 无损编码并在完成后自动清理。");
+        var intermediatePixelFormat = hdrMode ? "gbrp16le" : "gbrp10le";
+        var losslessEncoder = "-c:v ffv1 -level 3 -coder 1 -context 1 -g 1 -pix_fmt " +
+            intermediatePixelFormat + " -c:a copy -c:s copy";
+        Console.WriteLine("[管线] 两种后端格式不兼容，必须跨进程传递中间视频；使用 " +
+            intermediatePixelFormat + " RGB FFV1 无损编码并在完成后自动清理。");
         Console.WriteLine("[管线] 临时文件：" + intermediate);
 
         try
@@ -2278,7 +2302,7 @@ internal static class Program
                 firstBackend = upscaleBackend;
                 firstTitle = "阶段 1/2：超分";
                 firstArgs = BuildBackendArgs(input, intermediate, model, losslessEncoder, true,
-                    scale, pauseShm, null, null, upscaleBackend,
+                    scale, pauseShm, null, null, upscaleBackend, hdrMode: hdrMode,
                     dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
             }
             else
@@ -2288,7 +2312,7 @@ internal static class Program
                 firstBackend = interpBackend;
                 firstTitle = "阶段 1/2：补帧";
                 firstArgs = BuildBackendArgs(input, intermediate, "", losslessEncoder, true,
-                    null, pauseShm, interpModel, interpFactor, interpBackend,
+                    null, pauseShm, interpModel, interpFactor, interpBackend, hdrMode: hdrMode,
                     dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold);
             }
             var firstExit = LaunchBackend(firstArgs, input, firstModel, intermediate, losslessEncoder,
@@ -2310,7 +2334,7 @@ internal static class Program
                 secondBackend = interpBackend;
                 secondTitle = "阶段 2/2：补帧";
                 secondArgs = BuildBackendArgs(intermediate, outputFile, "", customEncoder, overwrite,
-                    null, pauseShm, interpModel, interpFactor, interpBackend,
+                    null, pauseShm, interpModel, interpFactor, interpBackend, hdrMode: hdrMode,
                     dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold);
             }
             else
@@ -2320,7 +2344,7 @@ internal static class Program
                 secondBackend = upscaleBackend;
                 secondTitle = "阶段 2/2：超分";
                 secondArgs = BuildBackendArgs(intermediate, outputFile, model, customEncoder, overwrite,
-                    scale, pauseShm, null, null, upscaleBackend,
+                    scale, pauseShm, null, null, upscaleBackend, hdrMode: hdrMode,
                     dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
             }
             return LaunchBackend(secondArgs, intermediate, secondModel, outputFile, customEncoder,
@@ -2337,6 +2361,59 @@ internal static class Program
             {
                 Console.Error.WriteLine("[警告] 无法清理无损中间视频：" + ex.Message);
             }
+        }
+    }
+
+    /// <summary>优先读取 ffprobe 结构化元数据，根据颜色传递函数识别 PQ/HLG。</summary>
+    private static bool DetectHdrMode(string input)
+    {
+        try
+        {
+            if (File.Exists(FfprobeExe))
+            {
+                var result = RunProcessCapture(FfprobeExe, new[]
+                {
+                    "-v", "error", "-select_streams", "v:0",
+                    "-show_entries", "stream=color_transfer,color_primaries,pix_fmt,bits_per_raw_sample",
+                    "-of", "json", input,
+                }, 30);
+                if (result.Ok && !string.IsNullOrWhiteSpace(result.Output))
+                {
+                    using var document = JsonDocument.Parse(result.Output);
+                    var streams = document.RootElement.GetProperty("streams");
+                    if (streams.GetArrayLength() > 0)
+                    {
+                        var stream = streams[0];
+                        var transfer = stream.TryGetProperty("color_transfer", out var transferValue)
+                            ? transferValue.GetString() ?? "" : "";
+                        var pixelFormat = stream.TryGetProperty("pix_fmt", out var pixelValue)
+                            ? pixelValue.GetString() ?? "unknown" : "unknown";
+                        var bitDepth = 0;
+                        if (stream.TryGetProperty("bits_per_raw_sample", out var bitsValue))
+                            int.TryParse(bitsValue.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out bitDepth);
+                        if (bitDepth == 0)
+                        {
+                            var match = Regex.Match(pixelFormat, @"p(?<bits>\d{2})(?:le|be)$", RegexOptions.IgnoreCase);
+                            if (match.Success) int.TryParse(match.Groups["bits"].Value, out bitDepth);
+                        }
+                        if (bitDepth == 0) bitDepth = 8;
+                        Console.WriteLine("[颜色] 像素格式 " + pixelFormat + "，位深 " + bitDepth +
+                            "-bit，传递函数 " + (transfer.Length == 0 ? "未标记" : transfer));
+                        return transfer.Equals("smpte2084", StringComparison.OrdinalIgnoreCase)
+                            || transfer.Equals("arib-std-b67", StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+            }
+
+            var fallback = RunProcessCapture(FfmpegExe, new[] { "-hide_banner", "-i", input }, 30);
+            var detail = fallback.Output + "\n" + fallback.Error;
+            return Regex.IsMatch(detail, @"smpte2084|arib-std-b67|\bhlg\b|\bpq\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("[警告] 无法读取视频颜色元数据，将按 SDR 处理：" + ex.Message);
+            return false;
         }
     }
 

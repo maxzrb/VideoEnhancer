@@ -1234,9 +1234,10 @@ Namespace videoenhancer
                 Environment.NewLine &
                 "## 3. 处理阶段与中间文件" & Environment.NewLine &
                 "- 超分和补帧使用同一后端时，两种顺序都在同一个 RVE 进程内逐帧完成，只执行一次最终编码，不生成整段中间视频。" & Environment.NewLine &
-                "- 两种后端不同时才会分成两个阶段，并在输出目录生成隐藏的 `.videoenhancer-*.mkv` 临时文件；该文件使用 RGB FFV1 无损编码并直接复制音频和字幕。" & Environment.NewLine &
+                "- 两种后端不同时才会分成两个阶段，并在输出目录生成隐藏的 `.videoenhancer-*.mkv` 临时文件；SDR 使用 `gbrp10le`，PQ/HLG HDR 使用 `gbrp16le` RGB FFV1，并直接复制音频和字幕。" & Environment.NewLine &
                 "- 临时文件会在任务成功、失败或中止后自动清理；4K、高帧率或长视频仍需预留足够磁盘空间。FFV1 只用于阶段间传递，不是最终输出编码。" & Environment.NewLine &
                 "- 当前 RVE 的 SDR 内部帧为 8-bit `rgb24`；最终输出选择 `yuv420p10le` 只改变编码格式，不会把模型推理提升为原生 10-bit。" & Environment.NewLine &
+                "- PQ/HLG HDR 才启用 16-bit `rgb48le` 帧模式，并仅允许 CUDA/PyTorch 或 TensorRT；这不等于普通 10/12-bit SDR 已实现源位深原样传递。" & Environment.NewLine &
                 Environment.NewLine &
                 "## 4. 加入编码队列" & Environment.NewLine &
                 "回到 3FUI 准备文件并加入队列，插件会自动通过 CLI 中转。" & Environment.NewLine & Environment.NewLine &

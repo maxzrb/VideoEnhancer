@@ -8,3 +8,7 @@
 [Dd]ist/
 [Pp]ublish/
 .publish/
+
+# Root build artifacts
+/videoenhancer.exe
+/videoenhancer.3fui.dll

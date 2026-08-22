@@ -64,6 +64,82 @@ Namespace videoenhancer
         End Sub
     End Class
 
+    ''' <summary>轻量圆角进度条，替代系统 ProgressBar 的高亮白色外观。</summary>
+    Friend Class FluentProgressBar
+        Inherits Control
+
+        Private _minimum As Integer
+        Private _maximum As Integer = 100
+        Private _value As Integer
+
+        Friend Property TrackColor As Color = Color.FromArgb(42, 50, 61)
+        Friend Property ProgressColor As Color = Color.FromArgb(76, 166, 255)
+        Friend Property GlowColor As Color = Color.FromArgb(112, 194, 255)
+        Friend Property CornerRadius As Integer = 5
+
+        Friend Property Minimum As Integer
+            Get
+                Return _minimum
+            End Get
+            Set(value As Integer)
+                _minimum = value
+                If _maximum <= _minimum Then _maximum = _minimum + 1
+                If _value < _minimum Then _value = _minimum
+                Invalidate()
+            End Set
+        End Property
+
+        Friend Property Maximum As Integer
+            Get
+                Return _maximum
+            End Get
+            Set(value As Integer)
+                _maximum = Math.Max(_minimum + 1, value)
+                If _value > _maximum Then _value = _maximum
+                Invalidate()
+            End Set
+        End Property
+
+        Friend Property Value As Integer
+            Get
+                Return _value
+            End Get
+            Set(value As Integer)
+                _value = Math.Max(_minimum, Math.Min(_maximum, value))
+                Invalidate()
+            End Set
+        End Property
+
+        Public Sub New()
+            SetStyle(ControlStyles.AllPaintingInWmPaint Or ControlStyles.UserPaint Or
+                     ControlStyles.OptimizedDoubleBuffer Or ControlStyles.ResizeRedraw Or
+                     ControlStyles.SupportsTransparentBackColor, True)
+            BackColor = Color.Transparent
+            Size = New Size(240, 10)
+        End Sub
+
+        Protected Overrides Sub OnPaint(e As PaintEventArgs)
+            MyBase.OnPaint(e)
+            If Width <= 1 OrElse Height <= 1 Then Return
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias
+            Dim outer = New RectangleF(0.5F, 0.5F, Width - 1.0F, Height - 1.0F)
+            Using trackPath = QuadGridDrawing.RoundedPath(outer, Math.Min(CornerRadius, Height \ 2))
+                Using brush As New SolidBrush(TrackColor)
+                    e.Graphics.FillPath(brush, trackPath)
+                End Using
+            End Using
+            Dim ratio = (_value - _minimum) / CDbl(Math.Max(1, _maximum - _minimum))
+            Dim fillWidth = CSng(Math.Max(0, Math.Min(Width - 1, ratio * (Width - 1))))
+            If fillWidth <= 0.5F Then Return
+            Dim fillRect = New RectangleF(0.5F, 0.5F, fillWidth, Height - 1.0F)
+            Using fillPath = QuadGridDrawing.RoundedPath(fillRect, Math.Min(CornerRadius, Height \ 2))
+                Using brush As New LinearGradientBrush(fillRect, ProgressColor, GlowColor, 0.0F)
+                    e.Graphics.FillPath(brush, fillPath)
+                End Using
+            End Using
+        End Sub
+    End Class
+
     ''' <summary>圆角、抗锯齿、带悬停状态的按钮；完全编译进插件，无额外运行库。</summary>
     Friend Class SmoothButton
         Inherits Button

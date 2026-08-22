@@ -4,20 +4,10 @@
 把 `-i / -modelpath / -interp-model / -ffmpeg-settings` 等简化参数翻译成后端参数并启动
 `python\python\python.exe python\backend\rve-backend.py`，实现"命令很舒服"的视频超分辨率处理。
 
-## 配置（1.1：后端分离）
+## 配置
 
-CLI 通过 exe 同目录的 `videoenhancer.ini` 定位后端根目录（后端分离部署时使用，
-bin\ffmpeg、python、models 无需再与 exe 放在一起）：
-
-```ini
-; videoenhancer.ini（与 videoenhancer.exe 同目录）
-core-path="C:\PortableSoft\VideoEnhancer-CLI"
-```
-
-- 第一行写入 `core-path="<核心程序路径>"`（带引号或裸路径均可，`;`/`#` 开头为注释）；
-- 相对路径按 ini 所在目录解析；启动时校验该目录及 bin\ffmpeg、python、models 是否存在，
-  缺失时输出"找不到对应的库"并退出（退出码 1）；
-- 未放置 `videoenhancer.ini` 时回退到 exe 同目录布局（1.0 兼容）。
+无需 `videoenhancer.ini`。安装程序会在 `videoenhancer.exe` 同级建立 `models`、`python`、`bin`
+三个便携核心目录，并把 EXE 位置写入插件用户配置；3FUI 加载插件时会自动识别。
 
 ## 构建（单文件）
 
@@ -53,7 +43,7 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 - `-scene-threshold <N>`：转场检测阈值，使用 RVE 官方外部 0-10 标尺，默认 4；数值越低越敏感，越容易跳过转场处的插帧，直接透传给 RVE。
 - `-dynamic-optical-flow`：开启动态光流尺度，仅 CUDA/PyTorch RIFE 有效；TensorRT 会由 RVE 自动禁用。
 - `-tile-size <N>`：超分分块边长，0 表示 RVE 默认处理（不按显存自动试探）；显式值是输入帧边长，用于降低峰值显存但会增加处理时间。支持 NCNN、CUDA/PyTorch、TensorRT；ONNX 和 FlashVSR 不使用该参数。
-- `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内按帧执行，不产生整段中间视频；跨后端时才使用无损 FFV1 中间视频。
+- `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内逐帧执行，只进行一次最终编码且不产生整段中间视频；跨后端时才使用无损 RGB FFV1 中间视频。当前 RVE 的 SDR 内部帧为 8-bit `rgb24`，最终输出指定 10-bit 像素格式不代表 10-bit 模型推理。
 - `-backend <ncnn|cuda|tensorrt>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
   放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），
   补帧模型使用 `models\RIFE` 下的 `.pth` 文件；超分与补帧可独立使用。
@@ -112,7 +102,6 @@ Video Enhancer\              # 本 CLI 项目
   README.md
 Video Enhancer GUI\          # 运行目录（exe 输出到这里）
   videoenhancer.exe
-  videoenhancer.ini              # （可选）core-path="<后端根目录>"，后端分离部署时使用
   bin\ffmpeg\ffmpeg.exe
   python\python\python.exe
   python\backend\rve-backend.py

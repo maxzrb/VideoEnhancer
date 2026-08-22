@@ -182,7 +182,7 @@ Namespace videoenhancer
             Try
                 ResolveTools()
                 If _ffmpeg = "" Then
-                    RaiseStatus("未找到 ffmpeg：请在「超分主界面」页启用并指定 videoenhancer.exe（程序会读取其 videoenhancer.ini 的 core-path）", True)
+                    RaiseStatus("未找到 ffmpeg：请确认 videoenhancer.exe 同级已安装 bin 核心组件", True)
                     Return
                 End If
 
@@ -825,8 +825,7 @@ Private Function EstimateFpsByTime(taskId As String, seconds As Double) As Doubl
         End Function
 
         ''' <summary>
-        ''' 解析 videoenhancer.exe 同目录的 videoenhancer.ini（core-path="…"），
-        ''' 定位 core\bin\ffmpeg\ffmpeg.exe 与 ffprobe.exe；找不到则回退 exe 同目录 bin。
+        ''' 从 videoenhancer.exe 同级的 bin 目录定位 ffmpeg 与 ffprobe。
         ''' </summary>
         Private Sub ResolveTools()
             If _ffmpeg <> "" AndAlso File.Exists(_ffmpeg) Then
@@ -843,28 +842,7 @@ Private Function EstimateFpsByTime(taskId As String, seconds As Double) As Doubl
                 If exeDir = "" Then
                     exeDir = Environment.CurrentDirectory
                 End If
-                Dim core As String = ""
-                Try
-                    Dim ini = Path.Combine(exeDir, "videoenhancer.ini")
-                    If File.Exists(ini) Then
-                        For Each line In File.ReadAllLines(ini)
-                            If line.TrimStart().StartsWith("core-path=", StringComparison.OrdinalIgnoreCase) Then
-                                Dim idx = line.IndexOf("="c)
-                                If idx >= 0 Then
-                                    Dim v = line.Substring(idx + 1).Trim()
-                                    v = v.Trim(Convert.ToChar(34))
-                                    If v.Length > 0 Then
-                                        core = v
-                                    End If
-                                End If
-                            End If
-                        Next
-                    End If
-                Catch
-                End Try
-                If core = "" Then
-                    core = exeDir
-                End If
+                Dim core As String = exeDir
                 Dim ff1 = Path.Combine(core, "bin", "ffmpeg", "ffmpeg.exe")
                 Dim ff2 = Path.Combine(core, "bin", "ffmpeg.exe")
                 If File.Exists(ff1) Then

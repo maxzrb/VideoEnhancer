@@ -1,7 +1,7 @@
 ﻿# 一键发布：把 outputs 中的产物发布到版本存档目录 + 各运行目录
 # 规则：每个版本更新都发布到 C:\Users\ARXChem\Documents\LakeUI-2\videoenhancer.3fui\<版本>\
 param(
-    [string]$Version = '1.2'
+    [string]$Version = '1.4'
 )
 $ErrorActionPreference = 'Stop'
 $base = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -19,30 +19,27 @@ if (Test-Path -LiteralPath $layoutJson) {
     Copy-Item -LiteralPath $layoutJson -Destination (Join-Path $archive 'videoenhancer-layout.json') -Force
 }
 
-# 2) videoenhancer.ini 示例（core-path 指向分离部署的后端；已存在则保留）
-$iniPath = Join-Path $archive 'videoenhancer.ini'
-if (-not (Test-Path -LiteralPath $iniPath)) {
-    @('core-path="C:\PortableSoft\VideoEnhancer-CLI"', '') | Set-Content -LiteralPath $iniPath -Encoding UTF8
-    Write-Host "  已生成 $iniPath"
-}
-
-# 3) CLI 源码（Program.cs / README / build.ps1 / csproj）
+# 2) CLI 源码（Program.cs / README / build.ps1 / csproj）
 Copy-Item -LiteralPath (Join-Path $base 'cli\Program.cs') -Destination (Join-Path $archive 'cli\Program.cs') -Force
 Copy-Item -LiteralPath (Join-Path $base 'cli\README.md') -Destination (Join-Path $archive 'cli\README.md') -Force
 Copy-Item -LiteralPath (Join-Path $base 'cli\build.ps1') -Destination (Join-Path $archive 'cli\build.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $base 'cli\VideoEnhancer.csproj') -Destination (Join-Path $archive 'cli\VideoEnhancer.csproj') -Force
 
-# 4) 插件源码 + 构建脚本 + 说明
+# 3) 插件源码 + 构建脚本 + 说明
 $pluginSrc = Join-Path $base 'VideoEnhancerPlugin'
 $pluginDst = Join-Path $archive 'VideoEnhancerPlugin'
 Get-ChildItem -LiteralPath $pluginSrc -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $pluginDst $_.Name) -Force
 }
+$assetSrc = Join-Path $pluginSrc 'assets'
+if (Test-Path -LiteralPath $assetSrc) {
+    Copy-Item -LiteralPath $assetSrc -Destination $pluginDst -Recurse -Force
+}
 
-# 5) 部署脚本本身
+# 4) 部署脚本本身
 Copy-Item -LiteralPath $MyInvocation.MyCommand.Path -Destination (Join-Path $archive 'deploy.ps1') -Force
 
-# 6) 插件 DLL 复制到运行目录：开发版 GUI 插件目录 + 最新发布版 ReadyToRun 插件目录
+# 5) 插件 DLL 复制到运行目录：开发版 GUI 插件目录 + 最新发布版 ReadyToRun 插件目录
 $pluginDll = Join-Path $base 'videoenhancer.3fui.dll'
 $pluginTargets = @(
     'C:\Users\ARXChem\Documents\LakeUIApps\Video Enhancer GUI\Plugin\videoenhancer.3fui.dll',

@@ -1,3 +1,7 @@
+# VideoEnhancer 1.4 development line
+
+> 1.3 已归档；本目录是后续功能与构建产物的唯一开发位置。
+
 # Short Guide for plugin: VideoEnhancer.3fui.dll
 
 

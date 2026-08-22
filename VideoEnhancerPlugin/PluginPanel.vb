@@ -49,13 +49,21 @@ Namespace videoenhancer
         Private ReadOnly _lblSwitchInterp As New HtmlColorLabel()
         Private ReadOnly _cmbBackend As New ModernComboBox()
         Private ReadOnly _lblBackend As New HtmlColorLabel()
+        Private ReadOnly _cmbInterpBackend As New ModernComboBox()
         Private ReadOnly _cmbFactor As New ModernComboBox()
+        Private ReadOnly _cmbDynamicOpticalFlow As New ModernComboBox()
+        Private ReadOnly _cmbSceneThreshold As New ModernComboBox()
+        Private ReadOnly _cmbTileSize As New ModernComboBox()
         Private ReadOnly _lblFactor As New HtmlColorLabel()
         Private ReadOnly _cmbProcessOrder As New ModernComboBox()
         Private ReadOnly _lblProcessOrder As New HtmlColorLabel()
         Private _syncingMaster As Boolean = False
         Private _syncingBackend As Boolean = False
+        Private _syncingInterpBackend As Boolean = False
         Private _syncingFactor As Boolean = False
+        Private _syncingDynamicOpticalFlow As Boolean = False
+        Private _syncingSceneThreshold As Boolean = False
+        Private _syncingTileSize As Boolean = False
         Private _syncingProcessOrder As Boolean = False
         Private _syncingSwitch As Boolean = False
         Private _syncingInterpSwitch As Boolean = False
@@ -120,12 +128,15 @@ Namespace videoenhancer
         Private _downloadsLoaded As Boolean = False
         Private _downloadsLoading As Boolean = False
         Private _downloadOnline As Boolean = True
-        Private _downloadBusy As Boolean = False
+        Private _archiveCleanupBusy As Boolean = False
+        Private _downloadActiveCount As Integer = 0
+        Private ReadOnly _activeDownloadPaths As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
         Private _downloadScrollResetPending As Boolean = False
         Private NotInheritable Class DownloadModelEntry
             Public Property Name As String
             Public Property RelativePath As String
             Public Property Size As Long
+            Public Property Installed As Boolean
         End Class
         Private NotInheritable Class DownloadExecutionResult
             Public Property ExitCode As Integer = -1
@@ -340,6 +351,7 @@ Namespace videoenhancer
             _config.Save()
             UpdateModeStateLabels()
             UpdateProcessOrderState()
+            UpdateAdvancedControlState()
             UpdateHookState()
         End Sub
 
@@ -356,12 +368,13 @@ Namespace videoenhancer
                 Return
             End If
             _config.InterpEnabled = _switchInterp.Checked
-            If _switchInterp.Checked AndAlso _config.Backend = "cuda" Then
+            If _switchInterp.Checked Then
                 RefreshInterpModels()
             End If
             _config.Save()
             UpdateModeStateLabels()
             UpdateProcessOrderState()
+            UpdateAdvancedControlState()
             UpdateHookState()
         End Sub
 
@@ -482,9 +495,9 @@ Namespace videoenhancer
             _loadingInterpModels = True
             _cmbInterp.WaterText = "正在读取补帧模型…"
             Dim exePath = _config.ExePath
-            Dim backend = If(String.IsNullOrWhiteSpace(_config.Backend), "ncnn", _config.Backend)
+            Dim backend = If(String.IsNullOrWhiteSpace(_config.InterpBackend), "ncnn", _config.InterpBackend)
             Task.Run(Sub()
-                         Dim models = RunListModels(exePath, "--list-interp-models", "-backend", backend)
+                         Dim models = RunListModels(exePath, "--list-interp-models", "-interp-backend", backend)
                          Try
                              If Me.IsHandleCreated Then
                                  Me.BeginInvoke(New Action(Sub()
@@ -576,14 +589,16 @@ Namespace videoenhancer
                 Else
                     _cmbInterp.SelectedIndex = 0
                 End If
-                Dim modeText = If(_config.Backend = "cuda",
+                Dim modeText = If(_config.InterpBackend = "tensorrt",
+                    "（TensorRT，RIFE .pth 自动构建 Engine）",
+                    If(_config.InterpBackend = "cuda",
                     "（CUDA，" & Convert.ToChar(92) & "RIFE 下的 .pth 文件）",
-                    "（models" & Convert.ToChar(92) & "RIFE）")
+                    "（NCNN，models" & Convert.ToChar(92) & "RIFE）"))
                 ShowStatus($"已读取 {models.Count} 个补帧模型 " & modeText, False)
             Else
-                If _config.Backend = "cuda" Then
+                If _config.InterpBackend = "cuda" OrElse _config.InterpBackend = "tensorrt" Then
                     _cmbInterp.WaterText = "未找到 .pth 补帧模型"
-                    ShowStatus("CUDA 补帧需要 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型；不会改动当前超分后端", _config.InterpEnabled)
+                    ShowStatus(If(_config.InterpBackend = "tensorrt", "TensorRT", "CUDA") & " RIFE 需要 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型", _config.InterpEnabled)
                 Else
                     _cmbInterp.WaterText = "未找到补帧模型"
                     ShowStatus("未在 models" & Convert.ToChar(92) & "RIFE 目录找到含 .param/.bin 的补帧模型", True)
@@ -623,6 +638,7 @@ Namespace videoenhancer
             ' 切换后端后重新读取两个模型列表（CUDA 需要 .pth 模型；活动模式无 .pth 时由 Apply*List 自动回退）
             RefreshUpscaleModels()
             RefreshInterpModels()
+            UpdateAdvancedControlState()
             Dim modeText = If(backend = "tensorrt",
                 "TensorRT（NVIDIA）：超分 Engine 自动构建；组合补帧自动使用 NCNN RIFE",
                 If(backend = "onnx",
@@ -671,12 +687,43 @@ Namespace videoenhancer
             Return "ncnn"
         End Function
 
+        Private Shared Function InterpBackendValue(item As Object) As String
+            Dim text = If(item Is Nothing, "", item.ToString())
+            If text.Contains("TensorRT", StringComparison.OrdinalIgnoreCase) Then Return "tensorrt"
+            If text.Contains("CUDA", StringComparison.OrdinalIgnoreCase) Then Return "cuda"
+            Return "ncnn"
+        End Function
+
         Private Shared Function FactorValue(item As Object) As Double
             Dim text = If(item Is Nothing, "", item.ToString())
             Dim digits = New String(text.TakeWhile(Function(c) Char.IsDigit(c)).ToArray())
             Dim v As Double = 0
             If Double.TryParse(digits, v) Then
                 Return v
+            End If
+            Return 0
+        End Function
+
+        Private Shared Function DynamicOpticalFlowValue(item As Object) As Boolean
+            Return String.Equals(If(item Is Nothing, "", item.ToString()), "开启", StringComparison.OrdinalIgnoreCase)
+        End Function
+
+        Private Shared Function SceneThresholdValue(item As Object) As Double
+            Dim text = If(item Is Nothing, "", item.ToString())
+            Dim match = Regex.Match(text, "([0-9]+(?:\.[0-9]+)?)")
+            Dim value As Double = 0
+            If match.Success AndAlso Double.TryParse(match.Groups(1).Value, Globalization.NumberStyles.Float, Globalization.CultureInfo.InvariantCulture, value) Then
+                Return value
+            End If
+            Return 0
+        End Function
+
+        Private Shared Function TileSizeValue(item As Object) As Integer
+            Dim text = If(item Is Nothing, "", item.ToString())
+            Dim match = Regex.Match(text, "([0-9]+)")
+            If match.Success Then
+                Dim value As Integer
+                If Integer.TryParse(match.Groups(1).Value, value) Then Return value
             End If
             Return 0
         End Function
@@ -977,6 +1024,40 @@ Namespace videoenhancer
             End Try
         End Sub
 
+        Private Sub OnInterpBackendSelected(sender As Object, e As EventArgs)
+            If _syncingInterpBackend Then Return
+            Dim backend = InterpBackendValue(_cmbInterpBackend.SelectedItem)
+            If backend = _config.InterpBackend Then Return
+            _config.InterpBackend = backend
+            _config.InterpModel = ""
+            _config.Save()
+            RefreshInterpModels()
+            UpdateAdvancedControlState()
+            ShowStatus("补帧后端：" & If(backend = "tensorrt", "TensorRT（RIFE .pth 自动构建 Engine）", If(backend = "cuda", "CUDA（PyTorch）", "NCNN（Vulkan）")), False)
+        End Sub
+
+        Private Sub OnDynamicOpticalFlowSelected(sender As Object, e As EventArgs)
+            If _syncingDynamicOpticalFlow Then Return
+            _config.InterpDynamicScaledOpticalFlow = DynamicOpticalFlowValue(_cmbDynamicOpticalFlow.SelectedItem)
+            _config.Save()
+            UpdateAdvancedControlState()
+        End Sub
+
+        Private Sub OnSceneThresholdSelected(sender As Object, e As EventArgs)
+            If _syncingSceneThreshold Then Return
+            Dim value = SceneThresholdValue(_cmbSceneThreshold.SelectedItem)
+            If value <= 0 Then Return
+            _config.SceneDetectThreshold = value
+            _config.Save()
+        End Sub
+
+        Private Sub OnTileSizeSelected(sender As Object, e As EventArgs)
+            If _syncingTileSize Then Return
+            _config.UpscaleTileSize = TileSizeValue(_cmbTileSize.SelectedItem)
+            _config.Save()
+            UpdateAdvancedControlState()
+        End Sub
+
         Private Sub InitializeUi()
             ' 不透明画布是背景映射尚未完成时的兜底，避免恢复窗口时短暂穿透到桌面/壁纸。
             BackColor = UiCanvas
@@ -1098,7 +1179,7 @@ Namespace videoenhancer
                 "## 2. 选择处理模式" & Environment.NewLine &
                 "- 开启 **视频超分**，选择推理后端和放大模型。" & Environment.NewLine &
                 "- 开启 **运动补帧**，选择 RIFE 模型与倍率；可与超分同时开启。" & Environment.NewLine &
-                "- **画质优先：先超分，再补帧。** 默认使用该顺序，并通过无损中间视频保证顺序真实生效。" & Environment.NewLine &
+                "- **画质优先：先超分，再补帧。** 默认使用该顺序，同一后端在单进程内按帧完成。" & Environment.NewLine &
                 "- **速度/算力优先：先补帧，再超分。** 同后端时可使用后端原生单程管线。" & Environment.NewLine & Environment.NewLine &
                 "## 3. 加入编码队列" & Environment.NewLine &
                 "回到 3FUI 准备文件并加入队列，插件会自动通过 CLI 中转。" & Environment.NewLine & Environment.NewLine &
@@ -1319,14 +1400,15 @@ Namespace videoenhancer
             Dim upscaleFields As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 2,
-                .RowCount = 1,
+                .RowCount = 2,
                 .BackColor = Color.Transparent,
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
             upscaleFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 46.0F))
             upscaleFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 54.0F))
-            upscaleFields.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            upscaleFields.RowStyles.Add(New RowStyle(SizeType.Percent, 52.0F))
+            upscaleFields.RowStyles.Add(New RowStyle(SizeType.Percent, 48.0F))
             _cmbBackend.WaterText = "选择推理方式…"
             ConfigureCombo(_cmbBackend)
             _cmbBackend.Items.Add("NCNN (Vulkan)")
@@ -1342,6 +1424,20 @@ Namespace videoenhancer
             AddHandler _cmbModel.SelectedIndexChanged, AddressOf OnModelSelected
             upscaleFields.Controls.Add(CreateOfficialField("推理后端", _cmbBackend), 0, 0)
             upscaleFields.Controls.Add(CreateOfficialField("放大模型", _cmbModel, 0), 1, 0)
+            _cmbTileSize.WaterText = "RVE 默认（0）"
+            ConfigureCombo(_cmbTileSize)
+            _cmbTileSize.Items.Add("RVE 默认（0）")
+            _cmbTileSize.Items.Add("128 px")
+            _cmbTileSize.Items.Add("256 px")
+            _cmbTileSize.Items.Add("384 px")
+            _cmbTileSize.Items.Add("512 px")
+            _cmbTileSize.Items.Add("768 px")
+            _cmbTileSize.Items.Add("1024 px")
+            AddHandler _cmbTileSize.SelectedIndexChanged, AddressOf OnTileSizeSelected
+            upscaleFields.Controls.Add(CreateOfficialField("超分分块尺寸", _cmbTileSize), 0, 1)
+            Dim tileHint = CreateOfficialCaption("0=RVE默认；越小越省显存但更慢", UiTextMuted)
+            tileHint.TextAlign = ContentAlignment.BottomLeft
+            upscaleFields.Controls.Add(tileHint, 1, 1)
             upscalePane.Controls.Add(upscaleFields, 0, 1)
             modes.Controls.Add(upscalePane, 0, 0)
 
@@ -1363,15 +1459,23 @@ Namespace videoenhancer
                 "运动补帧", "", _switchInterp, _lblSwitchInterp), 0, 0)
             Dim interpFields As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
-                .ColumnCount = 2,
-                .RowCount = 1,
+                .ColumnCount = 3,
+                .RowCount = 2,
                 .BackColor = Color.Transparent,
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
-            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 68.0F))
-            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 32.0F))
-            interpFields.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 30.0F))
+            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
+            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 20.0F))
+            interpFields.RowStyles.Add(New RowStyle(SizeType.Percent, 52.0F))
+            interpFields.RowStyles.Add(New RowStyle(SizeType.Percent, 48.0F))
+            _cmbInterpBackend.WaterText = "选择后端…"
+            ConfigureCombo(_cmbInterpBackend)
+            _cmbInterpBackend.Items.Add("NCNN (Vulkan)")
+            _cmbInterpBackend.Items.Add("CUDA (PyTorch)")
+            _cmbInterpBackend.Items.Add("TensorRT (NVIDIA)")
+            AddHandler _cmbInterpBackend.SelectedIndexChanged, AddressOf OnInterpBackendSelected
             _cmbInterp.WaterText = "选择补帧模型…"
             ConfigureCombo(_cmbInterp)
             AddHandler _cmbInterp.DropDownOpened, AddressOf OnInterpDropDownOpened
@@ -1384,8 +1488,26 @@ Namespace videoenhancer
             _cmbFactor.Items.Add("4 倍")
             _cmbFactor.Items.Add("8 倍")
             AddHandler _cmbFactor.SelectedIndexChanged, AddressOf OnFactorSelected
-            interpFields.Controls.Add(CreateOfficialField("补帧模型", _cmbInterp), 0, 0)
-            interpFields.Controls.Add(CreateOfficialField("补帧倍率", _cmbFactor, 0), 1, 0)
+            interpFields.Controls.Add(CreateOfficialField("补帧后端", _cmbInterpBackend), 0, 0)
+            interpFields.Controls.Add(CreateOfficialField("补帧模型", _cmbInterp), 1, 0)
+            interpFields.Controls.Add(CreateOfficialField("补帧倍率", _cmbFactor, 0), 2, 0)
+            _cmbSceneThreshold.WaterText = "标准 4.0"
+            ConfigureCombo(_cmbSceneThreshold)
+            _cmbSceneThreshold.Items.Add("敏感 1.0")
+            _cmbSceneThreshold.Items.Add("较敏感 2.0")
+            _cmbSceneThreshold.Items.Add("官方默认 3.5")
+            _cmbSceneThreshold.Items.Add("标准 4.0")
+            _cmbSceneThreshold.Items.Add("宽松 6.0")
+            _cmbSceneThreshold.Items.Add("很宽松 8.0")
+            _cmbSceneThreshold.Items.Add("极宽松 10.0")
+            AddHandler _cmbSceneThreshold.SelectedIndexChanged, AddressOf OnSceneThresholdSelected
+            _cmbDynamicOpticalFlow.WaterText = "关闭"
+            ConfigureCombo(_cmbDynamicOpticalFlow)
+            _cmbDynamicOpticalFlow.Items.Add("关闭")
+            _cmbDynamicOpticalFlow.Items.Add("开启")
+            AddHandler _cmbDynamicOpticalFlow.SelectedIndexChanged, AddressOf OnDynamicOpticalFlowSelected
+            interpFields.Controls.Add(CreateOfficialField("转场阈值", _cmbSceneThreshold), 0, 1)
+            interpFields.Controls.Add(CreateOfficialField("动态光流尺度", _cmbDynamicOpticalFlow), 1, 1)
             interpPane.Controls.Add(interpFields, 0, 1)
             modes.Controls.Add(interpPane, 1, 0)
             root.Controls.Add(modes, 0, 4)
@@ -1399,10 +1521,12 @@ Namespace videoenhancer
                 .Padding = Padding.Empty
             }
             orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
-            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 360.0F))
-            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 54.0F))
+            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 46.0F))
             orderRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             Dim orderCaption = CreateOfficialCaption("组合处理顺序")
+            orderCaption.AutoSize = False
+            orderCaption.Dock = DockStyle.Fill
             orderCaption.TextAlign = ContentAlignment.MiddleLeft
             _cmbProcessOrder.Items.Add("画质优先：先超分，再补帧")
             _cmbProcessOrder.Items.Add("速度/算力优先：先补帧，再超分")
@@ -1410,8 +1534,10 @@ Namespace videoenhancer
             _cmbProcessOrder.WaterText = "选择组合处理顺序…"
             ConfigureCombo(_cmbProcessOrder)
             _cmbProcessOrder.Editable = False
+            _cmbProcessOrder.AutoSize = False
             _cmbProcessOrder.Dock = DockStyle.Fill
-            _cmbProcessOrder.Margin = New Padding(0, 7, 12, 7)
+            _cmbProcessOrder.MinimumSize = New Size(0, 36)
+            _cmbProcessOrder.Margin = New Padding(0, 6, 12, 6)
             AddHandler _cmbProcessOrder.SelectedIndexChanged, AddressOf OnProcessOrderSelected
             _lblProcessOrder.AutoSize = False
             _lblProcessOrder.Dock = DockStyle.Fill
@@ -1575,8 +1701,8 @@ Namespace videoenhancer
                     Dim spacious = _pageUpscale.ClientSize.Height >= 650
                     Dim rowHeights = If(
                         spacious,
-                         New Single() {46.0F, 56.0F, 33.0F, 42.0F, 132.0F, 68.0F, 33.0F, 42.0F, 60.0F, 60.0F, 60.0F, 46.0F},
-                         New Single() {40.0F, 48.0F, 25.0F, 36.0F, 112.0F, 60.0F, 25.0F, 36.0F, 54.0F, 54.0F, 54.0F, 42.0F})
+                         New Single() {46.0F, 56.0F, 33.0F, 42.0F, 160.0F, 68.0F, 33.0F, 42.0F, 60.0F, 60.0F, 60.0F, 46.0F},
+                         New Single() {40.0F, 48.0F, 25.0F, 36.0F, 160.0F, 60.0F, 25.0F, 36.0F, 54.0F, 54.0F, 54.0F, 42.0F})
 
                     root.SuspendLayout()
                     Dim totalHeight As Integer = 0
@@ -3278,7 +3404,7 @@ Namespace videoenhancer
             Dim header As New Panel() With {.Dock = DockStyle.Top, .Height = 76, .BackColor = Color.Transparent}
             Dim description As New HtmlColorLabel() With {
                 .Text = "<font color=#D8D8D8><b>ModelScope 模型镜像</b></font><br/>" &
-                        "<font color=#8A8A8A>文件下载到 models 对应分类；Backend 文件下载到 python。压缩包会自动解压。</font>",
+                        "<font color=#8A8A8A>模型下载到 models 对应分类；Bin 文件下载到 bin，Backend 文件下载到 python。压缩包会自动解压。</font>",
                 .AutoSize = False, .Dock = DockStyle.Fill,
                 .TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft, .LineSpacing = 4
             }
@@ -3319,7 +3445,8 @@ Namespace videoenhancer
         End Function
 
         Private Sub LoadDownloadModels(force As Boolean)
-            If _downloadsLoading OrElse (_downloadsLoaded AndAlso Not force) Then Return
+            If _downloadsLoading OrElse _archiveCleanupBusy OrElse _downloadActiveCount > 0 OrElse
+                (_downloadsLoaded AndAlso Not force) Then Return
             Dim exePath = DownloadExecutablePath()
             If String.IsNullOrWhiteSpace(exePath) Then
                 ShowStatus("请先在超分主界面指定 videoenhancer.exe", True)
@@ -3327,6 +3454,7 @@ Namespace videoenhancer
             End If
             _downloadsLoading = True
             _btnRefreshDownloads.Enabled = False
+            _btnCleanArchives.Enabled = False
             _downloadList.Controls.Clear()
             Dim loading As New ModernPanel() With {
                 .Width = Math.Max(360, _downloadList.ClientSize.Width - 24), .Height = 72,
@@ -3409,7 +3537,8 @@ Namespace videoenhancer
                         Dim relativePath = item.GetProperty("path").GetString()
                         Dim size = item.GetProperty("size").GetInt64()
                         entries.Add(New DownloadModelEntry With {
-                            .Name = If(name, relativePath), .RelativePath = If(relativePath, ""), .Size = size
+                            .Name = If(name, relativePath), .RelativePath = If(relativePath, ""), .Size = size,
+                            .Installed = IsDownloadInstalled(If(relativePath, ""))
                         })
                     Next
                 End Using
@@ -3429,6 +3558,7 @@ Namespace videoenhancer
                 _downloadOnline = True
                 ShowStatus("模型列表格式错误：" & ex.Message, True)
             End Try
+            UpdateDownloadUtilityButtons()
         End Sub
 
         Private Shared Function DownloadCategory(relativePath As String) As String
@@ -3447,6 +3577,59 @@ Namespace videoenhancer
                 Case "BACKEND" : Return "Backend 后端"
                 Case Else : Return category
             End Select
+        End Function
+
+        Private Function IsDownloadInstalled(relativePath As String) As Boolean
+            If String.IsNullOrWhiteSpace(relativePath) Then Return False
+            Try
+                Dim normalized = relativePath.Replace("\"c, "/"c).TrimStart("/"c)
+                Dim slash = normalized.IndexOf("/"c)
+                If slash <= 0 Then Return False
+                Dim category = normalized.Substring(0, slash)
+                Dim suffix = normalized.Substring(slash + 1).Replace("/"c, Path.DirectorySeparatorChar)
+                Dim coreRoot = ResolveCoreRoot()
+                Dim destinationRoot = If(category.Equals("Backend", StringComparison.OrdinalIgnoreCase),
+                    Path.Combine(coreRoot, "python"),
+                    If(category.Equals("Bin", StringComparison.OrdinalIgnoreCase),
+                        Path.Combine(coreRoot, "bin"), Path.Combine(coreRoot, "models", category)))
+                Dim downloaded = Path.Combine(destinationRoot, suffix)
+                If File.Exists(downloaded) Then Return True
+
+                ' 压缩包下载后会自动解压；刷新时用解压后的核心文件判断，清理压缩包后仍能保持“已存在”。
+                If Not String.Equals(Path.GetExtension(suffix), ".7z", StringComparison.OrdinalIgnoreCase) AndAlso
+                   Not String.Equals(Path.GetExtension(suffix), ".zip", StringComparison.OrdinalIgnoreCase) Then
+                    Return False
+                End If
+                If category.Equals("Backend", StringComparison.OrdinalIgnoreCase) Then
+                    Return File.Exists(Path.Combine(coreRoot, "python", "python", "python.exe"))
+                End If
+                If category.Equals("Bin", StringComparison.OrdinalIgnoreCase) Then
+                    Dim archiveName = Path.GetFileNameWithoutExtension(suffix)
+                    If archiveName.Equals("ffmpeg", StringComparison.OrdinalIgnoreCase) Then
+                        Return File.Exists(Path.Combine(coreRoot, "bin", "ffmpeg", "ffmpeg.exe"))
+                    End If
+                    If archiveName.Equals("mkvtoolnix", StringComparison.OrdinalIgnoreCase) Then
+                        Return Directory.Exists(Path.Combine(coreRoot, "bin", "mkvtoolnix"))
+                    End If
+                    If archiveName.Equals("PortableGit", StringComparison.OrdinalIgnoreCase) Then
+                        Return Directory.Exists(Path.Combine(coreRoot, "bin", "PortableGit"))
+                    End If
+                End If
+                If category.Equals("RIFE", StringComparison.OrdinalIgnoreCase) Then
+                    Return Directory.Exists(Path.Combine(coreRoot, "models", "RIFE")) AndAlso
+                        Directory.EnumerateFiles(Path.Combine(coreRoot, "models", "RIFE"), "*.param", SearchOption.AllDirectories).Any() AndAlso
+                        Directory.EnumerateFiles(Path.Combine(coreRoot, "models", "RIFE"), "*.bin", SearchOption.AllDirectories).Any()
+                End If
+                If category.Equals("Param-Bin", StringComparison.OrdinalIgnoreCase) Then
+                    Dim modelsRoot = Path.Combine(coreRoot, "models")
+                    Return Directory.Exists(modelsRoot) AndAlso
+                        Directory.EnumerateFiles(modelsRoot, "*.param", SearchOption.AllDirectories).Any() AndAlso
+                        Directory.EnumerateFiles(modelsRoot, "*.bin", SearchOption.AllDirectories).Any()
+                End If
+                Return False
+            Catch
+                Return False
+            End Try
         End Function
 
         Private Sub AddDownloadGroup(category As String, entries As List(Of DownloadModelEntry))
@@ -3486,9 +3669,13 @@ Namespace videoenhancer
             ConfigureSecondaryButton(expandButton)
             Dim allButton As New ModernButton() With {
                 .Text = "下载全部", .Size = New Size(160, 40),
-                .Tag = entries.Select(Function(entry) entry.RelativePath).ToList()
+                .Tag = entries.Where(Function(entry) Not entry.Installed).Select(Function(entry) entry.RelativePath).ToList()
             }
             ConfigurePrimaryButton(allButton)
+            If entries.All(Function(entry) entry.Installed) Then
+                allButton.Text = "已全部存在"
+                allButton.Enabled = False
+            End If
             Dim content As New FlowLayoutPanel() With {
                 .Location = New Point(0, headerHeight), .Width = groupPanel.Width,
                 .Height = Math.Max(1, entries.Count * rowHeightWithGap + 14), .Visible = False,
@@ -3540,10 +3727,11 @@ Namespace videoenhancer
                 .TextAlign = ContentAlignment.MiddleLeft, .AutoEllipsis = True
             }
             Dim button As New ModernButton() With {
-                .Text = "下载", .Dock = DockStyle.Right, .Width = 132,
+                .Text = If(entry.Installed, "已存在", "下载"), .Dock = DockStyle.Right, .Width = 132,
                 .Margin = Padding.Empty, .Tag = entry.RelativePath
             }
             ConfigureSecondaryButton(button)
+            button.Enabled = Not entry.Installed
             AddHandler button.Click, AddressOf OnDownloadModelClick
             row.Controls.Add(label)
             row.Controls.Add(button)
@@ -3572,84 +3760,129 @@ Namespace videoenhancer
         End Function
 
         Private Async Sub OnDownloadModelClick(sender As Object, e As EventArgs)
-            If Not _downloadOnline OrElse _downloadBusy Then Return
+            If Not _downloadOnline Then Return
             Dim button = TryCast(sender, ModernButton)
             If button Is Nothing OrElse button.Tag Is Nothing Then Return
             Dim exePath = DownloadExecutablePath()
             If String.IsNullOrWhiteSpace(exePath) Then Return
             Dim relativePath = button.Tag.ToString()
-            _downloadBusy = True
-            SetDownloadActionsEnabled(False)
+            If Not TryBeginDownload(relativePath) Then
+                ShowStatus("该资源正在下载，请等待当前任务完成。", True)
+                Return
+            End If
+            button.Enabled = False
             button.Text = "准备中…"
-            Dim result = Await Task.Run(Function() ExecuteModelDownload(exePath, relativePath,
-                Sub(text)
-                    Try
-                        BeginInvoke(New Action(Sub() button.Text = text))
-                    Catch
-                    End Try
-                End Sub))
-            _downloadBusy = False
+            Dim result As DownloadExecutionResult
+            Try
+                result = Await Task.Run(Function() ExecuteModelDownload(exePath, relativePath,
+                    Sub(text)
+                        Try
+                            BeginInvoke(New Action(Sub() button.Text = text))
+                        Catch
+                        End Try
+                    End Sub))
+            Finally
+                EndDownload(relativePath)
+            End Try
             If result.ExitCode = 0 Then
                 button.Text = "已完成"
+                button.Enabled = True
                 ShowStatus("模型下载完成：" & relativePath, False)
-                SetDownloadActionsEnabled(True)
             ElseIf result.Errors.Contains("NO_NETWORK|") Then
                 button.Text = "下载"
                 _downloadOnline = False
+                SetDownloadActionsEnabled(False)
                 ShowOfflineDownloadStatus()
             Else
                 button.Text = "重试"
-                SetDownloadActionsEnabled(True)
+                button.Enabled = True
                 ShowStatus(CliErrorMessage(result.Errors, "模型下载失败"), True)
             End If
         End Sub
 
         Private Async Sub OnDownloadAllClick(sender As Object, e As EventArgs)
-            If Not _downloadOnline OrElse _downloadBusy Then Return
+            If Not _downloadOnline Then Return
             Dim button = TryCast(sender, ModernButton)
             Dim paths = If(button Is Nothing, Nothing, TryCast(button.Tag, List(Of String)))
             If paths Is Nothing OrElse paths.Count = 0 Then Return
             Dim exePath = DownloadExecutablePath()
             If String.IsNullOrWhiteSpace(exePath) Then Return
-            _downloadBusy = True
-            SetDownloadActionsEnabled(False)
+            If Not button.Enabled Then Return
+            button.Enabled = False
             Dim completed = 0
+            Dim nextIndex = 0
             Dim failed = False
             Dim failureMessage = ""
-            For Each relativePath In paths
-                Dim current = completed + 1
-                button.Text = current & "/" & paths.Count
-                Dim result = Await Task.Run(Function() ExecuteModelDownload(exePath, relativePath,
-                    Sub(text)
-                        If text.EndsWith("%", StringComparison.Ordinal) Then
-                            Try : BeginInvoke(New Action(Sub() button.Text = current & "/" & paths.Count & "  " & text)) : Catch : End Try
-                        End If
-                    End Sub))
+            Const maxParallel As Integer = 3
+            ' 滑动窗口：始终保持最多 3 个活动下载，任一任务完成就立即补下一个。
+            Dim running As New List(Of Task(Of DownloadExecutionResult))()
+            Dim runningPaths As New Dictionary(Of Task(Of DownloadExecutionResult), String)()
+            While nextIndex < paths.Count OrElse running.Count > 0
+                While nextIndex < paths.Count AndAlso running.Count < maxParallel AndAlso Not failed
+                    Dim relativePath = paths(nextIndex)
+                    nextIndex += 1
+                    If Not TryBeginDownload(relativePath) Then
+                        failed = True
+                        failureMessage = "资源正在被其他下载任务占用：" & relativePath
+                        Exit While
+                    End If
+                    Dim currentPath = relativePath
+                    Dim task = ExecuteDownloadAsync(exePath, currentPath,
+                        Sub(text)
+                            If text.EndsWith("%", StringComparison.Ordinal) Then
+                                Try
+                                    BeginInvoke(New Action(Sub()
+                                        button.Text = currentPath & "  " & text & "  " & completed & "/" & paths.Count
+                                    End Sub))
+                                Catch
+                                End Try
+                            End If
+                        End Sub)
+                    running.Add(task)
+                    runningPaths(task) = currentPath
+                End While
+
+                If running.Count = 0 Then Exit While
+                Dim finished = Await Task.WhenAny(running)
+                running.Remove(finished)
+                Dim result = Await finished
+                runningPaths.Remove(finished)
                 If result.ExitCode <> 0 Then
                     failed = True
                     failureMessage = CliErrorMessage(result.Errors, "模型下载失败")
                     If result.Errors.Contains("NO_NETWORK|") Then
                         _downloadOnline = False
-                        ShowOfflineDownloadStatus()
                     End If
-                    Exit For
+                Else
+                    completed += 1
                 End If
-                completed += 1
-            Next
-            _downloadBusy = False
+                button.Text = completed & "/" & paths.Count
+            End While
+            If Not _downloadOnline Then ShowOfflineDownloadStatus()
             If Not _downloadOnline Then
                 button.Text = "一键全部下载"
+                SetDownloadActionsEnabled(False)
                 Return
             End If
-            SetDownloadActionsEnabled(True)
             If failed Then
                 button.Text = "继续下载"
+                button.Enabled = True
                 ShowStatus("批量下载在第 " & (completed + 1) & " 个文件处失败：" & failureMessage, True)
             Else
                 button.Text = "全部完成"
+                button.Enabled = True
                 ShowStatus("该分类 " & completed & " 个文件已全部下载完成", False)
             End If
         End Sub
+
+        Private Async Function ExecuteDownloadAsync(exePath As String, relativePath As String,
+                                                     progress As Action(Of String)) As Task(Of DownloadExecutionResult)
+            Try
+                Return Await Task.Run(Function() ExecuteModelDownload(exePath, relativePath, progress))
+            Finally
+                EndDownload(relativePath)
+            End Try
+        End Function
 
         Private Function ExecuteModelDownload(exePath As String, relativePath As String, progress As Action(Of String)) As DownloadExecutionResult
             Dim result As New DownloadExecutionResult()
@@ -3704,8 +3937,30 @@ Namespace videoenhancer
 
         Private Sub SetDownloadActionsEnabled(enabled As Boolean)
             For Each button In AllDownloadButtons(_downloadList)
-                button.Enabled = enabled AndAlso _downloadOnline
+                button.Enabled = enabled AndAlso _downloadOnline AndAlso Not button.Text.StartsWith("已", StringComparison.Ordinal)
             Next
+            UpdateDownloadUtilityButtons()
+        End Sub
+
+        Private Function TryBeginDownload(relativePath As String) As Boolean
+            If _activeDownloadPaths.Contains(relativePath) Then Return False
+            _activeDownloadPaths.Add(relativePath)
+            _downloadActiveCount += 1
+            UpdateDownloadUtilityButtons()
+            Return True
+        End Function
+
+        Private Sub EndDownload(relativePath As String)
+            If _activeDownloadPaths.Remove(relativePath) Then
+                _downloadActiveCount = Math.Max(0, _downloadActiveCount - 1)
+            End If
+            UpdateDownloadUtilityButtons()
+        End Sub
+
+        Private Sub UpdateDownloadUtilityButtons()
+            _btnRefreshDownloads.Enabled = Not _downloadsLoading AndAlso
+                _downloadActiveCount = 0 AndAlso Not _archiveCleanupBusy
+            _btnCleanArchives.Enabled = _downloadActiveCount = 0 AndAlso Not _archiveCleanupBusy
         End Sub
 
         Private Sub ShowOfflineDownloadStatus()
@@ -3734,15 +3989,20 @@ Namespace videoenhancer
             End If
             _lblStatus.Text = "<font color=#E07878>无法连接 ModelScope，请检查网络或代理设置</font>"
             SetDownloadActionsEnabled(False)
+            UpdateDownloadUtilityButtons()
         End Sub
 
         Private Async Sub OnCleanDownloadArchives(sender As Object, e As EventArgs)
-            If _downloadBusy Then Return
+            If _archiveCleanupBusy OrElse _downloadActiveCount > 0 Then
+                ShowStatus("请等待当前模型下载完成后再清理压缩包。", True)
+                Return
+            End If
             If Not File.Exists(_config.ExePath) Then
                 ShowStatus("请先指定有效的 videoenhancer.exe", True)
                 Return
             End If
-            _downloadBusy = True
+            _archiveCleanupBusy = True
+            SetDownloadActionsEnabled(False)
             _btnCleanArchives.Enabled = False
             ShowStatus("正在清理下载压缩包…", False)
             Dim output = New StringBuilder()
@@ -3770,8 +4030,8 @@ Namespace videoenhancer
                         Return -1
                     End Try
                 End Function)
-            _downloadBusy = False
-            _btnCleanArchives.Enabled = True
+            _archiveCleanupBusy = False
+            UpdateDownloadUtilityButtons()
             Dim complete = output.ToString().Split(New Char() {Convert.ToChar(13), Convert.ToChar(10)}, StringSplitOptions.RemoveEmptyEntries).
                 FirstOrDefault(Function(line) line.StartsWith("CLEAN_COMPLETE|", StringComparison.Ordinal))
             If exitCode = 0 AndAlso complete IsNot Nothing Then
@@ -4563,10 +4823,10 @@ Namespace videoenhancer
             Dim combined = _config.UpscaleEnabled AndAlso _config.InterpEnabled
             _cmbProcessOrder.Enabled = _config.Enabled
             If String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase) Then
-                _lblProcessOrder.Text = "<font color=#B1BCCA>速度/算力优先：先补帧，再超分。</font>"
+                _lblProcessOrder.Text = "<font color=#B1BCCA>当前：先补帧，再超分。</font>"
             Else
                 _config.ProcessOrder = "upscale-first"
-                _lblProcessOrder.Text = "<font color=#B1BCCA>画质优先：先超分，再补帧。</font>"
+                _lblProcessOrder.Text = "<font color=#B1BCCA>当前：先超分，再补帧。</font>"
             End If
             _lblProcessOrder.Visible = combined
         End Sub
@@ -4598,6 +4858,20 @@ Namespace videoenhancer
             SyncFactorCombo()
             _cmbFactor.Enabled = _config.Enabled
             _syncingFactor = False
+            _syncingInterpBackend = True
+            SyncInterpBackendCombo()
+            _cmbInterpBackend.Enabled = _config.Enabled
+            _syncingInterpBackend = False
+            _syncingDynamicOpticalFlow = True
+            SyncDynamicOpticalFlowCombo()
+            _syncingDynamicOpticalFlow = False
+            _syncingSceneThreshold = True
+            SyncSceneThresholdCombo()
+            _syncingSceneThreshold = False
+            _syncingTileSize = True
+            SyncTileSizeCombo()
+            _syncingTileSize = False
+            UpdateAdvancedControlState()
             _syncingProcessOrder = True
             If _cmbProcessOrder.Items.Count > 0 Then
                 _cmbProcessOrder.SelectedIndex = If(String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase), 1, 0)
@@ -4634,6 +4908,51 @@ Namespace videoenhancer
                 End If
             Next
             _cmbFactor.SelectedIndex = idx
+        End Sub
+
+        Private Sub SyncInterpBackendCombo()
+            If _cmbInterpBackend.Items.Count = 0 Then Return
+            _cmbInterpBackend.SelectedIndex = If(_config.InterpBackend = "tensorrt", 2, If(_config.InterpBackend = "cuda", 1, 0))
+        End Sub
+
+        Private Sub SyncDynamicOpticalFlowCombo()
+            If _cmbDynamicOpticalFlow.Items.Count = 0 Then Return
+            _cmbDynamicOpticalFlow.SelectedIndex = If(_config.InterpDynamicScaledOpticalFlow, 1, 0)
+        End Sub
+
+        Private Sub SyncSceneThresholdCombo()
+            If _cmbSceneThreshold.Items.Count = 0 Then Return
+            Dim value = If(_config.SceneDetectThreshold <= 0, 4.0, Math.Min(10.0, _config.SceneDetectThreshold))
+            Dim best = 3
+            For i As Integer = 0 To _cmbSceneThreshold.Items.Count - 1
+                If Math.Abs(SceneThresholdValue(_cmbSceneThreshold.Items(i)) - value) < 0.001 Then
+                    best = i
+                    Exit For
+                End If
+            Next
+            _cmbSceneThreshold.SelectedIndex = best
+        End Sub
+
+        Private Sub SyncTileSizeCombo()
+            If _cmbTileSize.Items.Count = 0 Then Return
+            Dim value = Math.Max(0, _config.UpscaleTileSize)
+            Dim best = 0
+            For i As Integer = 0 To _cmbTileSize.Items.Count - 1
+                If TileSizeValue(_cmbTileSize.Items(i)) = value Then
+                    best = i
+                    Exit For
+                End If
+            Next
+            _cmbTileSize.SelectedIndex = best
+        End Sub
+
+        Private Sub UpdateAdvancedControlState()
+            _cmbDynamicOpticalFlow.Enabled = _config.Enabled AndAlso _config.InterpEnabled AndAlso String.Equals(_config.InterpBackend, "cuda", StringComparison.OrdinalIgnoreCase)
+            _cmbSceneThreshold.Enabled = _config.Enabled AndAlso _config.InterpEnabled
+            Dim tileBackend = String.Equals(_config.Backend, "ncnn", StringComparison.OrdinalIgnoreCase) OrElse
+                String.Equals(_config.Backend, "cuda", StringComparison.OrdinalIgnoreCase) OrElse
+                String.Equals(_config.Backend, "tensorrt", StringComparison.OrdinalIgnoreCase)
+            _cmbTileSize.Enabled = _config.Enabled AndAlso _config.UpscaleEnabled AndAlso tileBackend
         End Sub
 
         Private Sub ShowStatus(text As String, error_ As Boolean)

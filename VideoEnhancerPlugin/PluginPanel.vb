@@ -49,13 +49,21 @@ Namespace videoenhancer
         Private ReadOnly _lblSwitchInterp As New HtmlColorLabel()
         Private ReadOnly _cmbBackend As New ModernComboBox()
         Private ReadOnly _lblBackend As New HtmlColorLabel()
+        Private ReadOnly _cmbInterpBackend As New ModernComboBox()
         Private ReadOnly _cmbFactor As New ModernComboBox()
+        Private ReadOnly _cmbDynamicOpticalFlow As New ModernComboBox()
+        Private ReadOnly _cmbSceneThreshold As New ModernComboBox()
+        Private ReadOnly _cmbTileSize As New ModernComboBox()
         Private ReadOnly _lblFactor As New HtmlColorLabel()
         Private ReadOnly _cmbProcessOrder As New ModernComboBox()
         Private ReadOnly _lblProcessOrder As New HtmlColorLabel()
         Private _syncingMaster As Boolean = False
         Private _syncingBackend As Boolean = False
+        Private _syncingInterpBackend As Boolean = False
         Private _syncingFactor As Boolean = False
+        Private _syncingDynamicOpticalFlow As Boolean = False
+        Private _syncingSceneThreshold As Boolean = False
+        Private _syncingTileSize As Boolean = False
         Private _syncingProcessOrder As Boolean = False
         Private _syncingSwitch As Boolean = False
         Private _syncingInterpSwitch As Boolean = False
@@ -281,6 +289,7 @@ Namespace videoenhancer
             _config.Save()
             UpdateModeStateLabels()
             UpdateProcessOrderState()
+            UpdateAdvancedControlState()
             UpdateHookState()
         End Sub
 
@@ -297,12 +306,13 @@ Namespace videoenhancer
                 Return
             End If
             _config.InterpEnabled = _switchInterp.Checked
-            If _switchInterp.Checked AndAlso _config.Backend = "cuda" Then
+            If _switchInterp.Checked Then
                 RefreshInterpModels()
             End If
             _config.Save()
             UpdateModeStateLabels()
             UpdateProcessOrderState()
+            UpdateAdvancedControlState()
             UpdateHookState()
         End Sub
 
@@ -423,9 +433,9 @@ Namespace videoenhancer
             _loadingInterpModels = True
             _cmbInterp.WaterText = "正在读取补帧模型…"
             Dim exePath = _config.ExePath
-            Dim backend = If(String.IsNullOrWhiteSpace(_config.Backend), "ncnn", _config.Backend)
+            Dim backend = If(String.IsNullOrWhiteSpace(_config.InterpBackend), "ncnn", _config.InterpBackend)
             Task.Run(Sub()
-                         Dim models = RunListModels(exePath, "--list-interp-models", "-backend", backend)
+                         Dim models = RunListModels(exePath, "--list-interp-models", "-interp-backend", backend)
                          Try
                              If Me.IsHandleCreated Then
                                  Me.BeginInvoke(New Action(Sub()
@@ -519,14 +529,16 @@ Namespace videoenhancer
                 Else
                     _cmbInterp.SelectedIndex = 0
                 End If
-                Dim modeText = If(_config.Backend = "cuda",
+                Dim modeText = If(_config.InterpBackend = "tensorrt",
+                    "（TensorRT，RIFE .pth 自动构建 Engine）",
+                    If(_config.InterpBackend = "cuda",
                     "（CUDA，" & Convert.ToChar(92) & "RIFE 下的 .pth 文件）",
-                    "（models" & Convert.ToChar(92) & "RIFE）")
+                    "（NCNN，models" & Convert.ToChar(92) & "RIFE）"))
                 ShowStatus($"已读取 {models.Count} 个补帧模型 " & modeText, False)
             Else
-                If _config.Backend = "cuda" Then
+                If _config.InterpBackend = "cuda" OrElse _config.InterpBackend = "tensorrt" Then
                     _cmbInterp.WaterText = "未找到 .pth 补帧模型"
-                    ShowStatus("CUDA 补帧需要 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型；不会改动当前超分后端", _config.InterpEnabled)
+                    ShowStatus(If(_config.InterpBackend = "tensorrt", "TensorRT", "CUDA") & " RIFE 需要 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型", _config.InterpEnabled)
                 Else
                     _cmbInterp.WaterText = "未找到补帧模型"
                     ShowStatus("未在 models" & Convert.ToChar(92) & "RIFE 目录找到含 .param/.bin 的补帧模型", True)
@@ -574,6 +586,7 @@ Namespace videoenhancer
             ' 切换后端后重新读取两个模型列表（CUDA 需要 .pth 模型；活动模式无 .pth 时由 Apply*List 自动回退）
             RefreshUpscaleModels()
             RefreshInterpModels()
+            UpdateAdvancedControlState()
             Dim modeText = If(backend = "tensorrt",
                 "TensorRT（NVIDIA）：超分 Engine 自动构建；组合补帧自动使用 NCNN RIFE",
                 If(backend = "onnx",
@@ -627,12 +640,43 @@ Namespace videoenhancer
             Return "ncnn"
         End Function
 
+        Private Shared Function InterpBackendValue(item As Object) As String
+            Dim text = If(item Is Nothing, "", item.ToString())
+            If text.Contains("TensorRT", StringComparison.OrdinalIgnoreCase) Then Return "tensorrt"
+            If text.Contains("CUDA", StringComparison.OrdinalIgnoreCase) Then Return "cuda"
+            Return "ncnn"
+        End Function
+
         Private Shared Function FactorValue(item As Object) As Double
             Dim text = If(item Is Nothing, "", item.ToString())
             Dim digits = New String(text.TakeWhile(Function(c) Char.IsDigit(c)).ToArray())
             Dim v As Double = 0
             If Double.TryParse(digits, v) Then
                 Return v
+            End If
+            Return 0
+        End Function
+
+        Private Shared Function DynamicOpticalFlowValue(item As Object) As Boolean
+            Return String.Equals(If(item Is Nothing, "", item.ToString()), "开启", StringComparison.OrdinalIgnoreCase)
+        End Function
+
+        Private Shared Function SceneThresholdValue(item As Object) As Double
+            Dim text = If(item Is Nothing, "", item.ToString())
+            Dim match = Regex.Match(text, "([0-9]+(?:\.[0-9]+)?)")
+            Dim value As Double = 0
+            If match.Success AndAlso Double.TryParse(match.Groups(1).Value, Globalization.NumberStyles.Float, Globalization.CultureInfo.InvariantCulture, value) Then
+                Return value
+            End If
+            Return 0
+        End Function
+
+        Private Shared Function TileSizeValue(item As Object) As Integer
+            Dim text = If(item Is Nothing, "", item.ToString())
+            Dim match = Regex.Match(text, "([0-9]+)")
+            If match.Success Then
+                Dim value As Integer
+                If Integer.TryParse(match.Groups(1).Value, value) Then Return value
             End If
             Return 0
         End Function
@@ -923,6 +967,39 @@ Namespace videoenhancer
             combo.DropDownScrollBarTrackColor = Color.Transparent
         End Sub
 
+        Private Sub OnInterpBackendSelected(sender As Object, e As EventArgs)
+            If _syncingInterpBackend Then Return
+            Dim backend = InterpBackendValue(_cmbInterpBackend.SelectedItem)
+            If backend = _config.InterpBackend Then Return
+            _config.InterpBackend = backend
+            _config.InterpModel = ""
+            _config.Save()
+            RefreshInterpModels()
+            UpdateAdvancedControlState()
+            ShowStatus("补帧后端：" & If(backend = "tensorrt", "TensorRT（RIFE .pth 自动构建 Engine）", If(backend = "cuda", "CUDA（PyTorch）", "NCNN（Vulkan）")), False)
+        End Sub
+
+        Private Sub OnDynamicOpticalFlowSelected(sender As Object, e As EventArgs)
+            If _syncingDynamicOpticalFlow Then Return
+            _config.InterpDynamicScaledOpticalFlow = DynamicOpticalFlowValue(_cmbDynamicOpticalFlow.SelectedItem)
+            _config.Save()
+            UpdateAdvancedControlState()
+        End Sub
+
+        Private Sub OnSceneThresholdSelected(sender As Object, e As EventArgs)
+            If _syncingSceneThreshold Then Return
+            Dim value = SceneThresholdValue(_cmbSceneThreshold.SelectedItem)
+            If value <= 0 Then Return
+            _config.SceneDetectThreshold = value
+            _config.Save()
+        End Sub
+
+        Private Sub OnTileSizeSelected(sender As Object, e As EventArgs)
+            If _syncingTileSize Then Return
+            _config.UpscaleTileSize = TileSizeValue(_cmbTileSize.SelectedItem)
+            _config.Save()
+            UpdateAdvancedControlState()
+        End Sub
         Private Sub InitializeUi()
             BackColor = Color.Transparent
             Dock = DockStyle.Fill
@@ -1241,14 +1318,15 @@ Namespace videoenhancer
             Dim upscaleFields As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 2,
-                .RowCount = 1,
+                .RowCount = 2,
                 .BackColor = Color.Transparent,
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
             upscaleFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 46.0F))
             upscaleFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 54.0F))
-            upscaleFields.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            upscaleFields.RowStyles.Add(New RowStyle(SizeType.Percent, 52.0F))
+            upscaleFields.RowStyles.Add(New RowStyle(SizeType.Percent, 48.0F))
             _cmbBackend.WaterText = "选择推理方式…"
             ConfigureCombo(_cmbBackend)
             _cmbBackend.Items.Add("NCNN (Vulkan)")
@@ -1264,6 +1342,20 @@ Namespace videoenhancer
             AddHandler _cmbModel.SelectedIndexChanged, AddressOf OnModelSelected
             upscaleFields.Controls.Add(CreateOfficialField("推理后端", _cmbBackend), 0, 0)
             upscaleFields.Controls.Add(CreateOfficialField("放大模型", _cmbModel, 0), 1, 0)
+            _cmbTileSize.WaterText = "RVE 默认（0）"
+            ConfigureCombo(_cmbTileSize)
+            _cmbTileSize.Items.Add("RVE 默认（0）")
+            _cmbTileSize.Items.Add("128 px")
+            _cmbTileSize.Items.Add("256 px")
+            _cmbTileSize.Items.Add("384 px")
+            _cmbTileSize.Items.Add("512 px")
+            _cmbTileSize.Items.Add("768 px")
+            _cmbTileSize.Items.Add("1024 px")
+            AddHandler _cmbTileSize.SelectedIndexChanged, AddressOf OnTileSizeSelected
+            upscaleFields.Controls.Add(CreateOfficialField("超分分块尺寸", _cmbTileSize), 0, 1)
+            Dim tileHint = CreateOfficialCaption("0=RVE默认；越小越省显存但更慢", UiTextMuted)
+            tileHint.TextAlign = ContentAlignment.BottomLeft
+            upscaleFields.Controls.Add(tileHint, 1, 1)
             upscalePane.Controls.Add(upscaleFields, 0, 1)
             modes.Controls.Add(upscalePane, 0, 0)
 
@@ -1285,15 +1377,23 @@ Namespace videoenhancer
                 "运动补帧", "", _switchInterp, _lblSwitchInterp), 0, 0)
             Dim interpFields As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
-                .ColumnCount = 2,
-                .RowCount = 1,
+                .ColumnCount = 3,
+                .RowCount = 2,
                 .BackColor = Color.Transparent,
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
-            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 68.0F))
-            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 32.0F))
-            interpFields.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 30.0F))
+            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
+            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 20.0F))
+            interpFields.RowStyles.Add(New RowStyle(SizeType.Percent, 52.0F))
+            interpFields.RowStyles.Add(New RowStyle(SizeType.Percent, 48.0F))
+            _cmbInterpBackend.WaterText = "选择后端…"
+            ConfigureCombo(_cmbInterpBackend)
+            _cmbInterpBackend.Items.Add("NCNN (Vulkan)")
+            _cmbInterpBackend.Items.Add("CUDA (PyTorch)")
+            _cmbInterpBackend.Items.Add("TensorRT (NVIDIA)")
+            AddHandler _cmbInterpBackend.SelectedIndexChanged, AddressOf OnInterpBackendSelected
             _cmbInterp.WaterText = "选择补帧模型…"
             ConfigureCombo(_cmbInterp)
             AddHandler _cmbInterp.DropDownOpened, AddressOf OnInterpDropDownOpened
@@ -1306,8 +1406,26 @@ Namespace videoenhancer
             _cmbFactor.Items.Add("4 倍")
             _cmbFactor.Items.Add("8 倍")
             AddHandler _cmbFactor.SelectedIndexChanged, AddressOf OnFactorSelected
-            interpFields.Controls.Add(CreateOfficialField("补帧模型", _cmbInterp), 0, 0)
-            interpFields.Controls.Add(CreateOfficialField("补帧倍率", _cmbFactor, 0), 1, 0)
+            interpFields.Controls.Add(CreateOfficialField("补帧后端", _cmbInterpBackend), 0, 0)
+            interpFields.Controls.Add(CreateOfficialField("补帧模型", _cmbInterp), 1, 0)
+            interpFields.Controls.Add(CreateOfficialField("补帧倍率", _cmbFactor, 0), 2, 0)
+            _cmbSceneThreshold.WaterText = "标准 4.0"
+            ConfigureCombo(_cmbSceneThreshold)
+            _cmbSceneThreshold.Items.Add("敏感 1.0")
+            _cmbSceneThreshold.Items.Add("较敏感 2.0")
+            _cmbSceneThreshold.Items.Add("官方默认 3.5")
+            _cmbSceneThreshold.Items.Add("标准 4.0")
+            _cmbSceneThreshold.Items.Add("宽松 6.0")
+            _cmbSceneThreshold.Items.Add("很宽松 8.0")
+            _cmbSceneThreshold.Items.Add("极宽松 10.0")
+            AddHandler _cmbSceneThreshold.SelectedIndexChanged, AddressOf OnSceneThresholdSelected
+            _cmbDynamicOpticalFlow.WaterText = "关闭"
+            ConfigureCombo(_cmbDynamicOpticalFlow)
+            _cmbDynamicOpticalFlow.Items.Add("关闭")
+            _cmbDynamicOpticalFlow.Items.Add("开启")
+            AddHandler _cmbDynamicOpticalFlow.SelectedIndexChanged, AddressOf OnDynamicOpticalFlowSelected
+            interpFields.Controls.Add(CreateOfficialField("转场阈值", _cmbSceneThreshold), 0, 1)
+            interpFields.Controls.Add(CreateOfficialField("动态光流尺度", _cmbDynamicOpticalFlow), 1, 1)
             interpPane.Controls.Add(interpFields, 0, 1)
             modes.Controls.Add(interpPane, 1, 0)
             root.Controls.Add(modes, 0, 4)
@@ -1321,10 +1439,12 @@ Namespace videoenhancer
                 .Padding = Padding.Empty
             }
             orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
-            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 360.0F))
-            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 54.0F))
+            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 46.0F))
             orderRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             Dim orderCaption = CreateOfficialCaption("组合处理顺序")
+            orderCaption.AutoSize = False
+            orderCaption.Dock = DockStyle.Fill
             orderCaption.TextAlign = ContentAlignment.MiddleLeft
             _cmbProcessOrder.Items.Add("画质优先：先超分，再补帧")
             _cmbProcessOrder.Items.Add("速度/算力优先：先补帧，再超分")
@@ -1332,8 +1452,10 @@ Namespace videoenhancer
             _cmbProcessOrder.WaterText = "选择组合处理顺序…"
             ConfigureCombo(_cmbProcessOrder)
             _cmbProcessOrder.Editable = False
+            _cmbProcessOrder.AutoSize = False
             _cmbProcessOrder.Dock = DockStyle.Fill
-            _cmbProcessOrder.Margin = New Padding(0, 7, 12, 7)
+            _cmbProcessOrder.MinimumSize = New Size(0, 36)
+            _cmbProcessOrder.Margin = New Padding(0, 6, 12, 6)
             AddHandler _cmbProcessOrder.SelectedIndexChanged, AddressOf OnProcessOrderSelected
             _lblProcessOrder.AutoSize = False
             _lblProcessOrder.Dock = DockStyle.Fill
@@ -1497,8 +1619,8 @@ Namespace videoenhancer
                     Dim spacious = _pageUpscale.ClientSize.Height >= 650
                     Dim rowHeights = If(
                         spacious,
-                         New Single() {46.0F, 56.0F, 33.0F, 42.0F, 132.0F, 68.0F, 33.0F, 42.0F, 60.0F, 60.0F, 60.0F, 46.0F},
-                         New Single() {40.0F, 48.0F, 25.0F, 36.0F, 112.0F, 60.0F, 25.0F, 36.0F, 54.0F, 54.0F, 54.0F, 42.0F})
+                         New Single() {46.0F, 56.0F, 33.0F, 42.0F, 160.0F, 68.0F, 33.0F, 42.0F, 60.0F, 60.0F, 60.0F, 46.0F},
+                         New Single() {40.0F, 48.0F, 25.0F, 36.0F, 160.0F, 60.0F, 25.0F, 36.0F, 54.0F, 54.0F, 54.0F, 42.0F})
 
                     root.SuspendLayout()
                     Dim totalHeight As Integer = 0
@@ -4604,10 +4726,10 @@ Namespace videoenhancer
             Dim combined = _config.UpscaleEnabled AndAlso _config.InterpEnabled
             _cmbProcessOrder.Enabled = _config.Enabled
             If String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase) Then
-                _lblProcessOrder.Text = "<font color=#B1BCCA>速度/算力优先：先补帧，再超分。</font>"
+                _lblProcessOrder.Text = "<font color=#B1BCCA>当前：先补帧，再超分。</font>"
             Else
                 _config.ProcessOrder = "upscale-first"
-                _lblProcessOrder.Text = "<font color=#B1BCCA>画质优先：先超分，再补帧。</font>"
+                _lblProcessOrder.Text = "<font color=#B1BCCA>当前：先超分，再补帧。</font>"
             End If
             _lblProcessOrder.Visible = combined
         End Sub
@@ -4639,6 +4761,20 @@ Namespace videoenhancer
             SyncFactorCombo()
             _cmbFactor.Enabled = _config.Enabled
             _syncingFactor = False
+            _syncingInterpBackend = True
+            SyncInterpBackendCombo()
+            _cmbInterpBackend.Enabled = _config.Enabled
+            _syncingInterpBackend = False
+            _syncingDynamicOpticalFlow = True
+            SyncDynamicOpticalFlowCombo()
+            _syncingDynamicOpticalFlow = False
+            _syncingSceneThreshold = True
+            SyncSceneThresholdCombo()
+            _syncingSceneThreshold = False
+            _syncingTileSize = True
+            SyncTileSizeCombo()
+            _syncingTileSize = False
+            UpdateAdvancedControlState()
             _syncingProcessOrder = True
             If _cmbProcessOrder.Items.Count > 0 Then
                 _cmbProcessOrder.SelectedIndex = If(String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase), 1, 0)
@@ -4675,6 +4811,51 @@ Namespace videoenhancer
                 End If
             Next
             _cmbFactor.SelectedIndex = idx
+        End Sub
+
+        Private Sub SyncInterpBackendCombo()
+            If _cmbInterpBackend.Items.Count = 0 Then Return
+            _cmbInterpBackend.SelectedIndex = If(_config.InterpBackend = "tensorrt", 2, If(_config.InterpBackend = "cuda", 1, 0))
+        End Sub
+
+        Private Sub SyncDynamicOpticalFlowCombo()
+            If _cmbDynamicOpticalFlow.Items.Count = 0 Then Return
+            _cmbDynamicOpticalFlow.SelectedIndex = If(_config.InterpDynamicScaledOpticalFlow, 1, 0)
+        End Sub
+
+        Private Sub SyncSceneThresholdCombo()
+            If _cmbSceneThreshold.Items.Count = 0 Then Return
+            Dim value = If(_config.SceneDetectThreshold <= 0, 4.0, Math.Min(10.0, _config.SceneDetectThreshold))
+            Dim best = 3
+            For i As Integer = 0 To _cmbSceneThreshold.Items.Count - 1
+                If Math.Abs(SceneThresholdValue(_cmbSceneThreshold.Items(i)) - value) < 0.001 Then
+                    best = i
+                    Exit For
+                End If
+            Next
+            _cmbSceneThreshold.SelectedIndex = best
+        End Sub
+
+        Private Sub SyncTileSizeCombo()
+            If _cmbTileSize.Items.Count = 0 Then Return
+            Dim value = Math.Max(0, _config.UpscaleTileSize)
+            Dim best = 0
+            For i As Integer = 0 To _cmbTileSize.Items.Count - 1
+                If TileSizeValue(_cmbTileSize.Items(i)) = value Then
+                    best = i
+                    Exit For
+                End If
+            Next
+            _cmbTileSize.SelectedIndex = best
+        End Sub
+
+        Private Sub UpdateAdvancedControlState()
+            _cmbDynamicOpticalFlow.Enabled = _config.Enabled AndAlso _config.InterpEnabled AndAlso String.Equals(_config.InterpBackend, "cuda", StringComparison.OrdinalIgnoreCase)
+            _cmbSceneThreshold.Enabled = _config.Enabled AndAlso _config.InterpEnabled
+            Dim tileBackend = String.Equals(_config.Backend, "ncnn", StringComparison.OrdinalIgnoreCase) OrElse
+                String.Equals(_config.Backend, "cuda", StringComparison.OrdinalIgnoreCase) OrElse
+                String.Equals(_config.Backend, "tensorrt", StringComparison.OrdinalIgnoreCase)
+            _cmbTileSize.Enabled = _config.Enabled AndAlso _config.UpscaleEnabled AndAlso tileBackend
         End Sub
 
         Private Sub ShowStatus(text As String, error_ As Boolean)

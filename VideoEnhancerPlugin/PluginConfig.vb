@@ -18,8 +18,16 @@ Namespace videoenhancer
         Public Property InterpModel As String = ""
         ''' <summary>补帧倍率（RIFE --interpolate_factor，默认 2；须为大于 1 的数字）。</summary>
         Public Property InterpFactor As Double = 2.0
+        ''' <summary>RIFE 动态光流尺度；仅 CUDA/PyTorch 有效，TensorRT 由 RVE 自动禁用。</summary>
+        Public Property InterpDynamicScaledOpticalFlow As Boolean = False
+        ''' <summary>RIFE 转场检测阈值；数值越低越容易判定为转场。</summary>
+        Public Property SceneDetectThreshold As Double = 4.0
+        ''' <summary>超分分块边长；0 表示使用 RVE 默认处理，不按显存自动试探。</summary>
+        Public Property UpscaleTileSize As Integer = 0
         ''' <summary>超分推理后端：ncnn、cuda、tensorrt、onnx 或 flashvsr。</summary>
         Public Property Backend As String = "ncnn"
+        ''' <summary>RIFE 补帧后端：ncnn、cuda（PyTorch）或 tensorrt。</summary>
+        Public Property InterpBackend As String = "ncnn"
         ''' <summary>组合处理顺序：upscale-first（画质优先，默认）或 interp-first（速度/算力优先）。</summary>
         Public Property ProcessOrder As String = "upscale-first"
         Public Property ImageOutput As String = ""

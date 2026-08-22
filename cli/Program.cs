@@ -353,6 +353,11 @@ internal static class Program
         public string InterpBackend = "";
         public bool HasInterpBackend;
         public string ProcessOrder = "upscale-first";
+        public string SceneThreshold = "4.0";
+        public bool HasSceneThreshold;
+        public bool DynamicOpticalFlow;
+        public string TileSize = "0";
+        public bool HasTileSize;
         public bool ListBackends;
         public bool ValidateEngines;
         public bool ListDownloadModels;
@@ -418,8 +423,8 @@ internal static class Program
         if (o.HasInterpBackend)
         {
             var b = o.InterpBackend.Trim().ToLowerInvariant();
-            if (b is not ("ncnn" or "cuda"))
-                return Fail("-interp-backend 仅支持 ncnn 或 cuda，当前值：" + o.InterpBackend);
+            if (b is not ("ncnn" or "cuda" or "tensorrt"))
+                return Fail("-interp-backend 仅支持 ncnn、cuda 或 tensorrt，当前值：" + o.InterpBackend);
             o.InterpBackend = b;
         }
         else
@@ -429,6 +434,12 @@ internal static class Program
         o.ProcessOrder = o.ProcessOrder.Trim().ToLowerInvariant();
         if (o.ProcessOrder is not ("upscale-first" or "interp-first"))
             return Fail("-process-order 仅支持 upscale-first 或 interp-first，当前值：" + o.ProcessOrder);
+        if (!double.TryParse(o.SceneThreshold, NumberStyles.Float, CultureInfo.InvariantCulture, out var sceneThreshold) || sceneThreshold <= 0 || sceneThreshold > 10.0)
+            return Fail("-scene-threshold 必须是官方 0-10 标尺中的大于 0 数字，当前值：" + o.SceneThreshold);
+        if (!int.TryParse(o.TileSize, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tileSize) || tileSize < 0 || (tileSize > 0 && tileSize < 32))
+            return Fail("-tile-size 必须是 0（RVE 默认）或不小于 32 的整数，当前值：" + o.TileSize);
+        if (tileSize > 0 && o.Backend is not ("ncnn" or "cuda" or "tensorrt"))
+            return Fail("-tile-size 仅支持 NCNN、CUDA/PyTorch 和 TensorRT；当前后端 " + o.Backend + " 不使用该参数");
 
         if (o.ListDownloadModels)
         {
@@ -550,7 +561,7 @@ internal static class Program
             }
             if (o.Backend == "tensorrt")
             {
-                model = EnsureTensorRtEngine(model, inputResolution.Item1, inputResolution.Item2, stopWatcher);
+                model = EnsureTensorRtEngine(model, inputResolution.Item1, inputResolution.Item2, stopWatcher, tileSize);
                 if (model.Length == 0) return stopWatcher?.IsStopRequested() == true ? 130 : 1;
             }
         }
@@ -642,7 +653,8 @@ internal static class Program
 
         // 6. 按顺序运行单阶段或无损中间文件双阶段管线。
         return RunVideoPipeline(input, outputFile, model, customEncoder, overwrite, scale,
-            o.PauseShm, stopWatcher, interpModel, interpFactor, o.Backend, o.InterpBackend, o.ProcessOrder);
+            o.PauseShm, stopWatcher, interpModel, interpFactor, o.Backend, o.InterpBackend, o.ProcessOrder,
+            o.DynamicOpticalFlow, sceneThreshold, tileSize);
     }
 
     private static Options ParseArgs(string[] args)
@@ -761,6 +773,21 @@ internal static class Program
                 case "-process-order":
                 case "--process-order":
                     o.ProcessOrder = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "-scene-threshold":
+                case "--scene-threshold":
+                    o.SceneThreshold = TakeValue(args, ref i, name, inlineValue);
+                    o.HasSceneThreshold = true;
+                    break;
+                case "-dynamic-optical-flow":
+                case "--dynamic-optical-flow":
+                    o.DynamicOpticalFlow = true;
+                    break;
+                case "-tile-size":
+                case "--tile-size":
+                case "--tilesize":
+                    o.TileSize = TakeValue(args, ref i, name, inlineValue);
+                    o.HasTileSize = true;
                     break;
                 case "--image-input":
                     o.ImageInputs.Add(TakeValue(args, ref i, name, inlineValue));
@@ -1678,7 +1705,8 @@ internal static class Program
     /// <summary>构建 rve-backend.py 的命令行参数，逻辑与 GUI 的 RvePaths.BuildBackendArgs 一致。</summary>
     private static List<string> BuildBackendArgs(
         string input, string outputFile, string modelFolder, string customEncoder, bool overwrite, string? scale, string pauseShm,
-        string? interpModel, string? interpFactor, string backend)
+        string? interpModel, string? interpFactor, string backend,
+        bool dynamicOpticalFlow = false, double sceneThreshold = 4.0, int tileSize = 0)
     {
         var args = new List<string>
         {
@@ -1708,6 +1736,11 @@ internal static class Program
         {
             args.Add("--upscale_model");
             args.Add(modelFolder);
+            if (tileSize > 0 && backend is ("ncnn" or "cuda" or "tensorrt"))
+            {
+                args.Add("--tilesize");
+                args.Add(tileSize.ToString(CultureInfo.InvariantCulture));
+            }
         }
 
         if (interpModel is not null)
@@ -1729,7 +1762,12 @@ internal static class Program
         args.Add("--scene_detect_method");
         args.Add("sudo_scene_detect");
         args.Add("--scene_detect_threshold");
-        args.Add("3.5");
+        // 直接使用 RVE 官方外部阈值标尺；RVE 内部负责换算为模型阈值。
+        args.Add(sceneThreshold.ToString("0.###", CultureInfo.InvariantCulture));
+        if (dynamicOpticalFlow && backend == "cuda" && interpModel is not null)
+        {
+            args.Add("--dynamic_scaled_optical_flow");
+        }
 
         if (overwrite)
         {
@@ -1749,7 +1787,7 @@ internal static class Program
         upscaleBackend == "cuda" ? "cuda" : "ncnn";
 
     /// <summary>解析补帧模型路径：完整路径 / models\RIFE 下相对路径 / 模型名；返回空串表示失败。</summary>
-    /// <remarks>ncnn 后端接受 RIFE 子文件夹（含 .param/.bin）；cuda 后端接受 .pth 模型文件。</remarks>
+    /// <remarks>ncnn 后端接受 RIFE 子文件夹（含 .param/.bin）；CUDA/TensorRT 后端接受 .pth 模型文件。</remarks>
     private static string ResolveInterpModel(string requested, string backend)
     {
         var rifeDir = Path.Combine(ModelsDir, "RIFE");
@@ -1764,7 +1802,7 @@ internal static class Program
 
         foreach (var candidate in candidates)
         {
-            if (backend == "cuda")
+            if (backend is "cuda" or "tensorrt")
             {
                 if (File.Exists(candidate) && Path.GetExtension(candidate).Equals(".pth", StringComparison.OrdinalIgnoreCase))
                 {
@@ -1777,8 +1815,8 @@ internal static class Program
             }
         }
 
-        // cuda 模式允许只给文件名（可省略 .pth 扩展名），递归搜索 models\RIFE 下的 .pth 文件
-        if (backend == "cuda")
+        // CUDA/TensorRT 模式使用 PyTorch RIFE 的 .pth 文件（TensorRT 会由 RVE 编译/缓存）。
+        if (backend is "cuda" or "tensorrt")
         {
             var name = Path.GetFileName(raw);
             var matched = DiscoverInterpModels("cuda")
@@ -1791,21 +1829,21 @@ internal static class Program
             }
         }
 
-        Console.Error.WriteLine("[错误] 未找到可用补帧模型：" + raw + (backend == "cuda" ? "（CUDA 需要 models\\RIFE 下的 .pth 模型文件）" : ""));
-        Console.Error.WriteLine(backend == "cuda"
-            ? "[提示] 可用补帧模型（CUDA，.pth）："
+        Console.Error.WriteLine("[错误] 未找到可用补帧模型：" + raw + (backend is "cuda" or "tensorrt" ? "（" + backend + " 需要 models\\RIFE 下的 .pth 模型文件）" : ""));
+        Console.Error.WriteLine(backend is "cuda" or "tensorrt"
+            ? "[提示] 可用补帧模型（" + (backend == "tensorrt" ? "TensorRT" : "CUDA") + "，.pth）："
             : @"[提示] 可用补帧模型（models\RIFE 目录）：");
         foreach (var m in DiscoverInterpModels(backend))
         {
             Console.Error.WriteLine("       " + InterpModelDisplayName(m));
         }
-        Console.Error.WriteLine(backend == "cuda"
-            ? "[提示] 用法：-backend cuda -interp-model <模型名>，例如 -interp-model rife46"
+        Console.Error.WriteLine(backend is "cuda" or "tensorrt"
+            ? "[提示] 用法：-interp-backend " + backend + " -interp-model <模型名>，例如 -interp-model rife46"
             : "[提示] 用法：-interp-model <模型名或路径>，例如 -interp-model rife-v4.25");
         return "";
     }
 
-    /// <summary>发现补帧模型：ncnn 返回 models\RIFE 下含 .param/.bin 的文件夹；cuda 返回 .pth 模型文件。</summary>
+    /// <summary>发现补帧模型：ncnn 返回 models\RIFE 下含 .param/.bin 的文件夹；CUDA/TensorRT 返回 .pth 模型文件。</summary>
     private static List<string> DiscoverInterpModels(string backend)
     {
         var rifeDir = Path.Combine(ModelsDir, "RIFE");
@@ -1813,7 +1851,7 @@ internal static class Program
         {
             return new List<string>();
         }
-        if (backend == "cuda")
+        if (backend is "cuda" or "tensorrt")
         {
             return Directory.GetFiles(rifeDir, "*.pth", SearchOption.AllDirectories)
                 .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
@@ -1844,13 +1882,13 @@ internal static class Program
             Console.WriteLine("[" + string.Join(",", names.Select(n => "\"" + n + "\"")) + "]");
             return 0;
         }
-        Console.WriteLine(backend == "cuda"
-            ? "可用补帧模型（CUDA，models\\RIFE 下的 .pth 文件）："
+        Console.WriteLine(backend is "cuda" or "tensorrt"
+            ? "可用补帧模型（" + (backend == "tensorrt" ? "TensorRT" : "CUDA") + "，models\\RIFE 下的 .pth 文件）："
             : @"可用补帧模型（models\RIFE 目录）：");
         if (models.Count == 0)
         {
-            Console.WriteLine(backend == "cuda"
-                ? "  (未找到任何 .pth 补帧模型文件；CUDA 推理需要 models\\RIFE 下的 .pth 模型)"
+            Console.WriteLine(backend is "cuda" or "tensorrt"
+                ? "  (未找到任何 .pth 补帧模型文件；" + (backend == "tensorrt" ? "TensorRT" : "CUDA") + " RIFE 需要 models\\RIFE 下的 .pth 模型)"
                 : "  (未找到任何含 .param/.bin 的补帧模型文件夹)");
             return 0;
         }
@@ -2098,7 +2136,8 @@ internal static class Program
     private static int RunVideoPipeline(
         string input, string outputFile, string model, string customEncoder, bool overwrite, string? scale,
         string pauseShm, StopWatcher? stopWatcher, string? interpModel, string? interpFactor,
-        string upscaleBackend, string interpBackend, string processOrder)
+        string upscaleBackend, string interpBackend, string processOrder,
+        bool dynamicOpticalFlow, double sceneThreshold, int tileSize)
     {
         var useUpscale = !string.IsNullOrEmpty(model);
         var useInterp = interpModel is not null;
@@ -2106,7 +2145,8 @@ internal static class Program
         {
             var activeBackend = useUpscale ? upscaleBackend : interpBackend;
             var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
-                pauseShm, interpModel, interpFactor, activeBackend);
+                pauseShm, interpModel, interpFactor, activeBackend,
+                dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
             return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
                 interpModel, interpFactor, activeBackend, pauseShm, "单阶段处理", isFinalStage: true);
         }
@@ -2120,7 +2160,8 @@ internal static class Program
         if (!upscaleFirst && upscaleBackend == interpBackend)
         {
             var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
-                pauseShm, interpModel, interpFactor, upscaleBackend);
+                pauseShm, interpModel, interpFactor, upscaleBackend,
+                dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
             return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
                 interpModel, interpFactor, upscaleBackend, pauseShm, "先补帧，再超分", isFinalStage: true);
         }
@@ -2148,7 +2189,8 @@ internal static class Program
                 firstBackend = upscaleBackend;
                 firstTitle = "阶段 1/2：超分";
                 firstArgs = BuildBackendArgs(input, intermediate, model, losslessEncoder, true,
-                    scale, pauseShm, null, null, upscaleBackend);
+                    scale, pauseShm, null, null, upscaleBackend,
+                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
             }
             else
             {
@@ -2157,7 +2199,8 @@ internal static class Program
                 firstBackend = interpBackend;
                 firstTitle = "阶段 1/2：补帧";
                 firstArgs = BuildBackendArgs(input, intermediate, "", losslessEncoder, true,
-                    null, pauseShm, interpModel, interpFactor, interpBackend);
+                    null, pauseShm, interpModel, interpFactor, interpBackend,
+                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold);
             }
             var firstExit = LaunchBackend(firstArgs, input, firstModel, intermediate, losslessEncoder,
                 stopWatcher, firstInterp, firstInterp is null ? null : interpFactor, firstBackend,
@@ -2178,7 +2221,8 @@ internal static class Program
                 secondBackend = interpBackend;
                 secondTitle = "阶段 2/2：补帧";
                 secondArgs = BuildBackendArgs(intermediate, outputFile, "", customEncoder, overwrite,
-                    null, pauseShm, interpModel, interpFactor, interpBackend);
+                    null, pauseShm, interpModel, interpFactor, interpBackend,
+                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold);
             }
             else
             {
@@ -2187,7 +2231,8 @@ internal static class Program
                 secondBackend = upscaleBackend;
                 secondTitle = "阶段 2/2：超分";
                 secondArgs = BuildBackendArgs(intermediate, outputFile, model, customEncoder, overwrite,
-                    scale, pauseShm, null, null, upscaleBackend);
+                    scale, pauseShm, null, null, upscaleBackend,
+                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
             }
             return LaunchBackend(secondArgs, intermediate, secondModel, outputFile, customEncoder,
                 stopWatcher, secondInterp, secondInterp is null ? null : interpFactor, secondBackend,
@@ -2461,7 +2506,7 @@ internal static class Program
     /// 把 PTH 源模型解析为当前 GPU、TensorRT 版本和输入尺寸对应的 Engine。
     /// 已有 Engine 会先验证；不兼容时若能找到同名 PTH，则自动重建本机缓存。
     /// </summary>
-    private static string EnsureTensorRtEngine(string modelPath, int inputWidth, int inputHeight, StopWatcher? stopWatcher)
+    private static string EnsureTensorRtEngine(string modelPath, int inputWidth, int inputHeight, StopWatcher? stopWatcher, int tileSize = 0)
     {
         var sourcePath = modelPath;
         if (IsTensorRTEngineFile(modelPath))
@@ -2498,7 +2543,7 @@ internal static class Program
         }
 
         Directory.CreateDirectory(TensorRTCacheDir);
-        var cachePath = BuildTensorRtCachePath(sourcePath, runtime!, inputWidth, inputHeight);
+        var cachePath = BuildTensorRtCachePath(sourcePath, runtime!, inputWidth, inputHeight, tileSize);
         var mutexName = "Local\\VideoEnhancer_TRT_" + Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(cachePath))).Substring(0, 24);
         using var buildMutex = new Mutex(false, mutexName);
@@ -2588,7 +2633,7 @@ internal static class Program
         return true;
     }
 
-    private static string BuildTensorRtCachePath(string sourcePath, TensorRtRuntime runtime, int width, int height)
+    private static string BuildTensorRtCachePath(string sourcePath, TensorRtRuntime runtime, int width, int height, int tileSize)
     {
         using var stream = File.OpenRead(sourcePath);
         var sourceHash = Convert.ToHexString(SHA256.HashData(stream)).Substring(0, 12).ToLowerInvariant();
@@ -2596,6 +2641,7 @@ internal static class Program
             "__gpu-" + SafeCacheComponent(runtime.GpuName, 64) +
             "__trt-" + SafeCacheComponent(runtime.TensorRtVersion, 32) +
             "__input-" + width + "x" + height +
+            "__tile-" + tileSize +
             "__src-" + sourceHash + ".engine";
         return Path.Combine(TensorRTCacheDir, fileName);
     }
@@ -3129,7 +3175,10 @@ internal static class Program
         writer.WriteLine("  -interp-factor <N>  补帧倍率（帧率倍数，默认 2，需大于 1）");
         writer.WriteLine("  -process-order <upscale-first|interp-first>  组合处理顺序；默认 upscale-first");
         writer.WriteLine("        画质优先：先超分，再补帧。速度/算力优先：先补帧，再超分。");
-        writer.WriteLine("  -interp-backend <ncnn|cuda>  可选的独立补帧后端；省略时按超分后端安全推导");
+        writer.WriteLine("  -interp-backend <ncnn|cuda|tensorrt>  可选的独立补帧后端；RIFE 实际支持 NCNN、CUDA/PyTorch、TensorRT");
+        writer.WriteLine("  -scene-threshold <N>  转场检测阈值（RVE 官方外部 0-10 标尺；数值越低越敏感，默认 4）");
+        writer.WriteLine("  -dynamic-optical-flow  开启 RIFE 动态光流尺度（仅 CUDA/PyTorch 补帧有效）");
+        writer.WriteLine("  -tile-size <N>  超分分块边长（0 为 RVE 默认；至少 32；仅 NCNN/CUDA/TensorRT）");
         writer.WriteLine("  -backend <ncnn|cuda|tensorrt|onnx|flashvsr|basicvsrpp>  超分推理后端；");
         writer.WriteLine("        basicvsrpp 使用 models\\BasicVSR++ 下的官方 x4 时序 PTH，仅支持视频与 NVIDIA CUDA");
         writer.WriteLine("        所有后端均递归扫描 models 子目录；RIFE 仅用于补帧，不混入放大模型；");

@@ -861,6 +861,8 @@ Namespace videoenhancer
                                  .StandardErrorEncoding = Encoding.UTF8
                              }
                              psi.ArgumentList.Add("--check")
+                             psi.ArgumentList.Add("-backend")
+                             psi.ArgumentList.Add(_config.Backend)
                              Using p = Process.Start(psi)
                                  If p Is Nothing Then
                                      Return

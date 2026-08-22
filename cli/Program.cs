@@ -487,7 +487,7 @@ internal static class Program
 
         if (o.CheckOnly)
         {
-            return RunCheck(verbose: true) ? 0 : 1;
+            return RunCheck(verbose: true, backend: o.HasBackend ? o.Backend : null) ? 0 : 1;
         }
 
         if (o.ListBackends)
@@ -533,7 +533,7 @@ internal static class Program
         var stopWatcher = o.HasStopShm ? new StopWatcher(o.StopShm) : null;
 
         // 1. 环境检测（ffmpeg / python 库 / 模型库）
-        if (!RunCheck(verbose: false))
+        if (!RunCheck(verbose: false, backend: o.Backend))
         {
             return 1;
         }
@@ -2905,7 +2905,7 @@ internal static class Program
         return result.Ok ? 0 : 3;
     }
 
-    private static bool RunCheck(bool verbose)
+    private static bool RunCheck(bool verbose, string? backend = null)
     {
         var ok = true;
 
@@ -2928,9 +2928,12 @@ internal static class Program
         Report(sitePkgOk, "python 库", PythonSitePackages);
         ok &= sitePkgOk;
 
-        var models = DiscoverModelFolders();
+        var models = DiscoverModelsForBackend(backend);
+        var modelDescription = string.IsNullOrWhiteSpace(backend)
+            ? "未找到支持的模型（NCNN .param/.bin、CUDA/TensorRT .pth/.engine、ONNX 或 FlashVSR）"
+            : "未找到 " + backend + " 后端可用模型";
         Report(models.Count > 0, "模型库", ModelsDir,
-            models.Count > 0 ? models.Count + " 个可用模型" : "未找到含 .param/.bin 的模型");
+            models.Count > 0 ? models.Count + " 个可用模型（" + (backend ?? "自动") + "）" : modelDescription);
         ok &= models.Count > 0;
 
         var interpModels = DiscoverInterpModels("ncnn");
@@ -2967,6 +2970,32 @@ internal static class Program
 
         Console.WriteLine("[环境检查] " + (ok ? "全部通过。" : "存在缺失项，请检查上方 [缺失] 标记。"));
         return ok;
+    }
+
+    /// <summary>按实际推理后端检查模型，避免 TensorRT 机器被 NCNN 文件格式误判。</summary>
+    private static List<string> DiscoverModelsForBackend(string? backend)
+    {
+        if (string.IsNullOrWhiteSpace(backend))
+        {
+            return DiscoverModelFolders()
+                .Concat(DiscoverUpscalePthModels())
+                .Concat(DiscoverTensorRTEngineModels())
+                .Concat(DiscoverOnnxModels())
+                .Concat(DiscoverFlashVsrModels())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        return backend.ToLowerInvariant() switch
+        {
+            "ncnn" => DiscoverModelFolders(),
+            "cuda" => DiscoverUpscalePthModels(),
+            "tensorrt" => DiscoverTensorRTSelectableModels(),
+            "onnx" => DiscoverOnnxModels(),
+            "flashvsr" => DiscoverFlashVsrModels(),
+            "basicvsrpp" => DiscoverBasicVsrPlusPlusModels(),
+            _ => new List<string>(),
+        };
     }
 
     private static void Report(bool ok, string label, string detail, string? extra = null)

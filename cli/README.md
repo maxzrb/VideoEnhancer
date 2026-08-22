@@ -39,6 +39,11 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 - `-modelpath` / `--modelpath` / `--model`：放大模型（完整路径 / models 下相对路径 / 模型名），省略用默认模型。NCNN、CUDA、TensorRT 都会递归搜索 `models` 的分类子目录，并排除独立的 `models\RIFE` 补帧目录；配合 `-no-upscale` 时可不提供（仅补帧模式）。
 - `-interp-model` / `--interp-model`：补帧模型（RIFE，位于 `models\RIFE\<子文件夹>`，如 `rife-v4.25`，含 `flownet.param` / `flownet.bin`）；可与 `-modelpath` 同时使用（先补帧后放大）；`-backend cuda` 时改为 `.pth` 模型文件名（如 `rife46`）。
 - `-interp-factor <N>`：补帧倍率（帧率倍数，默认 2，需大于 1；透传给 RIFE `--interpolate_factor`）。
+- `-interp-backend <ncnn|cuda|tensorrt>`：独立的 RIFE 后端；RIFE 支持 NCNN、CUDA/PyTorch、TensorRT（TensorRT 使用 `.pth` 并由 RVE 自动构建 Engine）。
+- `-scene-threshold <N>`：转场检测阈值，使用 RVE 官方外部 0-10 标尺，默认 4；数值越低越敏感，越容易跳过转场处的插帧，直接透传给 RVE。
+- `-dynamic-optical-flow`：开启动态光流尺度，仅 CUDA/PyTorch RIFE 有效；TensorRT 会由 RVE 自动禁用。
+- `-tile-size <N>`：超分分块边长，0 表示 RVE 默认处理（不按显存自动试探）；显式值是输入帧边长，用于降低峰值显存但会增加处理时间。支持 NCNN、CUDA/PyTorch、TensorRT；ONNX 和 FlashVSR 不使用该参数。
+- `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内逐帧执行，只进行一次最终编码且不产生整段中间视频；跨后端时才使用无损 RGB FFV1 中间视频。当前 RVE 的 SDR 内部帧为 8-bit `rgb24`，最终输出指定 10-bit 像素格式不代表 10-bit 模型推理。
 - `-backend <ncnn|cuda|tensorrt>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
   放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），
   补帧模型使用 `models\RIFE` 下的 `.pth` 文件；超分与补帧可独立使用。
@@ -49,7 +54,7 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
   - 进度行按每秒 1 行节流输出，避免界面闪烁；
   - FPS 精确重算：用「已渲染帧数 / 有效耗时（总耗时 − 暂停耗时）」计算并保留两位小数
     （后端自报为取整且包含暂停时间），ETA 按相同速率重算；暂停状态来自 `-pause-shm` 共享内存字节。
-- `-h`：帮助；`-scale <N>`：强制倍率；`--list-models` / `--search-models`：按后端递归列出 `models` 子目录中的放大模型，并排除 `models\RIFE`；`--list-interp-models`：只列出 `models\RIFE` 下的补帧模型（加 `-backend cuda` 则列出 `.pth` 补帧模型；均可用 `--json` 输出一行 JSON 数组，供插件下拉框解析）；`--check`：仅检测环境。
+- `-h`：帮助（含 videoenhancer.ini 配置说明）；`-scale <N>`：强制倍率；`--list-models` / `--search-models`：按后端递归列出 `models` 子目录中的放大模型，并排除 `models\RIFE`；`--list-interp-models`：只列出 `models\RIFE` 下的补帧模型（加 `-interp-backend cuda/tensorrt` 则列出 `.pth` 补帧模型；均可用 `--json` 输出一行 JSON 数组，供插件下拉框解析）；`--check`：仅检测环境。
 - `-pause-shm <ID>`：透传暂停共享内存名（供插件暂停/恢复后端）；`-stop-shm <ID>`：停止共享内存名，字节变 1 时优雅停止，已处理部分正常写入输出文件（退出码 130）。
 - `--debug-split`：仅打印 `-ffmpeg-settings` 的拆分结果（`custom_encoder` / `output` / `overwrite`），用于调试 -map 剥除逻辑。
 

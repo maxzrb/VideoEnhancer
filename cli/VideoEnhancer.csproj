@@ -34,6 +34,8 @@
                       LogicalName="VideoEnhancer.Embedded.aria2-next.exe" />
     <EmbeddedResource Include="embedded-tools\7za.exe"
                       LogicalName="VideoEnhancer.Embedded.7za.exe" />
+    <EmbeddedResource Include="embedded-tools\rve-ordered-backend.py"
+                      LogicalName="VideoEnhancer.Embedded.rve-ordered-backend.py" />
   </ItemGroup>
 
 </Project>

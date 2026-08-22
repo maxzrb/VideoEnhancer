@@ -39,17 +39,62 @@ Namespace videoenhancer
         Private Shared ReadOnly ConfigPath As String = Path.Combine(ConfigDir, "videoenhancer.plugin.json")
 
         Public Shared Function Load() As PluginConfig
+            Dim cfg As PluginConfig = Nothing
             Try
                 If File.Exists(ConfigPath) Then
-                    Dim cfg = JsonSerializer.Deserialize(Of PluginConfig)(File.ReadAllText(ConfigPath))
-                    If cfg IsNot Nothing Then
-                        Return cfg
-                    End If
+                    cfg = JsonSerializer.Deserialize(Of PluginConfig)(File.ReadAllText(ConfigPath))
                 End If
             Catch
                 ' 配置损坏时回退到默认
             End Try
-            Return New PluginConfig()
+            If cfg Is Nothing Then cfg = New PluginConfig()
+            Dim detected = ResolveInstalledExePath(cfg.ExePath)
+            If Not String.Equals(cfg.ExePath, detected, StringComparison.OrdinalIgnoreCase) Then
+                cfg.ExePath = detected
+                If Not String.IsNullOrWhiteSpace(detected) Then cfg.Save()
+            End If
+            Return cfg
+        End Function
+
+        ''' <summary>
+        ''' 安装程序会把自身路径写入插件配置；配置丢失或路径失效时，再从 3FUI 与插件目录自动发现。
+        ''' </summary>
+        Public Shared Function ResolveInstalledExePath(Optional configuredPath As String = "") As String
+            If Not String.IsNullOrWhiteSpace(configuredPath) AndAlso File.Exists(configuredPath) Then
+                Return Path.GetFullPath(configuredPath)
+            End If
+            Dim candidates As New Collections.Generic.List(Of String)()
+            Try
+                candidates.Add(Path.Combine(AppContext.BaseDirectory, "videoenhancer.exe"))
+            Catch
+            End Try
+            Try
+                Dim assemblyDir = Path.GetDirectoryName(GetType(PluginConfig).Assembly.Location)
+                If Not String.IsNullOrWhiteSpace(assemblyDir) Then
+                    candidates.Add(Path.Combine(assemblyDir, "videoenhancer.exe"))
+                    Dim hostDir = Directory.GetParent(assemblyDir)
+                    If hostDir IsNot Nothing Then candidates.Add(Path.Combine(hostDir.FullName, "videoenhancer.exe"))
+                End If
+            Catch
+            End Try
+            Try
+                Dim processPath = Environment.ProcessPath
+                If Not String.IsNullOrWhiteSpace(processPath) Then
+                    candidates.Add(Path.Combine(Path.GetDirectoryName(processPath), "videoenhancer.exe"))
+                End If
+            Catch
+            End Try
+            Try
+                candidates.Add(Path.Combine(Environment.CurrentDirectory, "videoenhancer.exe"))
+            Catch
+            End Try
+            For Each candidate In candidates
+                Try
+                    If File.Exists(candidate) Then Return Path.GetFullPath(candidate)
+                Catch
+                End Try
+            Next
+            Return ""
         End Function
 
         Public Sub Save()

@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace VideoEnhancer;
@@ -16,20 +17,17 @@ namespace VideoEnhancer;
 /// </summary>
 internal static class Program
 {
-    private const string ToolVersion = "1.9.2";
+    private const string ToolVersion = "1.10.1";
     private const string EmbeddedPluginResource = "VideoEnhancer.Embedded.videoenhancer.3fui.dll";
     private const string EmbeddedAriaResource = "VideoEnhancer.Embedded.aria2-next.exe";
     private const string Embedded7ZipResource = "VideoEnhancer.Embedded.7za.exe";
     private const string ModelScopeTreeApi = "https://www.modelscope.cn/api/v1/datasets/ARXChem/VideoEnhancer-Models/repo/tree?Revision=master&Recursive=true";
     private const string ModelScopeResolveRoot = "https://www.modelscope.cn/datasets/ARXChem/VideoEnhancer-Models/resolve/master/";
 
-    // exe 所在目录：videoenhancer.ini 的查找位置，也是未配置 core-path 时的回退根目录（1.0 布局）
+    // 便携核心始终位于 exe 同级；安装程序会在此建立 models/python/bin。
     private static readonly string AppRoot = AppContext.BaseDirectory.TrimEnd(
         Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-    // 核心程序根目录：默认 exe 同目录；若 videoenhancer.ini 配置了 core-path="<核心程序路径>"，
-    // 则指向后端分离后的根目录（bin\ffmpeg / python / models 所在处）。
-    private static string CoreRoot = AppRoot;
+    private static readonly string CoreRoot = AppRoot;
 
     private static string PythonExe => Path.Combine(CoreRoot, "python", "python", "python.exe");
     private static string BackendScript => Path.Combine(CoreRoot, "python", "backend", "rve-backend.py");
@@ -383,69 +381,6 @@ internal static class Program
         }
     }
 
-    /// <summary>
-    /// 读取 exe 同目录的 videoenhancer.ini（第一行 core-path="&lt;核心程序路径&gt;"）。
-    /// 返回 null 表示成功；返回字符串为错误信息（找不到对应的库），调用方直接报错退出。
-    /// 未找到配置文件时回退到 exe 同目录布局（1.0 兼容）。
-    /// </summary>
-    private static string? LoadCorePathConfig()
-    {
-        var iniPath = Path.Combine(AppRoot, "videoenhancer.ini");
-        if (!File.Exists(iniPath))
-        {
-            return null;
-        }
-
-        string? corePath = null;
-        try
-        {
-            foreach (var rawLine in File.ReadAllLines(iniPath))
-            {
-                var line = rawLine.Trim();
-                if (line.Length == 0 || line[0] == ';' || line[0] == '#')
-                {
-                    continue;
-                }
-                var eq = line.IndexOf('=');
-                if (eq <= 0)
-                {
-                    continue;
-                }
-                if (!line[..eq].Trim().Equals("core-path", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-                var value = line[(eq + 1)..].Trim();
-                if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
-                {
-                    value = value[1..^1].Trim();
-                }
-                corePath = value;
-                break;
-            }
-        }
-        catch (Exception ex)
-        {
-            return "找不到对应的库：无法读取配置文件 " + iniPath + "（" + ex.Message + "）";
-        }
-
-        if (string.IsNullOrWhiteSpace(corePath))
-        {
-            return "找不到对应的库：videoenhancer.ini 未配置 core-path"
-                + "（第 1 行应为 core-path=\"<核心程序路径>\"）";
-        }
-
-        var resolved = Path.IsPathRooted(corePath) ? corePath : Path.Combine(AppRoot, corePath);
-        resolved = Path.GetFullPath(resolved);
-        if (!Directory.Exists(resolved))
-        {
-            return "找不到对应的库：core-path 指向的目录不存在：" + resolved;
-        }
-
-        CoreRoot = resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return null;
-    }
-
     private static int Run(string[] args)
     {
         if (args.Length == 0)
@@ -465,18 +400,11 @@ internal static class Program
         if (o.HasBackend)
         {
             var b = o.Backend.Trim().ToLowerInvariant();
-            if (b is not ("ncnn" or "cuda" or "tensorrt" or "onnx" or "flashvsr"))
+            if (b is not ("ncnn" or "cuda" or "tensorrt" or "onnx" or "flashvsr" or "basicvsrpp"))
             {
-                return Fail("-backend 仅支持 ncnn、cuda、tensorrt、onnx 或 flashvsr，当前值：" + o.Backend);
+                return Fail("-backend 仅支持 ncnn、cuda、tensorrt、onnx、flashvsr 或 basicvsrpp，当前值：" + o.Backend);
             }
             o.Backend = b;
-        }
-
-        // 读取 videoenhancer.ini（第一行 core-path="<核心程序路径>"）确定核心程序根目录
-        var configError = LoadCorePathConfig();
-        if (configError is not null)
-        {
-            return Fail(configError, 1);
         }
 
         if (o.ListDownloadModels)
@@ -538,6 +466,7 @@ internal static class Program
         // 图片超分是独立路径：不依赖 FFmpegFreeUI/FFmpeg 编码参数。
         if (o.ImageInputs.Count > 0 || o.ImageFolders.Count > 0)
         {
+            if (o.Backend == "basicvsrpp") return Fail("BasicVSR++ 是连续视频帧模型，不能用于图片超分");
             return RunImageJob(o);
         }
 
@@ -599,9 +528,9 @@ internal static class Program
         string? interpModel = null;
         if (o.HasInterpModel)
         {
-            if (o.Backend == "flashvsr")
+            if (o.Backend is "flashvsr" or "basicvsrpp")
             {
-                return Fail("FlashVSR 是时序视频超分管线，不能与 RIFE 补帧同时运行");
+                return Fail((o.Backend == "flashvsr" ? "FlashVSR" : "BasicVSR++") + " 是时序视频超分管线，不能与 RIFE 补帧同时运行");
             }
             interpModel = ResolveInterpModel(o.InterpModel, o.Backend);
             if (interpModel.Length == 0)
@@ -632,7 +561,7 @@ internal static class Program
             }
             else
             {
-                scale = DetectScale(model);
+                scale = o.Backend == "basicvsrpp" ? "4" : DetectScale(model);
             }
         }
 
@@ -879,6 +808,8 @@ internal static class Program
             Console.WriteLine("插件已安装到：" + pluginPath);
 
             var currentExe = Path.GetFullPath(Environment.ProcessPath ?? Path.Combine(AppRoot, "videoenhancer.exe"));
+            SaveInstalledExePath(currentExe);
+            Console.WriteLine("已记录 videoenhancer.exe 位置，插件启动后将自动识别。");
             var hasOtherEntries = Directory.EnumerateFileSystemEntries(AppRoot)
                 .Any(path => !string.Equals(Path.GetFullPath(path), currentExe, StringComparison.OrdinalIgnoreCase));
             if (hasOtherEntries)
@@ -914,6 +845,27 @@ internal static class Program
         if (!installationStarted) return;
         Console.WriteLine("按 Enter 键关闭此窗口。");
         Console.ReadLine();
+    }
+
+    private static void SaveInstalledExePath(string exePath)
+    {
+        var configDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FFmpegFreeUI");
+        var configPath = Path.Combine(configDirectory, "videoenhancer.plugin.json");
+        Directory.CreateDirectory(configDirectory);
+        JsonObject config;
+        try
+        {
+            config = File.Exists(configPath)
+                ? JsonNode.Parse(File.ReadAllText(configPath)) as JsonObject ?? new JsonObject()
+                : new JsonObject();
+        }
+        catch
+        {
+            config = new JsonObject();
+        }
+        config["ExePath"] = Path.GetFullPath(exePath);
+        File.WriteAllText(configPath, config.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static bool ReadYes()
@@ -981,7 +933,7 @@ internal static class Program
         var files = document.RootElement.GetProperty("Data").GetProperty("Files");
         var result = new List<RemoteModel>();
         var allowedRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "Backend", "ONNX", "Param-Bin", "RIFE", "PTH" };
+            { "Backend", "Bin", "FlashVSR", "ONNX", "Param-Bin", "RIFE", "PTH", "TensorRT-Default" };
         foreach (var file in files.EnumerateArray())
         {
             if (!string.Equals(file.GetProperty("Type").GetString(), "blob", StringComparison.OrdinalIgnoreCase)) continue;
@@ -1061,7 +1013,9 @@ internal static class Program
         var suffix = model.Path[(slash + 1)..].Replace('/', Path.DirectorySeparatorChar);
         var destinationRoot = category.Equals("Backend", StringComparison.OrdinalIgnoreCase)
             ? Path.Combine(CoreRoot, "python")
-            : Path.Combine(CoreRoot, "models", category);
+            : category.Equals("Bin", StringComparison.OrdinalIgnoreCase)
+                ? Path.Combine(CoreRoot, "bin")
+                : Path.Combine(CoreRoot, "models", category);
         var destination = SafeCombine(destinationRoot, suffix);
         var url = ModelScopeResolveRoot + string.Join("/", model.Path.Split('/').Select(Uri.EscapeDataString));
         Console.WriteLine("DOWNLOAD_START|" + model.Path);
@@ -1084,7 +1038,9 @@ internal static class Program
             // 因此必须解到分类目录的上一级，不能再形成 models\RIFE\RIFE 或 python\python 的重复层级。
             var extractionRoot = category.Equals("Backend", StringComparison.OrdinalIgnoreCase)
                 ? CoreRoot
-                : Path.Combine(CoreRoot, "models");
+                : category.Equals("Bin", StringComparison.OrdinalIgnoreCase)
+                    ? Path.Combine(CoreRoot, "bin")
+                    : Path.Combine(CoreRoot, "models");
             code = ExtractWith7Zip(destination, extractionRoot);
             if (code != 0) return code;
         }
@@ -1128,6 +1084,9 @@ internal static class Program
         var pythonRoot = Path.Combine(CoreRoot, "python");
         if (Directory.Exists(pythonRoot))
             candidates.AddRange(Directory.EnumerateFiles(pythonRoot, "*", SearchOption.TopDirectoryOnly));
+        var binRoot = Path.Combine(CoreRoot, "bin");
+        if (Directory.Exists(binRoot))
+            candidates.AddRange(Directory.EnumerateFiles(binRoot, "*", SearchOption.TopDirectoryOnly));
 
         foreach (var file in candidates.Where(IsArchiveFile).Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -1377,6 +1336,13 @@ internal static class Program
                     return c;
                 }
             }
+            else if (backend == "basicvsrpp")
+            {
+                if (File.Exists(c) && IsBasicVsrPlusPlusModel(c))
+                {
+                    return c;
+                }
+            }
             else if (backend == "cuda")
             {
                 if (File.Exists(c) && IsPthModelFile(c))
@@ -1411,6 +1377,7 @@ internal static class Program
             var requestedWithoutExtension = Path.ChangeExtension(requestedName, null) ?? requestedName;
             var baseName = Path.GetFileNameWithoutExtension(requestedName);
             var discovered = backend == "flashvsr" ? DiscoverFlashVsrModels()
+                : backend == "basicvsrpp" ? DiscoverBasicVsrPlusPlusModels()
                 : backend == "tensorrt"
                 ? DiscoverTensorRTEngineModels()
                 : backend == "cuda" ? DiscoverUpscalePthModels()
@@ -1427,10 +1394,10 @@ internal static class Program
         }
 
         Console.Error.WriteLine("[错误] 未找到可用模型：" + (string.IsNullOrWhiteSpace(requested) ? DefaultModel : requested));
-        if (backend == "cuda" || backend == "tensorrt" || backend == "onnx" || backend == "flashvsr")
+        if (backend == "cuda" || backend == "tensorrt" || backend == "onnx" || backend == "flashvsr" || backend == "basicvsrpp")
         {
-            Console.Error.WriteLine(backend == "tensorrt" ? "[提示] TensorRT 后端需要 models 或其子目录下的 .engine 放大模型。" : backend == "onnx" ? "[提示] ONNX 后端需要 models 或其子目录下的 .onnx 放大模型。" : "[提示] CUDA 后端需要 models 或其子目录下的 .pth/.pt/.pkl 放大模型。");
-            var pth = backend == "tensorrt" ? DiscoverTensorRTEngineModels() : backend == "onnx" ? DiscoverOnnxModels() : DiscoverUpscalePthModels();
+            Console.Error.WriteLine(backend == "basicvsrpp" ? "[提示] BasicVSR++ 后端需要 models/BasicVSR++ 下的官方 .pth 模型。" : backend == "tensorrt" ? "[提示] TensorRT 后端需要 models 或其子目录下的 .engine 放大模型。" : backend == "onnx" ? "[提示] ONNX 后端需要 models 或其子目录下的 .onnx 放大模型。" : "[提示] CUDA 后端需要 models 或其子目录下的 .pth/.pt/.pkl 放大模型。");
+            var pth = backend == "basicvsrpp" ? DiscoverBasicVsrPlusPlusModels() : backend == "tensorrt" ? DiscoverTensorRTEngineModels() : backend == "onnx" ? DiscoverOnnxModels() : DiscoverUpscalePthModels();
             if (pth.Count > 0)
             {
                 Console.Error.WriteLine(backend == "tensorrt" ? "[提示] 可用 TensorRT 放大模型：" : backend == "onnx" ? "[提示] 可用 ONNX 放大模型：" : "[提示] 可用 CUDA 放大模型：");
@@ -1482,6 +1449,9 @@ internal static class Program
 
     private static bool IsFlashVsrModelDirectory(string path) =>
         Directory.Exists(path) && FlashVsrWeights.All(name => File.Exists(Path.Combine(path, name)));
+
+    private static bool IsBasicVsrPlusPlusModel(string path) =>
+        IsPthModelFile(path) && IsInBasicVsrPlusPlusDirectory(path);
 
     /// <summary>从模型文件夹名解析放大倍率（RealESRGAN-AnimeVideoV3-2x → 2）。</summary>
     private static string? DetectScale(string modelFolder)
@@ -1640,7 +1610,7 @@ internal static class Program
             "--cwd", CoreRoot,
             "--ffmpeg_path", FfmpegExe,
         };
-        if (backend is "cuda" or "tensorrt" or "onnx" or "flashvsr")
+        if (backend is "cuda" or "tensorrt" or "onnx" or "flashvsr" or "basicvsrpp")
         {
             args.Add("--device");
             args.Add("cuda");
@@ -2077,7 +2047,7 @@ internal static class Program
     {
         Console.WriteLine();
         Console.WriteLine("[信息] 输入视频 : " + input);
-        Console.WriteLine("[信息] 推理后端 : " + (backend == "flashvsr" ? "FlashVSR（时序视频）" : backend == "cuda" ? "CUDA（PyTorch）" : backend == "tensorrt" ? "TensorRT（NVIDIA）" : backend == "onnx" ? "ONNX Runtime" : "NCNN（Vulkan）"));
+        Console.WriteLine("[信息] 推理后端 : " + (backend == "basicvsrpp" ? "BasicVSR++（时序视频）" : backend == "flashvsr" ? "FlashVSR（时序视频）" : backend == "cuda" ? "CUDA（PyTorch）" : backend == "tensorrt" ? "TensorRT（NVIDIA）" : backend == "onnx" ? "ONNX Runtime" : "NCNN（Vulkan）"));
         if (string.IsNullOrEmpty(model))
         {
             Console.WriteLine("[信息] 放大模型 : （未使用，仅补帧）");
@@ -2085,7 +2055,7 @@ internal static class Program
         else
         {
             Console.WriteLine("[信息] 放大模型 : " + model);
-            var scale = DetectScale(model);
+            var scale = backend == "basicvsrpp" ? "4" : DetectScale(model);
             if (!string.IsNullOrEmpty(scale))
             {
                 Console.WriteLine("[信息] 放大倍率 : " + scale + "x");
@@ -2474,7 +2444,8 @@ internal static class Program
         var isTensorRT = backend == "tensorrt";
         var isOnnx = backend == "onnx";
         var isFlashVsr = backend == "flashvsr";
-        var models = isFlashVsr ? DiscoverFlashVsrModels() : isCuda ? DiscoverUpscalePthModels() : isTensorRT ? DiscoverTensorRTEngineModels() : isOnnx ? DiscoverOnnxModels() : DiscoverModelFolders();
+        var isBasicVsrPlusPlus = backend == "basicvsrpp";
+        var models = isBasicVsrPlusPlus ? DiscoverBasicVsrPlusPlusModels() : isFlashVsr ? DiscoverFlashVsrModels() : isCuda ? DiscoverUpscalePthModels() : isTensorRT ? DiscoverTensorRTEngineModels() : isOnnx ? DiscoverOnnxModels() : DiscoverModelFolders();
         string DisplayName(string path) => UpscaleModelDisplayName(path, backend);
         if (json)
         {
@@ -2483,7 +2454,8 @@ internal static class Program
             Console.WriteLine("[" + string.Join(",", names.Select(n => "\"" + n + "\"")) + "]");
             return 0;
         }
-        Console.WriteLine(isFlashVsr ? "可用 FlashVSR 时序视频模型："
+        Console.WriteLine(isBasicVsrPlusPlus ? "可用 BasicVSR++ 时序视频模型："
+            : isFlashVsr ? "可用 FlashVSR 时序视频模型："
             : isTensorRT
             ? "可用放大模型（TensorRT，递归扫描 models 的 .engine 文件）："
             : isOnnx ? "可用放大模型（ONNX Runtime，递归扫描 models 的 .onnx 文件）："
@@ -2500,7 +2472,7 @@ internal static class Program
         }
         foreach (var m in models)
         {
-            var scale = DetectScale(m);
+            var scale = isBasicVsrPlusPlus ? "4" : DetectScale(m);
             Console.WriteLine("  " + DisplayName(m) + (scale is null ? "" : "  (" + scale + "x)"));
         }
         return 0;
@@ -2530,7 +2502,7 @@ internal static class Program
         foreach (var pattern in new[] { "*.pth", "*.pt", "*.pkl" })
         {
             foreach (var f in Directory.GetFiles(ModelsDir, pattern, SearchOption.AllDirectories)
-                         .Where(p => !IsInRifeDirectory(p) && !IsInFlashVsrDirectory(p)))
+                         .Where(p => !IsInRifeDirectory(p) && !IsInFlashVsrDirectory(p) && !IsInBasicVsrPlusPlusDirectory(p)))
             {
                 set.Add(f);
             }
@@ -2563,6 +2535,15 @@ internal static class Program
             .ToList();
     }
 
+    private static List<string> DiscoverBasicVsrPlusPlusModels()
+    {
+        if (!Directory.Exists(ModelsDir)) return new List<string>();
+        return Directory.GetFiles(ModelsDir, "*.pth", SearchOption.AllDirectories)
+            .Where(IsInBasicVsrPlusPlusDirectory)
+            .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
     /// <summary>TensorRT 模型显示为相对 models 的无扩展名路径，避免子目录中同名模型冲突。</summary>
     private static string TensorRTEngineDisplayName(string path)
     {
@@ -2572,7 +2553,7 @@ internal static class Program
     /// <summary>超分模型显示为相对 models 的路径，避免分类目录中的同名模型冲突。</summary>
     private static string UpscaleModelDisplayName(string path, string backend)
     {
-        return RelativeModelDisplayName(path, removeExtension: backend is "cuda" or "tensorrt" or "onnx");
+        return RelativeModelDisplayName(path, removeExtension: backend is "cuda" or "tensorrt" or "onnx" or "basicvsrpp");
     }
 
     private static string RelativeModelDisplayName(string path, bool removeExtension)
@@ -2604,6 +2585,14 @@ internal static class Program
     private static bool IsInFlashVsrDirectory(string path)
     {
         var root = Path.GetFullPath(Path.Combine(ModelsDir, "FlashVSR"))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsInBasicVsrPlusPlusDirectory(string path)
+    {
+        var root = Path.GetFullPath(Path.Combine(ModelsDir, "BasicVSR++"))
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
         return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
@@ -2676,7 +2665,8 @@ internal static class Program
         writer.WriteLine("        （如 rife-v4.25）；可与 -modelpath 同时使用（先补帧后放大）；");
         writer.WriteLine("        -backend cuda 时改为 .pth 模型文件名（如 rife46）");
         writer.WriteLine("  -interp-factor <N>  补帧倍率（帧率倍数，默认 2，需大于 1）");
-        writer.WriteLine("  -backend <ncnn|cuda|tensorrt|onnx>  推理后端；");
+        writer.WriteLine("  -backend <ncnn|cuda|tensorrt|onnx|flashvsr|basicvsrpp>  推理后端；");
+        writer.WriteLine("        basicvsrpp 使用 models\\BasicVSR++ 下的官方 x4 时序 PTH，仅支持视频与 NVIDIA CUDA");
         writer.WriteLine("        所有后端均递归扫描 models 子目录；RIFE 仅用于补帧，不混入放大模型；");
         writer.WriteLine("        cuda 使用 .pth/.pt/.pkl，tensorrt 使用 .engine，onnx 使用 .onnx，ncnn 使用成对 .param/.bin；");
         writer.WriteLine("        命令行允许超分与补帧同时指定（界面层两者互斥）");
@@ -2704,10 +2694,8 @@ internal static class Program
         writer.WriteLine("  --image-png / --image-source-format  输出无损 PNG（默认）或保持源扩展格式");
         writer.WriteLine();
         writer.WriteLine("说明");
-        writer.WriteLine("  · 配置：exe 同目录的 videoenhancer.ini 第一行写入 core-path=\"<核心程序路径>\"，");
-        writer.WriteLine("    指向 bin\\ffmpeg、python、models 所在的根目录（后端分离部署时使用）；");
-        writer.WriteLine("    未配置时回退到 exe 同目录布局，任一路径缺失会报错并标出缺失项。");
-        writer.WriteLine("  · 程序自动检测 core-path 下的 bin\\ffmpeg\\ffmpeg.exe、python\\python\\python.exe、");
+        writer.WriteLine("  · 便携核心固定使用 videoenhancer.exe 同级目录，无需 videoenhancer.ini。");
+        writer.WriteLine("  · 程序自动检测同级目录下的 bin\\ffmpeg\\ffmpeg.exe、python\\python\\python.exe、");
         writer.WriteLine("    python\\backend\\rve-backend.py、python 库与 models\\ 模型库；");
         writer.WriteLine("    任一缺失会报错并标出缺失项。");
         writer.WriteLine("  · ffmpeg-settings 是“编码参数 + 输出文件”的完整片段，程序会中转给");

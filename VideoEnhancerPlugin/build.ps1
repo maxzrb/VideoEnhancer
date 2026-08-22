@@ -4,11 +4,6 @@
 #       以及 FFmpegFreeUI 开发版程序集（FFmpegFreeUI\bin\Debug\net10.0-windows10.0.26100.0\）
 # 产物：videoenhancer.dll → 复制为 ..\Video Enhancer GUI\Plugin\videoenhancer.3fui.dll
 # ============================================================
-param(
-    [string]$HostBin = 'C:\Users\ARXChem\Documents\LakeUIApps\FFmpegFreeUI\FFmpegFreeUI\bin\Debug\net10.0-windows10.0.26100.0',
-    [switch]$SkipInstall
-)
-
 $ErrorActionPreference = 'Stop'
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -26,6 +21,7 @@ $winRef = Get-ChildItem 'C:\Program Files\dotnet\packs\Microsoft.WindowsDesktop.
 $winRef = Join-Path $winRef.FullName 'ref\net10.0'
 if (-not (Test-Path $netRef) -or -not (Test-Path $winRef)) { throw "net10 ref packs not found" }
 
+$hostBin = 'C:\Users\ARXChem\Documents\LakeUIApps\FFmpegFreeUI\FFmpegFreeUI\bin\Debug\net10.0-windows10.0.26100.0'
 if (-not (Test-Path (Join-Path $hostBin 'FFmpegFreeUI.dll')) -or -not (Test-Path (Join-Path $hostBin 'LakeUI.dll'))) {
     throw "host assemblies not found: $hostBin"
 }
@@ -44,11 +40,12 @@ Get-ChildItem $winRef -Filter *.dll | ForEach-Object { $lines.Add('"-r:' + $_.Fu
 $lines.Add('"-r:' + (Join-Path $hostBin 'FFmpegFreeUI.dll') + '"')
 $lines.Add('"-r:' + (Join-Path $hostBin 'LakeUI.dll') + '"')
 Get-ChildItem $scriptDir -Filter *.vb | Sort-Object Name | ForEach-Object { $lines.Add('"' + $_.FullName + '"') }
-$payload = Join-Path $outDir 'EmbeddedFffNativePayload.vb'
-if (Test-Path $payload) { $lines.Add('"' + $payload + '"') }
-$layoutJson = Join-Path $scriptDir '..\PluginDesigner\bin\Release\net10.0-windows\videoenhancer-layout.json'
+$layoutJson = Join-Path $scriptDir '..\videoenhancer-layout.json'
 if (-not (Test-Path -LiteralPath $layoutJson)) { throw "layout JSON not found: $layoutJson" }
 $lines.Add('"-resource:' + $layoutJson + ',videoenhancer-layout.json"')
+$modelImage = Join-Path $scriptDir 'assets\model-introduction.jpg'
+if (-not (Test-Path -LiteralPath $modelImage)) { throw "model introduction image not found: $modelImage" }
+$lines.Add('"-resource:' + $modelImage + ',videoenhancer-model-introduction.jpg"')
 
 $rsp = Join-Path $outDir 'vbc.rsp'
 [System.IO.File]::WriteAllLines($rsp, $lines, (New-Object System.Text.UTF8Encoding($false)))
@@ -59,16 +56,13 @@ if ($LASTEXITCODE -ne 0) { throw 'vbc compile failed' }
 $dll = Join-Path $outDir 'videoenhancer.dll'
 $releaseDll = Join-Path (Split-Path -Parent $scriptDir) 'videoenhancer.3fui.dll'
 Copy-Item $dll $releaseDll -Force
-Copy-Item -LiteralPath $layoutJson -Destination (Join-Path (Split-Path -Parent $scriptDir) 'videoenhancer-layout.json') -Force
-if (-not $SkipInstall) {
-    $pluginDir = 'C:\Users\ARXChem\Documents\LakeUIApps\Video Enhancer GUI\Plugin'
-    try {
-        New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
-        Copy-Item $dll (Join-Path $pluginDir 'videoenhancer.3fui.dll') -Force
-        Copy-Item -LiteralPath $layoutJson -Destination (Join-Path $pluginDir 'videoenhancer-layout.json') -Force
-        Write-Host "OK: $(Join-Path $pluginDir 'videoenhancer.3fui.dll')"
-    } catch {
-        Write-Warning "插件已在版本目录构建完成，但开发版插件目录复制失败：$($_.Exception.Message)"
-    }
+$pluginDir = 'C:\Users\ARXChem\Documents\LakeUIApps\Video Enhancer GUI\Plugin'
+try {
+    New-Item -ItemType Directory -Force -Path $pluginDir | Out-Null
+    Copy-Item $dll (Join-Path $pluginDir 'videoenhancer.3fui.dll') -Force
+    Copy-Item -LiteralPath $layoutJson -Destination (Join-Path $pluginDir 'videoenhancer-layout.json') -Force
+    Write-Host "OK: $(Join-Path $pluginDir 'videoenhancer.3fui.dll')"
+} catch {
+    Write-Warning "插件已在版本目录构建完成，但开发版插件目录复制失败：$($_.Exception.Message)"
 }
 Write-Host "OK: $releaseDll"

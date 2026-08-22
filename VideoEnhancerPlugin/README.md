@@ -222,7 +222,7 @@ pwsh -ExecutionPolicy Bypass -File .\build.ps1
   `-backend cuda` 对超分与补帧均生效）；CLI 进度行 FPS 重算为两位小数并排除暂停时间（ETA 同步重算）；
   插件 UI 微调：「插件总开关 / 超分开关 / 补帧开关」文字与左侧开关拉开间距（标签内边距），
   「放大模型」下拉框加宽 20%（380→456）并右移、「超分开关」与「放大模型」之间拉开距离。
-- 1.1（RIFE 补帧 + CUDA 推理版）：CLI 支持 videoenhancer.ini（core-path）定位分离部署的后端根目录；
+- 1.1 曾使用独立路径配置；1.4 已移除此机制，核心目录固定为 videoenhancer.exe 同级；
   CLI 新增 `-interp-model / -interp-factor / -no-upscale / --list-interp-models`（RIFE 补帧）；
   插件 UI 简化为「插件总开关」布尔开关置顶，第二排「超分开关 + 放大模型」，
   第三排「选择推理方式」（NCNN / CUDA），第四排「补帧开关 + 补帧模型 + 补帧倍率」；

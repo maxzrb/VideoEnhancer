@@ -4,20 +4,10 @@
 把 `-i / -modelpath / -interp-model / -ffmpeg-settings` 等简化参数翻译成后端参数并启动
 `python\python\python.exe python\backend\rve-backend.py`，实现"命令很舒服"的视频超分辨率处理。
 
-## 配置（1.1：后端分离）
+## 配置
 
-CLI 通过 exe 同目录的 `videoenhancer.ini` 定位后端根目录（后端分离部署时使用，
-bin\ffmpeg、python、models 无需再与 exe 放在一起）：
-
-```ini
-; videoenhancer.ini（与 videoenhancer.exe 同目录）
-core-path="C:\PortableSoft\VideoEnhancer-CLI"
-```
-
-- 第一行写入 `core-path="<核心程序路径>"`（带引号或裸路径均可，`;`/`#` 开头为注释）；
-- 相对路径按 ini 所在目录解析；启动时校验该目录及 bin\ffmpeg、python、models 是否存在，
-  缺失时输出"找不到对应的库"并退出（退出码 1）；
-- 未放置 `videoenhancer.ini` 时回退到 exe 同目录布局（1.0 兼容）。
+无需 `videoenhancer.ini`。安装程序会在 `videoenhancer.exe` 同级建立 `models`、`python`、`bin`
+三个便携核心目录，并把 EXE 位置写入插件用户配置；3FUI 加载插件时会自动识别。
 
 ## 构建（单文件）
 
@@ -59,7 +49,7 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
   - 进度行按每秒 1 行节流输出，避免界面闪烁；
   - FPS 精确重算：用「已渲染帧数 / 有效耗时（总耗时 − 暂停耗时）」计算并保留两位小数
     （后端自报为取整且包含暂停时间），ETA 按相同速率重算；暂停状态来自 `-pause-shm` 共享内存字节。
-- `-h`：帮助（含 videoenhancer.ini 配置说明）；`-scale <N>`：强制倍率；`--list-models` / `--search-models`：按后端递归列出 `models` 子目录中的放大模型，并排除 `models\RIFE`；`--list-interp-models`：只列出 `models\RIFE` 下的补帧模型（加 `-backend cuda` 则列出 `.pth` 补帧模型；均可用 `--json` 输出一行 JSON 数组，供插件下拉框解析）；`--check`：仅检测环境。
+- `-h`：帮助；`-scale <N>`：强制倍率；`--list-models` / `--search-models`：按后端递归列出 `models` 子目录中的放大模型，并排除 `models\RIFE`；`--list-interp-models`：只列出 `models\RIFE` 下的补帧模型（加 `-backend cuda` 则列出 `.pth` 补帧模型；均可用 `--json` 输出一行 JSON 数组，供插件下拉框解析）；`--check`：仅检测环境。
 - `-pause-shm <ID>`：透传暂停共享内存名（供插件暂停/恢复后端）；`-stop-shm <ID>`：停止共享内存名，字节变 1 时优雅停止，已处理部分正常写入输出文件（退出码 130）。
 - `--debug-split`：仅打印 `-ffmpeg-settings` 的拆分结果（`custom_encoder` / `output` / `overwrite`），用于调试 -map 剥除逻辑。
 
@@ -107,7 +97,6 @@ Video Enhancer\              # 本 CLI 项目
   README.md
 Video Enhancer GUI\          # 运行目录（exe 输出到这里）
   videoenhancer.exe
-  videoenhancer.ini              # （可选）core-path="<后端根目录>"，后端分离部署时使用
   bin\ffmpeg\ffmpeg.exe
   python\python\python.exe
   python\backend\rve-backend.py

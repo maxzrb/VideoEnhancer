@@ -350,6 +350,9 @@ internal static class Program
         public bool ListInterpModels;
         public string Backend = "ncnn";
         public bool HasBackend;
+        public string InterpBackend = "";
+        public bool HasInterpBackend;
+        public string ProcessOrder = "upscale-first";
         public bool ListBackends;
         public bool ValidateEngines;
         public bool ListDownloadModels;
@@ -412,6 +415,20 @@ internal static class Program
             }
             o.Backend = b;
         }
+        if (o.HasInterpBackend)
+        {
+            var b = o.InterpBackend.Trim().ToLowerInvariant();
+            if (b is not ("ncnn" or "cuda"))
+                return Fail("-interp-backend 仅支持 ncnn 或 cuda，当前值：" + o.InterpBackend);
+            o.InterpBackend = b;
+        }
+        else
+        {
+            o.InterpBackend = DefaultInterpBackend(o.Backend);
+        }
+        o.ProcessOrder = o.ProcessOrder.Trim().ToLowerInvariant();
+        if (o.ProcessOrder is not ("upscale-first" or "interp-first"))
+            return Fail("-process-order 仅支持 upscale-first 或 interp-first，当前值：" + o.ProcessOrder);
 
         if (o.ListDownloadModels)
         {
@@ -451,7 +468,7 @@ internal static class Program
 
         if (o.ListInterpModels)
         {
-            return ListInterpModels(o.Json, o.Backend);
+            return ListInterpModels(o.Json, o.InterpBackend);
         }
 
         if (o.CheckOnly)
@@ -514,15 +531,15 @@ internal static class Program
             return Fail("输入视频不存在：" + input);
         }
 
+        var useUpscale = !o.NoUpscale;
         // TensorRT Engine 与输入 profile 绑定，先探测尺寸再解析/构建模型。
-        var inputResolution = o.Backend == "tensorrt" ? GetInputResolution(input) : (0, 0);
-        if (o.Backend == "tensorrt" && (inputResolution.Item1 <= 0 || inputResolution.Item2 <= 0))
+        var inputResolution = useUpscale && o.Backend == "tensorrt" ? GetInputResolution(input) : (0, 0);
+        if (useUpscale && o.Backend == "tensorrt" && (inputResolution.Item1 <= 0 || inputResolution.Item2 <= 0))
         {
             return Fail("TensorRT 无法探测输入尺寸，不能生成安全的 Engine 缓存键：" + input);
         }
 
         // 3. 放大模型（-no-upscale 时跳过，用于"仅补帧"模式）
-        var useUpscale = !o.NoUpscale;
         var model = "";
         if (useUpscale)
         {
@@ -538,15 +555,15 @@ internal static class Program
             }
         }
 
-        // 3.5 补帧模型（RIFE）：与放大可同时使用（先补帧后放大）
+        // 3.5 补帧模型（RIFE）：补帧使用独立的有效后端，避免 TensorRT/ONNX 与 NCNN 模型格式错配。
         string? interpModel = null;
         if (o.HasInterpModel)
         {
-            if (o.Backend is "flashvsr" or "basicvsrpp")
+            if (o.Backend == "basicvsrpp")
             {
-                return Fail((o.Backend == "flashvsr" ? "FlashVSR" : "BasicVSR++") + " 是时序视频超分管线，不能与 RIFE 补帧同时运行");
+                return Fail("BasicVSR++ 是时序视频超分管线，不能与 RIFE 补帧同时运行");
             }
-            interpModel = ResolveInterpModel(o.InterpModel, o.Backend);
+            interpModel = ResolveInterpModel(o.InterpModel, o.InterpBackend);
             if (interpModel.Length == 0)
             {
                 return 1;
@@ -623,9 +640,9 @@ internal static class Program
             }
         }
 
-        // 6. 构建并启动 rve-backend
-        var backendArgs = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale, o.PauseShm, interpModel, interpFactor, o.Backend);
-        return LaunchBackend(backendArgs, input, model, outputFile, customEncoder, stopWatcher, interpModel, interpFactor, o.Backend, o.PauseShm);
+        // 6. 按顺序运行单阶段或无损中间文件双阶段管线。
+        return RunVideoPipeline(input, outputFile, model, customEncoder, overwrite, scale,
+            o.PauseShm, stopWatcher, interpModel, interpFactor, o.Backend, o.InterpBackend, o.ProcessOrder);
     }
 
     private static Options ParseArgs(string[] args)
@@ -735,6 +752,15 @@ internal static class Program
                 case "--backend":
                     o.Backend = TakeValue(args, ref i, name, inlineValue);
                     o.HasBackend = true;
+                    break;
+                case "-interp-backend":
+                case "--interp-backend":
+                    o.InterpBackend = TakeValue(args, ref i, name, inlineValue);
+                    o.HasInterpBackend = true;
+                    break;
+                case "-process-order":
+                case "--process-order":
+                    o.ProcessOrder = TakeValue(args, ref i, name, inlineValue);
                     break;
                 case "--image-input":
                     o.ImageInputs.Add(TakeValue(args, ref i, name, inlineValue));
@@ -1718,6 +1744,10 @@ internal static class Program
         return args;
     }
 
+    /// <summary>未显式指定时，为补帧选择与现有模型格式匹配的后端。</summary>
+    private static string DefaultInterpBackend(string upscaleBackend) =>
+        upscaleBackend == "cuda" ? "cuda" : "ncnn";
+
     /// <summary>解析补帧模型路径：完整路径 / models\RIFE 下相对路径 / 模型名；返回空串表示失败。</summary>
     /// <remarks>ncnn 后端接受 RIFE 子文件夹（含 .param/.bin）；cuda 后端接受 .pth 模型文件。</remarks>
     private static string ResolveInterpModel(string requested, string backend)
@@ -2061,6 +2091,121 @@ internal static class Program
         return 130;
     }
 
+    /// <summary>
+    /// 运行视频增强管线。后端原生双模型顺序固定为先补后超；先超后补则使用 FFV1 无损中间视频分两阶段执行。
+    /// 两种后端不同时也自动分阶段，避免把 NCNN RIFE 模型错误地交给 TensorRT/ONNX。
+    /// </summary>
+    private static int RunVideoPipeline(
+        string input, string outputFile, string model, string customEncoder, bool overwrite, string? scale,
+        string pauseShm, StopWatcher? stopWatcher, string? interpModel, string? interpFactor,
+        string upscaleBackend, string interpBackend, string processOrder)
+    {
+        var useUpscale = !string.IsNullOrEmpty(model);
+        var useInterp = interpModel is not null;
+        if (!useUpscale || !useInterp)
+        {
+            var activeBackend = useUpscale ? upscaleBackend : interpBackend;
+            var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
+                pauseShm, interpModel, interpFactor, activeBackend);
+            return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
+                interpModel, interpFactor, activeBackend, pauseShm, "单阶段处理", isFinalStage: true);
+        }
+
+        var upscaleFirst = processOrder == "upscale-first";
+        Console.WriteLine(upscaleFirst
+            ? "[处理顺序] 画质优先：先超分，再补帧。"
+            : "[处理顺序] 速度/算力优先：先补帧，再超分。");
+
+        // 同后端的先补后超正好是 rve-backend 原生顺序，无需中间文件。
+        if (!upscaleFirst && upscaleBackend == interpBackend)
+        {
+            var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
+                pauseShm, interpModel, interpFactor, upscaleBackend);
+            return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
+                interpModel, interpFactor, upscaleBackend, pauseShm, "先补帧，再超分", isFinalStage: true);
+        }
+
+        var outputDir = Path.GetDirectoryName(outputFile);
+        if (string.IsNullOrWhiteSpace(outputDir)) outputDir = Environment.CurrentDirectory;
+        Directory.CreateDirectory(outputDir);
+        var intermediate = Path.Combine(outputDir,
+            "." + Path.GetFileNameWithoutExtension(outputFile) + ".videoenhancer-" + Guid.NewGuid().ToString("N") + ".mkv");
+        const string losslessEncoder = "-c:v ffv1 -level 3 -coder 1 -context 1 -g 1 -pix_fmt gbrp16le -c:a copy -c:s copy";
+        Console.WriteLine("[管线] 当前组合需要两个阶段；中间视频使用 FFV1 无损编码并在完成后自动清理。");
+        Console.WriteLine("[管线] 临时文件：" + intermediate);
+
+        try
+        {
+            List<string> firstArgs;
+            string firstModel;
+            string? firstInterp;
+            string firstBackend;
+            string firstTitle;
+            if (upscaleFirst)
+            {
+                firstModel = model;
+                firstInterp = null;
+                firstBackend = upscaleBackend;
+                firstTitle = "阶段 1/2：超分";
+                firstArgs = BuildBackendArgs(input, intermediate, model, losslessEncoder, true,
+                    scale, pauseShm, null, null, upscaleBackend);
+            }
+            else
+            {
+                firstModel = "";
+                firstInterp = interpModel;
+                firstBackend = interpBackend;
+                firstTitle = "阶段 1/2：补帧";
+                firstArgs = BuildBackendArgs(input, intermediate, "", losslessEncoder, true,
+                    null, pauseShm, interpModel, interpFactor, interpBackend);
+            }
+            var firstExit = LaunchBackend(firstArgs, input, firstModel, intermediate, losslessEncoder,
+                stopWatcher, firstInterp, firstInterp is null ? null : interpFactor, firstBackend,
+                pauseShm, firstTitle, isFinalStage: false);
+            if (firstExit != 0) return firstExit;
+            if (!File.Exists(intermediate) || new FileInfo(intermediate).Length == 0)
+                return Fail("第一阶段未生成有效的无损中间视频：" + intermediate, 1);
+
+            List<string> secondArgs;
+            string secondModel;
+            string? secondInterp;
+            string secondBackend;
+            string secondTitle;
+            if (upscaleFirst)
+            {
+                secondModel = "";
+                secondInterp = interpModel;
+                secondBackend = interpBackend;
+                secondTitle = "阶段 2/2：补帧";
+                secondArgs = BuildBackendArgs(intermediate, outputFile, "", customEncoder, overwrite,
+                    null, pauseShm, interpModel, interpFactor, interpBackend);
+            }
+            else
+            {
+                secondModel = model;
+                secondInterp = null;
+                secondBackend = upscaleBackend;
+                secondTitle = "阶段 2/2：超分";
+                secondArgs = BuildBackendArgs(intermediate, outputFile, model, customEncoder, overwrite,
+                    scale, pauseShm, null, null, upscaleBackend);
+            }
+            return LaunchBackend(secondArgs, intermediate, secondModel, outputFile, customEncoder,
+                stopWatcher, secondInterp, secondInterp is null ? null : interpFactor, secondBackend,
+                pauseShm, secondTitle, isFinalStage: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(intermediate)) File.Delete(intermediate);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[警告] 无法清理无损中间视频：" + ex.Message);
+            }
+        }
+    }
+
     /// <summary>用 ffmpeg -i 探测输入视频分辨率（失败返回 0x0）。</summary>
     private static (int W, int H) GetInputResolution(string input)
     {
@@ -2100,9 +2245,10 @@ internal static class Program
 
     private static int LaunchBackend(
         List<string> backendArgs, string input, string model, string outputFile, string customEncoder, StopWatcher? stopWatcher,
-        string? interpModel, string? interpFactor, string backend, string pauseShm)
+        string? interpModel, string? interpFactor, string backend, string pauseShm, string stageTitle, bool isFinalStage)
     {
         Console.WriteLine();
+        Console.WriteLine("[阶段] " + stageTitle);
         Console.WriteLine("[信息] 输入视频 : " + input);
         Console.WriteLine("[信息] 推理后端 : " + (backend == "basicvsrpp" ? "BasicVSR++（时序视频）" : backend == "flashvsr" ? "FlashVSR（时序视频）" : backend == "cuda" ? "CUDA（PyTorch）" : backend == "tensorrt" ? "TensorRT（NVIDIA）" : backend == "onnx" ? "ONNX Runtime" : "NCNN（Vulkan）"));
         if (string.IsNullOrEmpty(model))
@@ -2292,7 +2438,9 @@ internal static class Program
 
         if (exitCode == 0 || outputOk)
         {
-            Console.WriteLine("[完成] 视频超分辨率处理成功结束。");
+            Console.WriteLine(isFinalStage
+                ? "[完成] 视频增强处理成功结束。"
+                : "[阶段完成] " + stageTitle + " 已完成。");
             if (outputOk)
             {
                 Console.WriteLine("[信息] 输出文件 : " + outputFile + " " + sizeText);
@@ -2976,15 +3124,18 @@ internal static class Program
         writer.WriteLine("  -h, --help          显示本帮助并退出");
         writer.WriteLine("  -scale <N>          强制放大倍率（如 2/3/4），默认从模型名自动识别");
         writer.WriteLine("  -interp-model <路径>  补帧模型（RIFE）：完整路径、models\\RIFE 下的相对路径或子文件夹名");
-        writer.WriteLine("        （如 rife-v4.25）；可与 -modelpath 同时使用（先补帧后放大）；");
-        writer.WriteLine("        -backend cuda 时改为 .pth 模型文件名（如 rife46）");
+        writer.WriteLine("        （如 rife-v4.25）；可与 -modelpath 同时使用，并由 -process-order 决定顺序；");
+        writer.WriteLine("        超分后端为 cuda 时默认使用 CUDA .pth 补帧；其他后端默认使用 NCNN RIFE");
         writer.WriteLine("  -interp-factor <N>  补帧倍率（帧率倍数，默认 2，需大于 1）");
-        writer.WriteLine("  -backend <ncnn|cuda|tensorrt|onnx|flashvsr|basicvsrpp>  推理后端；");
+        writer.WriteLine("  -process-order <upscale-first|interp-first>  组合处理顺序；默认 upscale-first");
+        writer.WriteLine("        画质优先：先超分，再补帧。速度/算力优先：先补帧，再超分。");
+        writer.WriteLine("  -interp-backend <ncnn|cuda>  可选的独立补帧后端；省略时按超分后端安全推导");
+        writer.WriteLine("  -backend <ncnn|cuda|tensorrt|onnx|flashvsr|basicvsrpp>  超分推理后端；");
         writer.WriteLine("        basicvsrpp 使用 models\\BasicVSR++ 下的官方 x4 时序 PTH，仅支持视频与 NVIDIA CUDA");
         writer.WriteLine("        所有后端均递归扫描 models 子目录；RIFE 仅用于补帧，不混入放大模型；");
         writer.WriteLine("        cuda 使用 .pth/.pt/.pkl；tensorrt 接受 PTH 或 .engine，缺少缓存时会自动构建；");
         writer.WriteLine("        TensorRT 缓存名包含 GPU、TensorRT 版本、输入尺寸和源模型摘要；onnx 使用 .onnx；");
-        writer.WriteLine("        命令行允许超分与补帧同时指定（界面层两者互斥）");
+        writer.WriteLine("        超分与补帧可同时指定；后端不同或选择先超后补时自动使用 FFV1 无损中间视频");
         writer.WriteLine("  -no-upscale         不放大（仅补帧模式，需配合 -interp-model）");
         writer.WriteLine("  -pause-shm <ID>     暂停共享内存名（透传给 rve-backend --pause_shared_memory_id）");
         writer.WriteLine("  -stop-shm <ID>      停止共享内存名：字节变 1 时优雅停止，已处理部分写入输出文件");
@@ -2993,7 +3144,7 @@ internal static class Program
         writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）");
         writer.WriteLine("  --list-interp-models  列出 models\\RIFE 目录下可用的补帧模型并退出");
         writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）；");
-        writer.WriteLine("        加 -backend cuda 则列出 .pth 补帧模型");
+        writer.WriteLine("        加 -backend cuda 则列出 .pth；TensorRT/ONNX/FlashVSR 默认列出 NCNN RIFE");
         writer.WriteLine("  --check             仅检测运行环境（ffmpeg / python 库 / 模型库）并退出");
         writer.WriteLine("  --list-backends     列出后端，并逐个在当前 GPU 上反序列化 models 中的 TensorRT Engine");
         writer.WriteLine("  --validate-engines  递归验证全部 .engine；不兼容时提示在当前 GPU 上重新编译");

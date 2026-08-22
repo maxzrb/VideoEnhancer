@@ -50,9 +50,12 @@ Namespace videoenhancer
         Private ReadOnly _lblBackend As New HtmlColorLabel()
         Private ReadOnly _cmbFactor As New ModernComboBox()
         Private ReadOnly _lblFactor As New HtmlColorLabel()
+        Private ReadOnly _cmbProcessOrder As New ModernComboBox()
+        Private ReadOnly _lblProcessOrder As New HtmlColorLabel()
         Private _syncingMaster As Boolean = False
         Private _syncingBackend As Boolean = False
         Private _syncingFactor As Boolean = False
+        Private _syncingProcessOrder As Boolean = False
         Private _syncingSwitch As Boolean = False
         Private _syncingInterpSwitch As Boolean = False
         Private _modelsLoaded As Boolean = False
@@ -269,14 +272,6 @@ Namespace videoenhancer
                 ShowStatus("请先开启「插件总开关」", True)
                 Return
             End If
-            ' 与补帧互斥：不能同时开启
-            If _switchUpscale.Checked AndAlso _config.InterpEnabled Then
-                _syncingSwitch = True
-                _switchUpscale.Checked = False
-                _syncingSwitch = False
-                ShowStatus("超分与补帧不能同时开启，请先关闭「补帧开关」", True)
-                Return
-            End If
             _config.UpscaleEnabled = _switchUpscale.Checked
             ' 开启超分：CUDA 模式下放大模型列表切换为 models 下的 .pth 模型（空列表时自动回退 ncnn）
             If _switchUpscale.Checked AndAlso (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr") Then
@@ -284,6 +279,7 @@ Namespace videoenhancer
             End If
             _config.Save()
             UpdateModeStateLabels()
+            UpdateProcessOrderState()
             UpdateHookState()
         End Sub
 
@@ -299,20 +295,13 @@ Namespace videoenhancer
                 ShowStatus("请先开启「插件总开关」", True)
                 Return
             End If
-            ' 与超分互斥：不能同时开启
-            If _switchInterp.Checked AndAlso _config.UpscaleEnabled Then
-                _syncingInterpSwitch = True
-                _switchInterp.Checked = False
-                _syncingInterpSwitch = False
-                ShowStatus("超分与补帧不能同时开启，请先关闭「超分开关」", True)
-                Return
-            End If
             _config.InterpEnabled = _switchInterp.Checked
             If _switchInterp.Checked AndAlso _config.Backend = "cuda" Then
                 RefreshInterpModels()
             End If
             _config.Save()
             UpdateModeStateLabels()
+            UpdateProcessOrderState()
             UpdateHookState()
         End Sub
 
@@ -533,19 +522,8 @@ Namespace videoenhancer
                 ShowStatus($"已读取 {models.Count} 个补帧模型 " & modeText, False)
             Else
                 If _config.Backend = "cuda" Then
-                    If _config.InterpEnabled Then
-                        _cmbInterp.WaterText = "未找到 .pth 补帧模型"
-                        ShowStatus("未在 models" & Convert.ToChar(92) & "RIFE 找到 .pth 补帧模型，已回退到 NCNN 推理", True)
-                        _config.Backend = "ncnn"
-                        _config.Save()
-                        _syncingBackend = True
-                        SyncBackendCombo()
-                        _syncingBackend = False
-                        StartInterpModelLoad()
-                    Else
-                        _cmbInterp.WaterText = "未找到 .pth 补帧模型"
-                        ShowStatus("CUDA 补帧需要 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型（当前为空，仅超分时忽略）", False)
-                    End If
+                    _cmbInterp.WaterText = "未找到 .pth 补帧模型"
+                    ShowStatus("CUDA 补帧需要 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型；不会改动当前超分后端", _config.InterpEnabled)
                 Else
                     _cmbInterp.WaterText = "未找到补帧模型"
                     ShowStatus("未在 models" & Convert.ToChar(92) & "RIFE 目录找到含 .param/.bin 的补帧模型", True)
@@ -580,24 +558,17 @@ Namespace videoenhancer
             If backend = _config.Backend Then
                 Return
             End If
-            If (backend = "onnx" OrElse backend = "flashvsr") AndAlso _config.InterpEnabled Then
-                ShowStatus(If(backend = "flashvsr", "FlashVSR 不能与补帧同时运行；请先关闭补帧开关。", "ONNX Runtime 当前只用于超分；请先关闭补帧开关。"), True)
-                _syncingBackend = True
-                SyncBackendCombo()
-                _syncingBackend = False
-                Return
-            End If
             _config.Backend = backend
             _config.Save()
             ' 切换后端后重新读取两个模型列表（CUDA 需要 .pth 模型；活动模式无 .pth 时由 Apply*List 自动回退）
             RefreshUpscaleModels()
             RefreshInterpModels()
             Dim modeText = If(backend = "tensorrt",
-                "TensorRT（NVIDIA）：可选 PTH 或预制 Engine；缓存缺失时按 GPU、TensorRT 版本和输入尺寸自动构建",
+                "TensorRT（NVIDIA）：超分 Engine 自动构建；组合补帧自动使用 NCNN RIFE",
                 If(backend = "onnx",
-                "ONNX Runtime：超分用 models 下的 .onnx 模型，自动优先 CUDA",
+                "ONNX Runtime：超分用 .onnx；组合补帧自动使用 NCNN RIFE",
                 If(backend = "flashvsr",
-                "FlashVSR（NVIDIA）：连续视频帧专用扩散超分，不用于图片或补帧",
+                "FlashVSR（NVIDIA）：连续视频帧扩散超分；组合补帧会自动分两阶段",
                 If(backend = "cuda",
                 "CUDA（PyTorch）：超分用 models 下的 .pth 模型，补帧用 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型",
                 "NCNN（Vulkan）"))))
@@ -874,6 +845,23 @@ Namespace videoenhancer
             button.PressedBackColor2 = UiAccentPressed
         End Sub
 
+        ''' <summary>保存组合处理顺序；默认画质优先（先超分，再补帧）。</summary>
+        Private Sub OnProcessOrderSelected(sender As Object, e As EventArgs)
+            If _syncingProcessOrder Then Return
+            Dim order = ProcessOrderValue(_cmbProcessOrder.SelectedItem)
+            _config.ProcessOrder = order
+            _config.Save()
+            UpdateProcessOrderState()
+            ShowStatus(If(order = "interp-first",
+                "速度/算力优先：先补帧，再超分。",
+                "画质优先：先超分，再补帧。"), False)
+        End Sub
+
+        Private Shared Function ProcessOrderValue(item As Object) As String
+            Dim text = If(item Is Nothing, "", item.ToString())
+            Return If(text.Contains("速度", StringComparison.Ordinal), "interp-first", "upscale-first")
+        End Function
+
         Private Shared Sub ConfigureSecondaryButton(button As ModernButton)
             button.Font = New Font("Microsoft YaHei UI", 10.0F, FontStyle.Regular)
             button.ForeColor = UiText
@@ -1035,10 +1023,11 @@ Namespace videoenhancer
                 "# 快速上手" & Environment.NewLine & Environment.NewLine &
                 "## 1. 连接处理程序" & Environment.NewLine &
                 "在 **超分主界面** 指定 `videoenhancer.exe`，然后开启插件。" & Environment.NewLine & Environment.NewLine &
-                "## 2. 选择一种处理模式" & Environment.NewLine &
+                "## 2. 选择处理模式" & Environment.NewLine &
                 "- 开启 **视频超分**，选择推理后端和放大模型。" & Environment.NewLine &
-                "- 或开启 **运动补帧**，选择 RIFE 模型与倍率。" & Environment.NewLine &
-                "- 两种模式互斥，避免重复处理同一任务。" & Environment.NewLine & Environment.NewLine &
+                "- 开启 **运动补帧**，选择 RIFE 模型与倍率；可与超分同时开启。" & Environment.NewLine &
+                "- **画质优先：先超分，再补帧。** 默认使用该顺序，并通过无损中间视频保证顺序真实生效。" & Environment.NewLine &
+                "- **速度/算力优先：先补帧，再超分。** 同后端时可使用后端原生单程管线。" & Environment.NewLine & Environment.NewLine &
                 "## 3. 加入编码队列" & Environment.NewLine &
                 "回到 3FUI 准备文件并加入队列，插件会自动通过 CLI 中转。" & Environment.NewLine & Environment.NewLine &
                 "## 4. 查看输出" & Environment.NewLine &
@@ -1169,10 +1158,10 @@ Namespace videoenhancer
 
             Dim root As New TableLayoutPanel With {
                 .Dock = DockStyle.Top,
-                .Height = 526,
-                .MinimumSize = New Size(820, 526),
+                .Height = 586,
+                .MinimumSize = New Size(820, 586),
                 .ColumnCount = 1,
-                .RowCount = 11,
+                .RowCount = 12,
                 .BackColor = Color.Transparent,
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty,
@@ -1183,6 +1172,7 @@ Namespace videoenhancer
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 25.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 112.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 60.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 25.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 54.0F))
@@ -1224,7 +1214,7 @@ Namespace videoenhancer
             root.Controls.Add(CreateOfficialSeparator(), 0, 2)
 
             root.Controls.Add(CreateOfficialSectionHeading(
-                "视频处理", "超分与补帧互斥；模型列表随推理后端自动切换"), 0, 3)
+                "视频处理", "超分与补帧可同时开启；默认按画质优先先超分、再补帧"), 0, 3)
 
             Dim modes As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
@@ -1327,10 +1317,42 @@ Namespace videoenhancer
             interpPane.Controls.Add(interpFields, 0, 1)
             modes.Controls.Add(interpPane, 1, 0)
             root.Controls.Add(modes, 0, 4)
-            root.Controls.Add(CreateOfficialSeparator(), 0, 5)
+
+            Dim orderRow As New TableLayoutPanel With {
+                .Dock = DockStyle.Fill,
+                .ColumnCount = 3,
+                .RowCount = 1,
+                .BackColor = Color.Transparent,
+                .Margin = Padding.Empty,
+                .Padding = Padding.Empty
+            }
+            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
+            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 360.0F))
+            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+            orderRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim orderCaption = CreateOfficialCaption("组合处理顺序")
+            orderCaption.TextAlign = ContentAlignment.MiddleLeft
+            _cmbProcessOrder.Items.Add("画质优先：先超分，再补帧")
+            _cmbProcessOrder.Items.Add("速度/算力优先：先补帧，再超分")
+            _cmbProcessOrder.SelectedIndex = If(String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase), 1, 0)
+            _cmbProcessOrder.WaterText = "选择组合处理顺序…"
+            ConfigureCombo(_cmbProcessOrder)
+            _cmbProcessOrder.Editable = False
+            _cmbProcessOrder.Dock = DockStyle.Fill
+            _cmbProcessOrder.Margin = New Padding(0, 7, 12, 7)
+            AddHandler _cmbProcessOrder.SelectedIndexChanged, AddressOf OnProcessOrderSelected
+            _lblProcessOrder.AutoSize = False
+            _lblProcessOrder.Dock = DockStyle.Fill
+            _lblProcessOrder.Margin = Padding.Empty
+            _lblProcessOrder.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
+            orderRow.Controls.Add(orderCaption, 0, 0)
+            orderRow.Controls.Add(_cmbProcessOrder, 1, 0)
+            orderRow.Controls.Add(_lblProcessOrder, 2, 0)
+            root.Controls.Add(orderRow, 0, 5)
+            root.Controls.Add(CreateOfficialSeparator(), 0, 6)
 
             root.Controls.Add(CreateOfficialSectionHeading(
-                "图片增强", "沿用上方超分后端与模型，可选择文件、文件夹或直接拖入"), 0, 6)
+                "图片增强", "沿用上方超分后端与模型，可选择文件、文件夹或直接拖入"), 0, 7)
 
             Dim imageInputRow As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
@@ -1363,7 +1385,7 @@ Namespace videoenhancer
             imageInputRow.Controls.Add(CreateOfficialValueBox(_lblImageInputs), 4, 0)
             AddHandler imageInputRow.DragEnter, AddressOf OnImageDragEnter
             AddHandler imageInputRow.DragDrop, AddressOf OnImageDragDrop
-            root.Controls.Add(imageInputRow, 0, 7)
+            root.Controls.Add(imageInputRow, 0, 8)
 
             Dim imageOutputRow As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
@@ -1389,7 +1411,7 @@ Namespace videoenhancer
             AddHandler _txtImageOutput.TextChanged, AddressOf OnImageOutputTextChanged
             imageOutputRow.Controls.Add(_btnImageOutput, 0, 0)
             imageOutputRow.Controls.Add(_txtImageOutput, 2, 0)
-            root.Controls.Add(imageOutputRow, 0, 8)
+            root.Controls.Add(imageOutputRow, 0, 9)
 
             Dim imageOptionsRow As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
@@ -1444,7 +1466,7 @@ Namespace videoenhancer
             imageOptionsRow.Controls.Add(formatLabel, 3, 0)
             imageOptionsRow.Controls.Add(_cmbImageFormat, 4, 0)
             imageOptionsRow.Controls.Add(_btnImageStart, 7, 0)
-            root.Controls.Add(imageOptionsRow, 0, 9)
+            root.Controls.Add(imageOptionsRow, 0, 10)
 
             Dim progressRow As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
@@ -1472,7 +1494,7 @@ Namespace videoenhancer
             _lblImageProgress.Text = "<font color=#888888>等待开始</font>"
             progressRow.Controls.Add(_imageProgress, 0, 0)
             progressRow.Controls.Add(_lblImageProgress, 2, 0)
-            root.Controls.Add(progressRow, 0, 10)
+            root.Controls.Add(progressRow, 0, 11)
 
             ' 最小窗口保留紧凑布局；宿主窗口较高时主动拉开分区和操作行，
             ' 避免所有控件挤在页面顶部，同时不让按钮本身变得过高。
@@ -1481,8 +1503,8 @@ Namespace videoenhancer
                     Dim spacious = _pageUpscale.ClientSize.Height >= 650
                     Dim rowHeights = If(
                         spacious,
-                        New Single() {46.0F, 56.0F, 33.0F, 42.0F, 132.0F, 33.0F, 42.0F, 60.0F, 60.0F, 60.0F, 46.0F},
-                        New Single() {40.0F, 48.0F, 25.0F, 36.0F, 112.0F, 25.0F, 36.0F, 54.0F, 54.0F, 54.0F, 42.0F})
+                         New Single() {46.0F, 56.0F, 33.0F, 42.0F, 132.0F, 68.0F, 33.0F, 42.0F, 60.0F, 60.0F, 60.0F, 46.0F},
+                         New Single() {40.0F, 48.0F, 25.0F, 36.0F, 112.0F, 60.0F, 25.0F, 36.0F, 54.0F, 54.0F, 54.0F, 42.0F})
 
                     root.SuspendLayout()
                     Dim totalHeight As Integer = 0
@@ -4461,6 +4483,18 @@ Namespace videoenhancer
                 "<font color=#888888>关闭</font>")
         End Sub
 
+        Private Sub UpdateProcessOrderState()
+            Dim combined = _config.UpscaleEnabled AndAlso _config.InterpEnabled
+            _cmbProcessOrder.Enabled = _config.Enabled
+            If String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase) Then
+                _lblProcessOrder.Text = "<font color=#B1BCCA>速度/算力优先：先补帧，再超分。</font>"
+            Else
+                _config.ProcessOrder = "upscale-first"
+                _lblProcessOrder.Text = "<font color=#B1BCCA>画质优先：先超分，再补帧。</font>"
+            End If
+            _lblProcessOrder.Visible = combined
+        End Sub
+
         Private Sub RefreshUi()
             If Not _uiReady Then
                 Return
@@ -4488,7 +4522,13 @@ Namespace videoenhancer
             SyncFactorCombo()
             _cmbFactor.Enabled = _config.Enabled
             _syncingFactor = False
+            _syncingProcessOrder = True
+            If _cmbProcessOrder.Items.Count > 0 Then
+                _cmbProcessOrder.SelectedIndex = If(String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase), 1, 0)
+            End If
+            _syncingProcessOrder = False
             UpdateModeStateLabels()
+            UpdateProcessOrderState()
             If String.IsNullOrWhiteSpace(_config.ExePath) Then
                 _lblExe.Text = "<font color=#888888>尚未指定 videoenhancer.exe</font>"
             Else

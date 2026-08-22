@@ -641,7 +641,7 @@ Namespace videoenhancer
                 Dim settings = BuildFfmpegSettings(preset, input, output)
                 Dim pauseShm = "ve_plugin_pause_" & Guid.NewGuid().ToString("N")
                 Dim stopShm = "ve_plugin_stop_" & Guid.NewGuid().ToString("N")
-                Dim args = BuildCliArgs(input, output, cfg.Model, settings, pauseShm, stopShm, cfg.UpscaleEnabled, cfg.InterpModel, cfg.InterpEnabled, cfg.Backend, cfg.InterpFactor)
+                Dim args = BuildCliArgs(input, output, cfg.Model, settings, pauseShm, stopShm, cfg.UpscaleEnabled, cfg.InterpModel, cfg.InterpEnabled, cfg.Backend, cfg.InterpFactor, cfg.ProcessOrder)
                 AddQueueTask(args, Path.GetFileName(input), output, input)
                 added += 1
             Next
@@ -734,7 +734,7 @@ Namespace videoenhancer
         ' ────────────────────────── 命令构建 ──────────────────────────
 
         ''' <summary>构建 videoenhancer.exe 的参数：-i / -modelpath / -ffmpeg-settings / -pause-shm / -stop-shm / -interp-model / -no-upscale。</summary>
-        Public Shared Function BuildCliArgs(input As String, output As String, model As String, ffmpegSettings As String, Optional pauseShm As String = "", Optional stopShm As String = "", Optional upscaleOn As Boolean = True, Optional interpModel As String = "", Optional interpOn As Boolean = False, Optional backend As String = "ncnn", Optional interpFactor As Double = 2.0) As String
+        Public Shared Function BuildCliArgs(input As String, output As String, model As String, ffmpegSettings As String, Optional pauseShm As String = "", Optional stopShm As String = "", Optional upscaleOn As Boolean = True, Optional interpModel As String = "", Optional interpOn As Boolean = False, Optional backend As String = "ncnn", Optional interpFactor As Double = 2.0, Optional processOrder As String = "upscale-first") As String
             Dim sb As New StringBuilder()
             sb.Append("-i ").Append(Arg(input))
             If upscaleOn AndAlso Not String.IsNullOrWhiteSpace(model) Then
@@ -746,7 +746,7 @@ Namespace videoenhancer
             If interpOn AndAlso Not upscaleOn Then
                 sb.Append(" -no-upscale")
             End If
-            ' 推理后端对超分与补帧均生效：CUDA 超分需要 models 下的 .pth 模型
+            ' 这里传入超分后端；CLI 会为补帧安全推导 CUDA 或 NCNN，避免模型格式错配。
             If interpOn OrElse upscaleOn Then
                 Dim b = If(String.IsNullOrWhiteSpace(backend), "ncnn", backend.Trim().ToLowerInvariant())
                 sb.Append(" -backend ").Append(Arg(b))
@@ -754,6 +754,10 @@ Namespace videoenhancer
             If interpOn Then
                 Dim f = If(interpFactor <= 1, 2.0, interpFactor)
                 sb.Append(" -interp-factor ").Append(f.ToString("0", System.Globalization.CultureInfo.InvariantCulture))
+                If upscaleOn Then
+                    Dim order = If(String.Equals(processOrder, "interp-first", StringComparison.OrdinalIgnoreCase), "interp-first", "upscale-first")
+                    sb.Append(" -process-order ").Append(Arg(order))
+                End If
             End If
             sb.Append(" -ffmpeg-settings ").Append(Arg(ffmpegSettings))
             If Not String.IsNullOrWhiteSpace(pauseShm) Then

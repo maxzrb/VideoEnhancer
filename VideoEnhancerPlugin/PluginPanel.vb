@@ -4,6 +4,7 @@ Imports System.Diagnostics
 Imports System.Drawing
 Imports System.IO
 Imports System.Linq
+Imports System.Reflection
 Imports System.Text
 Imports System.Text.Json
 Imports System.Text.RegularExpressions
@@ -65,6 +66,8 @@ Namespace videoenhancer
         Private _uiReady As Boolean = False
         ' ── 选项卡分栏：超分主界面 / 实时预览 / 高级功能 / 模型转换器 ──
         Private ReadOnly _tabs As New ModernTabControl()
+        ' 3FUI 会优先按字段名反射并绑定个性化背景；必须是稳定字段，不能只在 InitializeUi 中用局部变量。
+        Private ReadOnly ModernPanel1 As New ModernPanel()
         Private ReadOnly _pageUpscale As New Panel()
         Private ReadOnly _pagePreview As New Panel()
         Private ReadOnly _pageAdvanced As New Panel()
@@ -136,6 +139,9 @@ Namespace videoenhancer
         Private _quadForm As QuadGridForm
         Private _engine As PreviewEngine
         Private _lastPreviewImage As Image
+        Private _hostForm As Form
+        Private _lastHostWindowState As FormWindowState = FormWindowState.Normal
+        Private _restoreRedrawPending As Boolean
 
         ''' <summary>插件面板实例（编码队列右键「预览输出」等外部入口使用）。</summary>
         Friend Shared Current As PluginPanel
@@ -143,6 +149,9 @@ Namespace videoenhancer
         Public Sub New(config As PluginConfig, Optional previewOnly As Boolean = False)
             _config = config
             Current = Me
+            SetStyle(ControlStyles.UserPaint Or ControlStyles.AllPaintingInWmPaint Or
+                ControlStyles.OptimizedDoubleBuffer Or ControlStyles.ResizeRedraw, True)
+            UpdateStyles()
             InitializeUi()
             If previewOnly Then
                 _uiReady = True
@@ -150,6 +159,57 @@ Namespace videoenhancer
             Else
                 AddHandler Load, AddressOf OnPanelLoad
             End If
+        End Sub
+
+        Protected Overrides Sub OnHandleCreated(e As EventArgs)
+            MyBase.OnHandleCreated(e)
+            AttachHostForm()
+        End Sub
+
+        Protected Overrides Sub OnParentChanged(e As EventArgs)
+            MyBase.OnParentChanged(e)
+            AttachHostForm()
+        End Sub
+
+        ''' <summary>跟踪 3FUI 主窗体的最小化/恢复状态，恢复时触发整页同步重绘。</summary>
+        Private Sub AttachHostForm()
+            Dim form = FindForm()
+            If form Is _hostForm Then Return
+            If _hostForm IsNot Nothing Then
+                RemoveHandler _hostForm.Resize, AddressOf OnHostFormResize
+            End If
+            _hostForm = form
+            If _hostForm IsNot Nothing Then
+                _lastHostWindowState = _hostForm.WindowState
+                AddHandler _hostForm.Resize, AddressOf OnHostFormResize
+            End If
+        End Sub
+
+        Private Sub OnHostFormResize(sender As Object, e As EventArgs)
+            If _hostForm Is Nothing Then Return
+            Dim currentState = _hostForm.WindowState
+            Dim restored = _lastHostWindowState = FormWindowState.Minimized AndAlso
+                currentState <> FormWindowState.Minimized
+            _lastHostWindowState = currentState
+            If restored Then RequestRestoreRedraw()
+        End Sub
+
+        Private Sub RequestRestoreRedraw()
+            If _restoreRedrawPending OrElse IsDisposed OrElse Not IsHandleCreated Then Return
+            _restoreRedrawPending = True
+            BeginInvoke(New Action(
+                Sub()
+                    _restoreRedrawPending = False
+                    If IsDisposed OrElse _hostForm Is Nothing OrElse
+                        _hostForm.WindowState = FormWindowState.Minimized Then Return
+                    ' 一次性标记全部子控件，并在同一 UI 消息内同步提交，避免透明层逐块露出宿主壁纸。
+                    ModernPanel1.Invalidate(True)
+                    _tabs.Invalidate(True)
+                    Invalidate(True)
+                    ModernPanel1.Update()
+                    _tabs.Update()
+                    Update()
+                End Sub))
         End Sub
 
         Public ReadOnly Property IsEnabled As Boolean
@@ -907,23 +967,33 @@ Namespace videoenhancer
             combo.DropDownScrollBarTrackColor = Color.Transparent
         End Sub
 
+        ''' <summary>为根级容器启用 WinForms 双缓冲；失败时保持 LakeUI 默认绘制路径。</summary>
+        Private Shared Sub EnableControlDoubleBuffer(control As Control)
+            Try
+                Dim propertyInfo = GetType(Control).GetProperty("DoubleBuffered",
+                    BindingFlags.Instance Or BindingFlags.NonPublic)
+                If propertyInfo IsNot Nothing Then propertyInfo.SetValue(control, True)
+            Catch
+            End Try
+        End Sub
+
         Private Sub InitializeUi()
-            BackColor = Color.Transparent
+            ' 不透明画布是背景映射尚未完成时的兜底，避免恢复窗口时短暂穿透到桌面/壁纸。
+            BackColor = UiCanvas
             Dock = DockStyle.Fill
             MinimumSize = New Size(900, 680)
             Font = New Font("Microsoft YaHei UI", 10.0F)
 
             ' 官方 API 插件约定：宿主通过名为 ModernPanel1 的 Fill 面板接入个性化背景。
-            Dim ModernPanel1 As New ModernPanel With {
-                .Name = "ModernPanel1",
-                .Dock = DockStyle.Fill,
-                .Margin = Padding.Empty,
-                .Padding = New Padding(24, 20, 24, 18),
-                .BackColor = Color.Transparent,
-                .BackColor1 = UiCanvas,
-                .BorderSize = 0,
-                .BorderRadius = 0
-            }
+            ModernPanel1.Name = "ModernPanel1"
+            ModernPanel1.Dock = DockStyle.Fill
+            ModernPanel1.Margin = Padding.Empty
+            ModernPanel1.Padding = New Padding(24, 20, 24, 18)
+            ModernPanel1.BackColor = UiCanvas
+            ModernPanel1.BackColor1 = UiCanvas
+            ModernPanel1.BorderSize = 0
+            ModernPanel1.BorderRadius = 0
+            EnableControlDoubleBuffer(ModernPanel1)
             Dim root As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 1,
@@ -936,6 +1006,8 @@ Namespace videoenhancer
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 48.0F))
 
             BuildTabs()
+            EnableControlDoubleBuffer(_tabs)
+            EnableControlDoubleBuffer(root)
             root.Controls.Add(_tabs, 0, 0)
 
             Dim sectionStatus As New TableLayoutPanel With {
@@ -4435,6 +4507,10 @@ Namespace videoenhancer
             If disposing Then
                 If Current Is Me Then
                     Current = Nothing
+                End If
+                If _hostForm IsNot Nothing Then
+                    RemoveHandler _hostForm.Resize, AddressOf OnHostFormResize
+                    _hostForm = Nothing
                 End If
                 Try
                     _statusClearTimer.Stop()

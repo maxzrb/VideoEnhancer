@@ -17,7 +17,7 @@ namespace VideoEnhancer;
 /// </summary>
 internal static class Program
 {
-    private const string ToolVersion = "1.9.6-preview.1";
+    private const string ToolVersion = "1.9.6-preview.2";
     private const string EmbeddedPluginResource = "VideoEnhancer.Embedded.videoenhancer.3fui.dll";
     private const string EmbeddedAriaResource = "VideoEnhancer.Embedded.aria2-next.exe";
     private const string Embedded7ZipResource = "VideoEnhancer.Embedded.7za.exe";

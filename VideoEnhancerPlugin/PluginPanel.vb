@@ -19,6 +19,98 @@ Namespace videoenhancer
     Public Class PluginPanel
         Inherits UserControl
 
+        ' 透明布局仍由 WinForms 负责尺寸计算，但在单个缓冲表面提交，
+        ' 避免窗口缩放时逐层擦除后再请求 LakeUI 背景源重画。
+        Private NotInheritable Class BufferedTableLayoutPanel
+            Inherits TableLayoutPanel
+
+            Public Sub New()
+                SetStyle(ControlStyles.SupportsTransparentBackColor Or
+                    ControlStyles.AllPaintingInWmPaint Or
+                    ControlStyles.OptimizedDoubleBuffer, True)
+                DoubleBuffered = True
+                ResizeRedraw = False
+                UpdateStyles()
+            End Sub
+        End Class
+
+        ' 参照 3FUI 参数页的普通 Panel 布局：正数为固定宽度，负数为剩余空间权重。
+        ' 这里只计算子控件边界，不额外创建透明绘图层。
+        Private NotInheritable Class HorizontalLayoutPanel
+            Inherits Panel
+
+            Private ReadOnly _columns As Single()
+            Private ReadOnly _columnByControl As New Dictionary(Of Control, Integer)()
+
+            Public Sub New(ParamArray columns As Single())
+                _columns = columns
+                Margin = Padding.Empty
+                Padding = Padding.Empty
+                ResizeRedraw = False
+            End Sub
+
+            Public Sub AddColumn(control As Control, columnIndex As Integer)
+                control.Dock = DockStyle.None
+                _columnByControl(control) = columnIndex
+                Controls.Add(control)
+            End Sub
+
+            Protected Overrides Sub OnLayout(levent As LayoutEventArgs)
+                MyBase.OnLayout(levent)
+                If _columns.Length = 0 Then Return
+
+                Dim fixedWidth As Single = 0
+                Dim totalWeight As Single = 0
+                For Each column In _columns
+                    If column >= 0 Then
+                        fixedWidth += column
+                    Else
+                        totalWeight += -column
+                    End If
+                Next
+
+                Dim available = Math.Max(0.0F, CSng(ClientSize.Width) - fixedWidth)
+                Dim left As Integer = 0
+                Dim widths(_columns.Length - 1) As Integer
+                For index = 0 To _columns.Length - 1
+                    Dim width = If(_columns(index) >= 0,
+                        _columns(index),
+                        If(totalWeight > 0, available * (-_columns(index)) / totalWeight, 0.0F))
+                    widths(index) = If(index = _columns.Length - 1,
+                        Math.Max(0, ClientSize.Width - left),
+                        Math.Max(0, CInt(Math.Round(width))))
+                    left += widths(index)
+                Next
+
+                left = 0
+                For index = 0 To widths.Length - 1
+                    For Each pair In _columnByControl
+                        If pair.Value <> index Then Continue For
+                        Dim margin = pair.Key.Margin
+                        If pair.Key.Anchor = AnchorStyles.None Then
+                            ' BooleanSwitch 等定尺寸控件保持 DPI 尺寸并在列内居中，避免被拉成圆形。
+                            Dim controlWidth = Math.Min(pair.Key.Width,
+                                Math.Max(0, widths(index) - margin.Horizontal))
+                            Dim controlHeight = Math.Min(pair.Key.Height,
+                                Math.Max(0, ClientSize.Height - margin.Vertical))
+                            pair.Key.SetBounds(
+                                left + Math.Max(0, (widths(index) - controlWidth) \ 2),
+                                Math.Max(0, (ClientSize.Height - controlHeight) \ 2),
+                                controlWidth,
+                                controlHeight)
+                        Else
+                            pair.Key.SetBounds(
+                                left + margin.Left,
+                                margin.Top,
+                                Math.Max(0, widths(index) - margin.Horizontal),
+                                Math.Max(0, ClientSize.Height - margin.Vertical))
+                        End If
+                    Next
+                    left += widths(index)
+                Next
+            End Sub
+        End Class
+
         ' 与官方 API 示例插件保持一致：#181818 背景、半透明灰控件、低饱和文字和单一蓝色强调。
         Private Shared ReadOnly UiCanvas As Color = Color.FromArgb(24, 24, 24)
         Private Shared ReadOnly UiSurface As Color = Color.FromArgb(40, 220, 220, 220)
@@ -74,13 +166,17 @@ Namespace videoenhancer
         Private _uiReady As Boolean = False
         ' ── 选项卡分栏：超分主界面 / 实时预览 / 高级功能 / 模型转换器 ──
         Private ReadOnly _tabs As New ModernTabControl()
-        Private ReadOnly _pageUpscale As New Panel()
+        ' 3FUI 通过字段名和控件名 ModernPanel1 绑定 LakeUI 背景穿透缓存。
+        Private ReadOnly ModernPanel1 As New ModernPanel()
+        Private ReadOnly _pageUpscale As New ModernPanel()
         Private ReadOnly _pagePreview As New Panel()
         Private ReadOnly _pageAdvanced As New Panel()
         Private ReadOnly _pageDownloader As New Panel()
         Private ReadOnly _pageConverter As New Panel()
         Private ReadOnly _pageModelInfo As New Panel()
         Private ReadOnly _pageTutorial As New Panel()
+        Private ReadOnly _markdownSources As New Dictionary(Of Panel, String)()
+        Private ReadOnly _markdownReady As New HashSet(Of Panel)()
         ' ── 独立图片超分页（位于超分主界面内）──
         Private ReadOnly _btnImageFiles As New ModernButton()
         Private ReadOnly _btnImageFolder As New ModernButton()
@@ -145,7 +241,6 @@ Namespace videoenhancer
         Private _quadForm As QuadGridForm
         Private _engine As PreviewEngine
         Private _lastPreviewImage As Image
-
         ''' <summary>插件面板实例（编码队列右键「预览输出」等外部入口使用）。</summary>
         Friend Shared Current As PluginPanel
 
@@ -283,7 +378,7 @@ Namespace videoenhancer
             End If
             _config.UpscaleEnabled = _switchUpscale.Checked
             ' 开启超分：CUDA 模式下放大模型列表切换为 models 下的 .pth 模型（空列表时自动回退 ncnn）
-            If _switchUpscale.Checked AndAlso (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp") Then
+            If _switchUpscale.Checked AndAlso (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr") Then
                 RefreshUpscaleModels()
             End If
             _config.Save()
@@ -493,17 +588,15 @@ Namespace videoenhancer
                     "（TensorRT，PTH 首次使用自动构建 Engine）",
                     If(_config.Backend = "onnx",
                     "（ONNX Runtime，models 下的 .onnx 文件）",
-                    If(_config.Backend = "basicvsrpp",
-                    "（BasicVSR++，连续视频帧专用 x4 PTH）",
                     If(_config.Backend = "flashvsr",
                     "（FlashVSR，连续视频帧专用模型目录）",
                     If(_config.Backend = "cuda",
                     "（CUDA，models 下的 .pth/.pt/.pkl 文件）",
-                    "（models 目录，.param/.bin 文件夹）")))))
+                    "（models 目录，.param/.bin 文件夹）"))))
                 ShowStatus($"已从 videoenhancer.exe 读取 {models.Count} 个可用模型 " & modeText, False)
             Else
-                If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp") AndAlso _config.UpscaleEnabled Then
-                    Dim missingExt = If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "basicvsrpp", "BasicVSR++ .pth", If(_config.Backend = "tensorrt", "PTH 或 .engine", If(_config.Backend = "onnx", ".onnx", ".pth"))))
+                If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr") AndAlso _config.UpscaleEnabled Then
+                    Dim missingExt = If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "tensorrt", "PTH 或 .engine", If(_config.Backend = "onnx", ".onnx", ".pth")))
                     _cmbModel.WaterText = "未找到 " & missingExt & " 放大模型"
                     ShowStatus("未找到 " & missingExt & " 放大模型，请确认 models 目录", True)
                     ' 保留用户选择的 TensorRT，不因一次扫描失败自动改回 NCNN。
@@ -573,14 +666,6 @@ Namespace videoenhancer
             If backend = _config.Backend Then
                 Return
             End If
-            If backend = "basicvsrpp" AndAlso _config.InterpEnabled Then
-                Dim warning = "BasicVSR++ 不能与补帧同时运行；请先关闭补帧开关。"
-                ShowStatus(warning, True)
-                _syncingBackend = True
-                SyncBackendCombo()
-                _syncingBackend = False
-                Return
-            End If
             _config.Backend = backend
             _config.Save()
             ' 切换后端后重新读取两个模型列表（CUDA 需要 .pth 模型；活动模式无 .pth 时由 Apply*List 自动回退）
@@ -591,13 +676,11 @@ Namespace videoenhancer
                 "TensorRT（NVIDIA）：超分 Engine 自动构建；组合补帧自动使用 NCNN RIFE",
                 If(backend = "onnx",
                 "ONNX Runtime：超分用 .onnx；组合补帧自动使用 NCNN RIFE",
-                If(backend = "basicvsrpp",
-                "BasicVSR++（NVIDIA）：官方 x4 时序视频超分，不用于图片或补帧",
                 If(backend = "flashvsr",
                 "FlashVSR（NVIDIA）：连续视频帧扩散超分；组合补帧会自动分两阶段",
                 If(backend = "cuda",
                 "CUDA（PyTorch）：超分用 models 下的 .pth 模型，补帧用 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型",
-                "NCNN（Vulkan）")))))
+                "NCNN（Vulkan）"))))
             ShowStatus("推理方式：" & modeText, False)
         End Sub
 
@@ -622,9 +705,6 @@ Namespace videoenhancer
 
         Private Shared Function BackendValue(item As Object) As String
             Dim text = If(item Is Nothing, "", item.ToString())
-            If text.Contains("BasicVSR++") Then
-                Return "basicvsrpp"
-            End If
             If text.Contains("FlashVSR") Then
                 Return "flashvsr"
             End If
@@ -818,6 +898,7 @@ Namespace videoenhancer
                 .Dock = DockStyle.Fill,
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty,
+                .BackColor = Color.Transparent,
                 .BackColor1 = Color.Transparent,
                 .BorderSize = 0,
                 .ForeColor = UiTextMuted,
@@ -829,24 +910,28 @@ Namespace videoenhancer
 
         Private Shared Function CreateOfficialField(caption As String, editor As Control,
                                                      Optional rightMargin As Integer = 12) As Control
-            Dim layout As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 1,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
+            Dim layout As New Panel With {
                 .Margin = New Padding(0, 0, rightMargin, 0),
                 .Padding = Padding.Empty
             }
-            layout.RowStyles.Add(New RowStyle(SizeType.Absolute, 28))
-            layout.RowStyles.Add(New RowStyle(SizeType.Percent, 100))
             Dim label = CreateTextLabel(caption, 9.0F, FontStyle.Regular, UiTextMuted)
-            label.Dock = DockStyle.Fill
+            label.Dock = DockStyle.None
             label.Margin = New Padding(2, 0, 2, 0)
             label.TextAlign = ContentAlignment.BottomLeft
-            editor.Dock = DockStyle.Fill
-            editor.Margin = New Padding(0, 5, 0, 5)
-            layout.Controls.Add(label, 0, 0)
-            layout.Controls.Add(editor, 0, 1)
+            editor.Dock = DockStyle.None
+            editor.AutoSize = False
+            editor.MinimumSize = New Size(0, 32)
+            editor.Margin = Padding.Empty
+            layout.Controls.Add(label)
+            layout.Controls.Add(editor)
+            Dim arrange =
+                Sub()
+                    label.SetBounds(2, 0, Math.Max(0, layout.ClientSize.Width - 4), 28)
+                    editor.SetBounds(0, 31, layout.ClientSize.Width,
+                        Math.Max(32, layout.ClientSize.Height - 34))
+                End Sub
+            AddHandler layout.Layout, Sub(sender, e) arrange()
+            arrange()
             Return layout
         End Function
 
@@ -939,6 +1024,12 @@ Namespace videoenhancer
         End Sub
 
         Private Shared Sub ConfigureCombo(combo As ModernComboBox)
+            ' AutoSize=False + 最小高度：下拉框高度完全由所在单元格决定且不小于箭头区域，
+            ' 与宿主一致（宿主下拉框固定 30px 高、Dock=Fill、Overlay 下拉）。
+            combo.AutoSize = False
+            combo.MinimumSize = New Size(0, 32)
+            combo.Dock = DockStyle.Fill
+            combo.DropDownMode = ModernComboBox.DropDownDisplayMode.Overlay
             combo.Font = New Font("Microsoft YaHei UI", 10.0F)
             combo.ForeColor = UiText
             combo.WaterTextForeColor = UiTextMuted
@@ -1000,24 +1091,24 @@ Namespace videoenhancer
             _config.Save()
             UpdateAdvancedControlState()
         End Sub
+
         Private Sub InitializeUi()
-            BackColor = Color.Transparent
+            ' 不透明画布是背景映射尚未完成时的兜底，避免恢复窗口时短暂穿透到桌面/壁纸。
+            BackColor = UiCanvas
             Dock = DockStyle.Fill
             MinimumSize = New Size(900, 680)
             Font = New Font("Microsoft YaHei UI", 10.0F)
 
-            ' 官方 API 插件约定：宿主通过名为 ModernPanel1 的 Fill 面板接入个性化背景。
-            Dim ModernPanel1 As New ModernPanel With {
-                .Name = "ModernPanel1",
-                .Dock = DockStyle.Fill,
-                .Margin = Padding.Empty,
-                .Padding = New Padding(24, 20, 24, 18),
-                .BackColor = Color.Transparent,
-                .BackColor1 = UiCanvas,
-                .BorderSize = 0,
-                .BorderRadius = 0
-            }
-            Dim root As New TableLayoutPanel With {
+            ' 保持宿主插件契约，由 3FUI 将主窗体设置为 BackgroundSource。
+            ModernPanel1.Name = "ModernPanel1"
+            ModernPanel1.Dock = DockStyle.Fill
+            ModernPanel1.Margin = Padding.Empty
+            ModernPanel1.Padding = New Padding(24, 20, 24, 18)
+            ModernPanel1.BackColor = Color.Transparent
+            ModernPanel1.BackColor1 = Color.Transparent
+            ModernPanel1.BorderSize = 0
+            ModernPanel1.BorderRadius = 0
+            Dim root As New BufferedTableLayoutPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 1,
                 .RowCount = 2,
@@ -1028,10 +1119,15 @@ Namespace videoenhancer
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 48.0F))
 
-            BuildTabs()
+            _tabs.SuspendLayout()
+            Try
+                BuildTabs()
+            Finally
+                _tabs.ResumeLayout(False)
+            End Try
             root.Controls.Add(_tabs, 0, 0)
 
-            Dim sectionStatus As New TableLayoutPanel With {
+            Dim sectionStatus As New BufferedTableLayoutPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 2,
                 .RowCount = 1,
@@ -1101,8 +1197,48 @@ Namespace videoenhancer
             BuildOfficialAdvancedPage()
             BuildOfficialModelDownloadPage()
             BuildOfficialConverterPage()
-            BuildModelInfoPage()
-            BuildTutorialBrowserPage()
+            BuildMarkdownPage(_pageModelInfo,
+                "# 模型选择指南" & Environment.NewLine & Environment.NewLine &
+                "## 放大模型" & Environment.NewLine &
+                "- **NCNN / Param-Bin**：兼容性最好，适合 Vulkan 显卡和日常使用。" & Environment.NewLine &
+                "- **PTH / CUDA**：适合 NVIDIA 显卡，模型选择丰富。" & Environment.NewLine &
+                "- **TensorRT Engine**：吞吐更高，但需要与当前显卡和 CUDA 环境匹配。" & Environment.NewLine &
+                "- **ONNX Runtime**：便于跨后端部署，性能取决于执行提供程序。" & Environment.NewLine & Environment.NewLine &
+                "## 补帧模型" & Environment.NewLine &
+                "- RIFE 模型用于生成中间帧；2 倍适合大多数素材，4 倍以上建议先短片测试。" & Environment.NewLine & Environment.NewLine &
+                "## 建议" & Environment.NewLine &
+                "优先从较短片段开始，确认画质、显存占用和速度后再处理完整视频。")
+            BuildMarkdownPage(_pageTutorial,
+                "# 快速上手" & Environment.NewLine & Environment.NewLine &
+                "## 1. 连接处理程序" & Environment.NewLine &
+                "在 **超分主界面** 指定 `videoenhancer.exe`，然后开启插件。" & Environment.NewLine & Environment.NewLine &
+                "## 2. 选择处理模式" & Environment.NewLine &
+                "- 开启 **视频超分**，选择推理后端和放大模型。" & Environment.NewLine &
+                "- 开启 **运动补帧**，选择 RIFE 模型与倍率；可与超分同时开启。" & Environment.NewLine &
+                "- **组合处理顺序**只有在视频超分和运动补帧同时开启时才可选择；关闭任一功能后，该选项会自动变灰。" & Environment.NewLine &
+                "- **画质优先：先超分，再补帧。** 默认使用该顺序。" & Environment.NewLine &
+                "- **速度/算力优先：先补帧，再超分。** 超分与补帧使用同一后端时走后端原生单程管线。" & Environment.NewLine &
+                Environment.NewLine &
+                "## 3. 处理阶段与中间文件" & Environment.NewLine &
+                "- 同后端的先补后超使用 RVE 原生单程管线；选择先超后补或组合不同后端时，程序会分成两个阶段。" & Environment.NewLine &
+                "- 两阶段处理会在输出目录生成隐藏的 `.videoenhancer-*.mkv` 临时文件，使用 RGB FFV1 无损编码并直接复制音频和字幕。" & Environment.NewLine &
+                "- 临时文件会在任务成功、失败或中止后自动清理；4K、高帧率或长视频仍需预留足够磁盘空间。FFV1 只用于阶段间传递，不是最终输出编码。" & Environment.NewLine &
+                Environment.NewLine &
+                "## 4. 加入编码队列" & Environment.NewLine &
+                "回到 3FUI 准备文件并加入队列，插件会自动通过 CLI 中转。" & Environment.NewLine & Environment.NewLine &
+                "## 5. 查看输出" & Environment.NewLine &
+                "在 **实时预览** 查看处理中或已完成的帧；需要多视频比较时打开 **对比工作室**。")
+
+            For Each page As Panel In New Panel() {
+                _pageUpscale, _pagePreview, _pageAdvanced, _pageDownloader,
+                _pageConverter, _pageModelInfo, _pageTutorial
+            }
+                page.BackColor = Color.Transparent
+                Dim modernPage = TryCast(page, ModernPanel)
+                If modernPage IsNot Nothing Then
+                    modernPage.BackColor1 = Color.Transparent
+                End If
+            Next
 
             Dim tabMain As New ModernTabControl.ModernTab("超分工作台") With {.BoundControl = _pageUpscale}
             Dim tabPreview As New ModernTabControl.ModernTab("实时预览") With {.BoundControl = _pagePreview}
@@ -1160,48 +1296,32 @@ Namespace videoenhancer
         End Sub
 
         Private Shared Function CreateOfficialSeparator() As Control
-            Dim host As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 1,
-                .RowCount = 3,
-                .BackColor = Color.Transparent,
+            Dim host As New Panel With {
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
-            host.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            host.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
-            host.RowStyles.Add(New RowStyle(SizeType.Absolute, 1.0F))
-            host.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
-            host.Controls.Add(New Panel With {
-                .Dock = DockStyle.Fill,
-                .Margin = Padding.Empty,
+            Dim line As New Panel With {
                 .BackColor = Color.FromArgb(58, 220, 220, 220)
-            }, 0, 1)
+            }
+            line.Anchor = AnchorStyles.Left Or AnchorStyles.Right Or AnchorStyles.Top
+            host.Controls.Add(line)
+            AddHandler host.Layout,
+                Sub(sender, e)
+                    line.SetBounds(0, Math.Max(0, (host.ClientSize.Height - 1) \ 2),
+                        host.ClientSize.Width, 1)
+                End Sub
             Return host
         End Function
 
         Private Shared Function BuildOfficialModeHeader(title As String, description As String,
                                                         switchControl As LakeUI.BooleanSwitch,
                                                         stateLabel As HtmlColorLabel) As Control
-            Dim row As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 5,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
             Dim titleLabel = CreateTextLabel(title, 12.0F, FontStyle.Regular, UiText)
-            titleLabel.Dock = DockStyle.Fill
             titleLabel.Margin = Padding.Empty
             titleLabel.TextAlign = ContentAlignment.MiddleLeft
             Dim titleWidth = Math.Max(84, TextRenderer.MeasureText(title, titleLabel.Font).Width + 4)
-            row.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, CSng(titleWidth)))
-            row.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 10.0F))
-            row.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 42.0F))
-            row.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            row.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 112.0F))
-            row.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim row As New HorizontalLayoutPanel(
+                CSng(titleWidth), 10.0F, 42.0F, -1.0F, 112.0F)
             switchControl.Anchor = AnchorStyles.None
             switchControl.Margin = Padding.Empty
             Dim descriptionLabel = CreateOfficialCaption(description)
@@ -1211,66 +1331,85 @@ Namespace videoenhancer
             stateLabel.Margin = Padding.Empty
             stateLabel.AutoSize = False
             stateLabel.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleRight
-            row.Controls.Add(titleLabel, 0, 0)
-            row.Controls.Add(switchControl, 2, 0)
-            row.Controls.Add(descriptionLabel, 3, 0)
-            row.Controls.Add(stateLabel, 4, 0)
+            row.AddColumn(titleLabel, 0)
+            row.AddColumn(switchControl, 2)
+            row.AddColumn(descriptionLabel, 3)
+            row.AddColumn(stateLabel, 4)
             Return row
         End Function
+
+        Private Shared Sub AddWorkbenchControl(root As ModernPanel, control As Control,
+                                               top As Integer, height As Integer,
+                                               leftRatio As Single, rightRatio As Single,
+                                               Optional leftOffset As Integer = 0,
+                                               Optional rightOffset As Integer = 0)
+            control.Dock = DockStyle.None
+            control.Anchor = AnchorStyles.Top Or AnchorStyles.Left
+            Dim arrange =
+                Sub()
+                    Dim left = CInt(Math.Round(root.ClientSize.Width * leftRatio)) + leftOffset
+                    Dim right = CInt(Math.Round(root.ClientSize.Width * rightRatio)) + rightOffset
+                    control.SetBounds(left, top, Math.Max(0, right - left), height)
+                End Sub
+            root.Controls.Add(control)
+            AddHandler root.Layout, Sub(sender, e) arrange()
+            arrange()
+        End Sub
+
+        Private Shared Sub AddWorkbenchRow(root As ModernPanel, control As Control,
+                                           top As Integer, height As Integer)
+            AddWorkbenchControl(root, control, top, height, 0.0F, 1.0F)
+        End Sub
 
         Private Sub BuildOfficialUpscalePage()
             _pageUpscale.Dock = DockStyle.Fill
             _pageUpscale.BackColor = Color.Transparent
+            _pageUpscale.BackColor1 = Color.Transparent
+            _pageUpscale.BorderSize = 0
             _pageUpscale.Padding = Padding.Empty
+            ' 使用 LakeUI ModernPanel 原生滚动，避免 WinForms 白色非客户区滚动条。
             _pageUpscale.AutoScroll = False
+            _pageUpscale.LayoutMode = ModernPanel.LayoutModeEnum.Absolute
+            _pageUpscale.ScrollBarMode = ModernPanel.ScrollMode.Vertical
+            _pageUpscale.ScrollBarWidth = 10
+            _pageUpscale.ScrollBarTrackColor = Color.FromArgb(18, 18, 18)
+            _pageUpscale.ScrollBarThumbColor = Color.FromArgb(72, 72, 72)
+            _pageUpscale.ScrollBarThumbHoverColor = Color.FromArgb(104, 104, 104)
+            _pageUpscale.VerticalScrollStep = 48
             _pageUpscale.AllowDrop = True
             AddHandler _pageUpscale.DragEnter, AddressOf OnImageDragEnter
             AddHandler _pageUpscale.DragDrop, AddressOf OnImageDragDrop
 
-            Dim root As New TableLayoutPanel With {
-                .Dock = DockStyle.Top,
-                .Height = 586,
-                .MinimumSize = New Size(820, 586),
-                .ColumnCount = 1,
-                .RowCount = 12,
+            ' 根容器保持固定内容高度并左右锚定；窗口较小时由页面滚动承载。
+            ' 宽度交给标准 Anchor 布局事务，避免尺寸事件中强制重排整棵表格树。
+            Dim root As New ModernPanel With {
+                .Dock = DockStyle.None,
+                .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right,
+                .AutoSize = False,
+                .MinimumSize = New Size(0, 850),
+                .Height = 850,
                 .BackColor = Color.Transparent,
+                .BackColor1 = Color.Transparent,
+                .BackgroundSource = ModernPanel1,
+                .LayoutMode = ModernPanel.LayoutModeEnum.Absolute,
+                .ScrollBarMode = ModernPanel.ScrollMode.None,
+                .BorderSize = 0,
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty,
                 .AllowDrop = True
             }
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 40.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 48.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 25.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 112.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 60.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 25.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 54.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 54.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 54.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 42.0F))
             AddHandler root.DragEnter, AddressOf OnImageDragEnter
             AddHandler root.DragDrop, AddressOf OnImageDragDrop
+            root.SetBounds(0, 0, Math.Max(0,
+                _pageUpscale.ClientSize.Width - _pageUpscale.ScrollBarWidth - 2), 850)
 
             ConfigureDpiSwitch(_switchMaster)
             _switchMaster.Checked = _config.Enabled
             AddHandler _switchMaster.CheckedChanged, AddressOf OnMasterSwitchChanged
-            root.Controls.Add(BuildOfficialModeHeader(
-                "插件总开关", "", _switchMaster, _lblMaster), 0, 0)
+            AddWorkbenchRow(root, BuildOfficialModeHeader(
+                "插件总开关", "", _switchMaster, _lblMaster), 0, 40)
 
-            Dim exeRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            exeRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
-            exeRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
-            exeRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            exeRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim exeRow As New HorizontalLayoutPanel(150.0F, 12.0F, -1.0F)
             _btnPickExe.Text = "选择处理程序"
             _btnPickExe.Dock = DockStyle.Fill
             _btnPickExe.Margin = New Padding(0, 6, 0, 6)
@@ -1279,54 +1418,20 @@ Namespace videoenhancer
             _lblExe.AutoSize = False
             _lblExe.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _lblExe.ForeColor = UiText
-            exeRow.Controls.Add(_btnPickExe, 0, 0)
-            exeRow.Controls.Add(CreateOfficialValueBox(_lblExe), 2, 0)
-            root.Controls.Add(exeRow, 0, 1)
-            root.Controls.Add(CreateOfficialSeparator(), 0, 2)
+            exeRow.AddColumn(_btnPickExe, 0)
+            exeRow.AddColumn(CreateOfficialValueBox(_lblExe), 2)
+            AddWorkbenchRow(root, exeRow, 40, 48)
+            AddWorkbenchRow(root, CreateOfficialSeparator(), 88, 25)
 
-            root.Controls.Add(CreateOfficialSectionHeading(
-                "视频处理", "超分与补帧可同时开启；默认按画质优先先超分、再补帧"), 0, 3)
+            AddWorkbenchRow(root, CreateOfficialSectionHeading(
+                "视频处理", "超分与补帧可同时开启；默认按画质优先先超分、再补帧"), 113, 36)
 
-            Dim modes As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 2,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            modes.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
-            modes.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
-            modes.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-
-            Dim upscalePane As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 1,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
-                .Margin = New Padding(0, 0, 12, 0),
-                .Padding = Padding.Empty
-            }
-            upscalePane.RowStyles.Add(New RowStyle(SizeType.Absolute, 38.0F))
-            upscalePane.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             ConfigureDpiSwitch(_switchUpscale)
             _switchUpscale.Checked = _config.UpscaleEnabled
             _switchUpscale.Enabled = _config.Enabled
             AddHandler _switchUpscale.CheckedChanged, AddressOf OnUpscaleSwitchChanged
-            upscalePane.Controls.Add(BuildOfficialModeHeader(
-                "视频超分", "", _switchUpscale, _lblSwitch), 0, 0)
-            Dim upscaleFields As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 2,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            upscaleFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 46.0F))
-            upscaleFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 54.0F))
-            upscaleFields.RowStyles.Add(New RowStyle(SizeType.Percent, 52.0F))
-            upscaleFields.RowStyles.Add(New RowStyle(SizeType.Percent, 48.0F))
+            Dim upscaleHeader = BuildOfficialModeHeader(
+                "视频超分", "", _switchUpscale, _lblSwitch)
             _cmbBackend.WaterText = "选择推理方式…"
             ConfigureCombo(_cmbBackend)
             _cmbBackend.Items.Add("NCNN (Vulkan)")
@@ -1340,8 +1445,8 @@ Namespace videoenhancer
             AddHandler _cmbModel.DropDownOpened, AddressOf OnModelDropDownOpened
             AddHandler _cmbModel.Click, AddressOf OnModelComboClicked
             AddHandler _cmbModel.SelectedIndexChanged, AddressOf OnModelSelected
-            upscaleFields.Controls.Add(CreateOfficialField("推理后端", _cmbBackend), 0, 0)
-            upscaleFields.Controls.Add(CreateOfficialField("放大模型", _cmbModel, 0), 1, 0)
+            Dim upscaleBackendField = CreateOfficialField("推理后端", _cmbBackend)
+            Dim upscaleModelField = CreateOfficialField("放大模型", _cmbModel, 0)
             _cmbTileSize.WaterText = "RVE 默认（0）"
             ConfigureCombo(_cmbTileSize)
             _cmbTileSize.Items.Add("RVE 默认（0）")
@@ -1352,42 +1457,16 @@ Namespace videoenhancer
             _cmbTileSize.Items.Add("768 px")
             _cmbTileSize.Items.Add("1024 px")
             AddHandler _cmbTileSize.SelectedIndexChanged, AddressOf OnTileSizeSelected
-            upscaleFields.Controls.Add(CreateOfficialField("超分分块尺寸", _cmbTileSize), 0, 1)
+            Dim upscaleTileField = CreateOfficialField("超分分块尺寸", _cmbTileSize)
             Dim tileHint = CreateOfficialCaption("0=RVE默认；越小越省显存但更慢", UiTextMuted)
             tileHint.TextAlign = ContentAlignment.BottomLeft
-            upscaleFields.Controls.Add(tileHint, 1, 1)
-            upscalePane.Controls.Add(upscaleFields, 0, 1)
-            modes.Controls.Add(upscalePane, 0, 0)
-
-            Dim interpPane As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 1,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
-                .Margin = New Padding(12, 0, 0, 0),
-                .Padding = Padding.Empty
-            }
-            interpPane.RowStyles.Add(New RowStyle(SizeType.Absolute, 38.0F))
-            interpPane.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            tileHint.Margin = Padding.Empty
             ConfigureDpiSwitch(_switchInterp)
             _switchInterp.Checked = _config.InterpEnabled
             _switchInterp.Enabled = _config.Enabled
             AddHandler _switchInterp.CheckedChanged, AddressOf OnInterpSwitchChanged
-            interpPane.Controls.Add(BuildOfficialModeHeader(
-                "运动补帧", "", _switchInterp, _lblSwitchInterp), 0, 0)
-            Dim interpFields As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 30.0F))
-            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
-            interpFields.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 20.0F))
-            interpFields.RowStyles.Add(New RowStyle(SizeType.Percent, 52.0F))
-            interpFields.RowStyles.Add(New RowStyle(SizeType.Percent, 48.0F))
+            Dim interpHeader = BuildOfficialModeHeader(
+                "运动补帧", "", _switchInterp, _lblSwitchInterp)
             _cmbInterpBackend.WaterText = "选择后端…"
             ConfigureCombo(_cmbInterpBackend)
             _cmbInterpBackend.Items.Add("NCNN (Vulkan)")
@@ -1406,9 +1485,9 @@ Namespace videoenhancer
             _cmbFactor.Items.Add("4 倍")
             _cmbFactor.Items.Add("8 倍")
             AddHandler _cmbFactor.SelectedIndexChanged, AddressOf OnFactorSelected
-            interpFields.Controls.Add(CreateOfficialField("补帧后端", _cmbInterpBackend), 0, 0)
-            interpFields.Controls.Add(CreateOfficialField("补帧模型", _cmbInterp), 1, 0)
-            interpFields.Controls.Add(CreateOfficialField("补帧倍率", _cmbFactor, 0), 2, 0)
+            Dim interpBackendField = CreateOfficialField("补帧后端", _cmbInterpBackend)
+            Dim interpModelField = CreateOfficialField("补帧模型", _cmbInterp)
+            Dim interpFactorField = CreateOfficialField("补帧倍率", _cmbFactor, 0)
             _cmbSceneThreshold.WaterText = "标准 4.0"
             ConfigureCombo(_cmbSceneThreshold)
             _cmbSceneThreshold.Items.Add("敏感 1.0")
@@ -1424,24 +1503,24 @@ Namespace videoenhancer
             _cmbDynamicOpticalFlow.Items.Add("关闭")
             _cmbDynamicOpticalFlow.Items.Add("开启")
             AddHandler _cmbDynamicOpticalFlow.SelectedIndexChanged, AddressOf OnDynamicOpticalFlowSelected
-            interpFields.Controls.Add(CreateOfficialField("转场阈值", _cmbSceneThreshold), 0, 1)
-            interpFields.Controls.Add(CreateOfficialField("动态光流尺度", _cmbDynamicOpticalFlow), 1, 1)
-            interpPane.Controls.Add(interpFields, 0, 1)
-            modes.Controls.Add(interpPane, 1, 0)
-            root.Controls.Add(modes, 0, 4)
+            Dim interpThresholdField = CreateOfficialField("转场阈值", _cmbSceneThreshold)
+            Dim interpFlowField = CreateOfficialField("动态光流尺度", _cmbDynamicOpticalFlow)
 
-            Dim orderRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
+            AddWorkbenchRow(root, upscaleHeader, 149, 38)
+            AddWorkbenchControl(root, upscaleBackendField, 187, 76, 0.0F, 0.46F, 0, -12)
+            AddWorkbenchControl(root, upscaleModelField, 187, 76, 0.46F, 1.0F)
+            AddWorkbenchControl(root, upscaleTileField, 263, 70, 0.0F, 0.46F, 0, -12)
+            AddWorkbenchControl(root, tileHint, 263, 70, 0.46F, 1.0F)
+            AddWorkbenchRow(root, interpHeader, 345, 38)
+            AddWorkbenchControl(root, interpBackendField, 383, 76, 0.0F, 0.29F, 0, -12)
+            AddWorkbenchControl(root, interpModelField, 383, 76, 0.29F, 0.76F, 0, -12)
+            AddWorkbenchControl(root, interpFactorField, 383, 76, 0.76F, 1.0F)
+            AddWorkbenchControl(root, interpThresholdField, 459, 70, 0.0F, 0.29F, 0, -12)
+            AddWorkbenchControl(root, interpFlowField, 459, 70, 0.29F, 0.76F, 0, -12)
+
+            Dim orderRow As New HorizontalLayoutPanel(150.0F, -54.0F, -46.0F) With {
+                .Margin = New Padding(0, 8, 0, 0)
             }
-            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
-            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 54.0F))
-            orderRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 46.0F))
-            orderRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             Dim orderCaption = CreateOfficialCaption("组合处理顺序")
             orderCaption.AutoSize = False
             orderCaption.Dock = DockStyle.Fill
@@ -1452,39 +1531,28 @@ Namespace videoenhancer
             _cmbProcessOrder.WaterText = "选择组合处理顺序…"
             ConfigureCombo(_cmbProcessOrder)
             _cmbProcessOrder.Editable = False
-            _cmbProcessOrder.AutoSize = False
-            _cmbProcessOrder.Dock = DockStyle.Fill
-            _cmbProcessOrder.MinimumSize = New Size(0, 36)
+            Dim processOrderIndex = If(String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase), 1, 0)
+            _cmbProcessOrder.SelectedIndex = -1
+            _cmbProcessOrder.SelectedIndex = processOrderIndex
             _cmbProcessOrder.Margin = New Padding(0, 6, 12, 6)
             AddHandler _cmbProcessOrder.SelectedIndexChanged, AddressOf OnProcessOrderSelected
             _lblProcessOrder.AutoSize = False
             _lblProcessOrder.Dock = DockStyle.Fill
             _lblProcessOrder.Margin = Padding.Empty
             _lblProcessOrder.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            orderRow.Controls.Add(orderCaption, 0, 0)
-            orderRow.Controls.Add(_cmbProcessOrder, 1, 0)
-            orderRow.Controls.Add(_lblProcessOrder, 2, 0)
-            root.Controls.Add(orderRow, 0, 5)
-            root.Controls.Add(CreateOfficialSeparator(), 0, 6)
+            orderRow.AddColumn(orderCaption, 0)
+            orderRow.AddColumn(_cmbProcessOrder, 1)
+            orderRow.AddColumn(_lblProcessOrder, 2)
+            AddWorkbenchRow(root, orderRow, 529, 56)
+            AddWorkbenchRow(root, CreateOfficialSeparator(), 585, 25)
 
-            root.Controls.Add(CreateOfficialSectionHeading(
-                "图片增强", "沿用上方超分后端与模型，可选择文件、文件夹或直接拖入"), 0, 7)
+            AddWorkbenchRow(root, CreateOfficialSectionHeading(
+                "图片增强", "沿用上方超分后端与模型，可选择文件、文件夹或直接拖入"), 610, 36)
 
-            Dim imageInputRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 5,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty,
+            Dim imageInputRow As New HorizontalLayoutPanel(
+                150.0F, 12.0F, 170.0F, 12.0F, -1.0F) With {
                 .AllowDrop = True
             }
-            imageInputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
-            imageInputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
-            imageInputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
-            imageInputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
-            imageInputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            imageInputRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             ConfigureImageButton(_btnImageFiles, "选择图片", 150)
             ConfigureImageButton(_btnImageFolder, "选择文件夹", 170)
             _btnImageFiles.Dock = DockStyle.Fill
@@ -1496,25 +1564,14 @@ Namespace videoenhancer
             _lblImageInputs.AutoSize = False
             _lblImageInputs.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _lblImageInputs.Text = "<font color=#888888>尚未选择图片</font>"
-            imageInputRow.Controls.Add(_btnImageFiles, 0, 0)
-            imageInputRow.Controls.Add(_btnImageFolder, 2, 0)
-            imageInputRow.Controls.Add(CreateOfficialValueBox(_lblImageInputs), 4, 0)
+            imageInputRow.AddColumn(_btnImageFiles, 0)
+            imageInputRow.AddColumn(_btnImageFolder, 2)
+            imageInputRow.AddColumn(CreateOfficialValueBox(_lblImageInputs), 4)
             AddHandler imageInputRow.DragEnter, AddressOf OnImageDragEnter
             AddHandler imageInputRow.DragDrop, AddressOf OnImageDragDrop
-            root.Controls.Add(imageInputRow, 0, 8)
+            AddWorkbenchRow(root, imageInputRow, 646, 54)
 
-            Dim imageOutputRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            imageOutputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
-            imageOutputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
-            imageOutputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            imageOutputRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim imageOutputRow As New HorizontalLayoutPanel(170.0F, 12.0F, -1.0F)
             ConfigureImageButton(_btnImageOutput, "选择输出目录", 170)
             _btnImageOutput.Dock = DockStyle.Fill
             _btnImageOutput.Margin = New Padding(0, 6, 0, 6)
@@ -1525,27 +1582,12 @@ Namespace videoenhancer
             _config.ImageOutput = initialOutput
             _config.ImageOutputOriginal = String.IsNullOrWhiteSpace(initialOutput)
             AddHandler _txtImageOutput.TextChanged, AddressOf OnImageOutputTextChanged
-            imageOutputRow.Controls.Add(_btnImageOutput, 0, 0)
-            imageOutputRow.Controls.Add(_txtImageOutput, 2, 0)
-            root.Controls.Add(imageOutputRow, 0, 9)
+            imageOutputRow.AddColumn(_btnImageOutput, 0)
+            imageOutputRow.AddColumn(_txtImageOutput, 2)
+            AddWorkbenchRow(root, imageOutputRow, 700, 54)
 
-            Dim imageOptionsRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 8,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 82.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 220.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 20.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 82.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 220.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 16.0F))
-            imageOptionsRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
-            imageOptionsRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim imageOptionsRow As New HorizontalLayoutPanel(
+                82.0F, 220.0F, 20.0F, 82.0F, 220.0F, -1.0F, 16.0F, 170.0F)
 
             Dim suffixLabel = CreateOfficialCaption("命名方式")
             suffixLabel.TextAlign = ContentAlignment.MiddleLeft
@@ -1577,25 +1619,14 @@ Namespace videoenhancer
             ConfigurePrimaryButton(_btnImageStart)
             AddHandler _btnImageStart.Click, AddressOf OnStartImageProcessing
 
-            imageOptionsRow.Controls.Add(suffixLabel, 0, 0)
-            imageOptionsRow.Controls.Add(_cmbImageSuffix, 1, 0)
-            imageOptionsRow.Controls.Add(formatLabel, 3, 0)
-            imageOptionsRow.Controls.Add(_cmbImageFormat, 4, 0)
-            imageOptionsRow.Controls.Add(_btnImageStart, 7, 0)
-            root.Controls.Add(imageOptionsRow, 0, 10)
+            imageOptionsRow.AddColumn(suffixLabel, 0)
+            imageOptionsRow.AddColumn(_cmbImageSuffix, 1)
+            imageOptionsRow.AddColumn(formatLabel, 3)
+            imageOptionsRow.AddColumn(_cmbImageFormat, 4)
+            imageOptionsRow.AddColumn(_btnImageStart, 7)
+            AddWorkbenchRow(root, imageOptionsRow, 754, 54)
 
-            Dim progressRow As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            progressRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            progressRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 16.0F))
-            progressRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 300.0F))
-            progressRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            Dim progressRow As New HorizontalLayoutPanel(-1.0F, 16.0F, 300.0F)
             _imageProgress.Minimum = 0
             _imageProgress.Maximum = 1000
             _imageProgress.Dock = DockStyle.Fill
@@ -1608,41 +1639,14 @@ Namespace videoenhancer
             _lblImageProgress.Margin = Padding.Empty
             _lblImageProgress.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _lblImageProgress.Text = "<font color=#888888>等待开始</font>"
-            progressRow.Controls.Add(_imageProgress, 0, 0)
-            progressRow.Controls.Add(_lblImageProgress, 2, 0)
-            root.Controls.Add(progressRow, 0, 11)
-
-            ' 最小窗口保留紧凑布局；宿主窗口较高时主动拉开分区和操作行，
-            ' 避免所有控件挤在页面顶部，同时不让按钮本身变得过高。
-            Dim applyDensity As Action =
-                Sub()
-                    Dim spacious = _pageUpscale.ClientSize.Height >= 650
-                    Dim rowHeights = If(
-                        spacious,
-                         New Single() {46.0F, 56.0F, 33.0F, 42.0F, 160.0F, 68.0F, 33.0F, 42.0F, 60.0F, 60.0F, 60.0F, 46.0F},
-                         New Single() {40.0F, 48.0F, 25.0F, 36.0F, 160.0F, 60.0F, 25.0F, 36.0F, 54.0F, 54.0F, 54.0F, 42.0F})
-
-                    root.SuspendLayout()
-                    Dim totalHeight As Integer = 0
-                    For index As Integer = 0 To rowHeights.Length - 1
-                        root.RowStyles(index).Height = rowHeights(index)
-                        totalHeight += CInt(rowHeights(index))
-                    Next
-                    upscalePane.RowStyles(0).Height = If(spacious, 44.0F, 38.0F)
-                    interpPane.RowStyles(0).Height = If(spacious, 44.0F, 38.0F)
-                    upscalePane.Margin = If(spacious, New Padding(0, 0, 16, 0), New Padding(0, 0, 12, 0))
-                    interpPane.Margin = If(spacious, New Padding(16, 0, 0, 0), New Padding(12, 0, 0, 0))
-                    root.Height = totalHeight
-                    root.ResumeLayout(True)
-                End Sub
-
-            AddHandler _pageUpscale.ClientSizeChanged,
-                Sub(sender, e)
-                    applyDensity()
-                End Sub
+            progressRow.AddColumn(_imageProgress, 0)
+            progressRow.AddColumn(_lblImageProgress, 2)
+            AddWorkbenchRow(root, progressRow, 808, 42)
 
             _pageUpscale.Controls.Add(root)
-            applyDensity()
+            ' 为 LakeUI 覆盖式滚动条保留绘制带，避免子窗口覆盖父面板的 GPU 滚动条。
+            root.SetBounds(0, 0, Math.Max(0,
+                _pageUpscale.ClientSize.Width - _pageUpscale.ScrollBarWidth - 2), 850)
             UpdateModeStateLabels()
         End Sub
 
@@ -2037,7 +2041,7 @@ Namespace videoenhancer
             _lblAdvancedHint.Text = "<font color=#9A9A9A><b>说明</b></font><br/>" &
                 "<font color=#8A8A8A>「插件总开关」仅作用于「超分主界面」页：开启后，加入编码队列的命令会被 videoenhancer.exe 中转执行 AI 超分/补帧。</font><br/>" &
                 "<font color=#8A8A8A>「实时预览」与队列监控即使关闭插件总开关也能使用。超分开关右边选择图片超分模型，开关关闭也可以使用。</font><br/>" &
-                "<font color=#8A8A8A>CLI 使用 videoenhancer.exe 同级的核心目录，并校验 bin\ffmpeg、python 库与模型库。</font>"
+                "<font color=#8A8A8A>CLI 程序启动时读取本目录 videoenhancer.ini 的 core-path，并校验 bin\ffmpeg、python 库与模型库。</font>"
             sectionHint.Controls.Add(_lblAdvancedHint)
 
             Dim sectionExe As New Panel() With {.Dock = DockStyle.Top, .Height = 44, .BackColor = Color.Transparent, .Padding = New Padding(0, 8, 0, 0)}
@@ -2180,7 +2184,6 @@ Namespace videoenhancer
             _cmbBackend.Items.Add("TensorRT (NVIDIA)")
             _cmbBackend.Items.Add("ONNX Runtime")
             _cmbBackend.Items.Add("FlashVSR (NVIDIA · 视频)")
-            _cmbBackend.Items.Add("BasicVSR++ (NVIDIA · 视频)")
             AddHandler _cmbBackend.SelectedIndexChanged, AddressOf OnBackendSelected
             rowUpscale.Controls.Add(_cmbBackend)
             _lblSwitch.Text = "<font color=#E8E8E8><b>超分开关</b></font>"
@@ -2500,8 +2503,8 @@ Namespace videoenhancer
 
         Private Sub OnStartImageProcessing(sender As Object, e As EventArgs)
             If _imageRunning Then Return
-            If _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp" Then
-                ShowStatus(If(_config.Backend = "flashvsr", "FlashVSR", "BasicVSR++") & " 是连续视频帧模型，图片超分请选择 NCNN、CUDA、TensorRT 或 ONNX。", True)
+            If _config.Backend = "flashvsr" Then
+                ShowStatus("FlashVSR 是连续视频帧模型，图片超分请选择 NCNN、CUDA、TensorRT 或 ONNX。", True)
                 Return
             End If
             If _imageFiles.Count = 0 AndAlso _imageFolders.Count = 0 Then
@@ -3268,6 +3271,7 @@ Namespace videoenhancer
             End Try
         End Sub
 
+
         Private Sub BuildModelDownloadPage()
             _pageDownloader.Dock = DockStyle.Fill
             _pageDownloader.BackColor = Color.Transparent
@@ -3985,10 +3989,19 @@ Namespace videoenhancer
             _pageConverter.Controls.Add(root)
         End Sub
 
-        Private Function BuildMarkdownPage(page As Panel, markdown As String) As WebBrowser
+        Private Sub BuildMarkdownPage(page As Panel, markdown As String)
             page.Dock = DockStyle.Fill
             page.BackColor = Color.Transparent
             page.Padding = New Padding(0, 8, 0, 0)
+            ' WebBrowser 初始化会加载系统浏览器引擎，延迟到用户首次打开对应选项卡，
+            ' 避免两个教程页阻塞插件首屏布局。
+            _markdownSources(page) = If(markdown, "")
+        End Sub
+
+        Private Sub EnsureMarkdownPage(page As Panel)
+            If page Is Nothing OrElse _markdownReady.Contains(page) Then Return
+            Dim markdown As String = ""
+            If Not _markdownSources.TryGetValue(page, markdown) Then Return
             Dim browser As New WebBrowser With {
                 .Dock = DockStyle.Fill, .AllowWebBrowserDrop = False,
                 .IsWebBrowserContextMenuEnabled = False, .WebBrowserShortcutsEnabled = False,
@@ -3996,126 +4009,7 @@ Namespace videoenhancer
             }
             browser.DocumentText = MarkdownDocument(markdown)
             page.Controls.Add(browser)
-            Return browser
-        End Function
-
-        Private Sub BuildModelInfoPage()
-            Dim browser = BuildMarkdownPage(_pageModelInfo, "# 模型简介")
-            Try
-                Using stream = GetType(PluginPanel).Assembly.GetManifestResourceStream("videoenhancer-model-introduction.jpg")
-                    If stream Is Nothing Then Throw New InvalidOperationException("内置模型介绍图片资源不存在")
-                    Dim bytes(CInt(stream.Length) - 1) As Byte
-                    Dim offset = 0
-                    While offset < bytes.Length
-                        Dim count = stream.Read(bytes, offset, bytes.Length - offset)
-                        If count <= 0 Then Exit While
-                        offset += count
-                    End While
-                    Dim imageHtml = "<img src='data:image/jpeg;base64," & Convert.ToBase64String(bytes) & "' alt='VideoEnhancer 模型介绍'/>"
-                    browser.DocumentText = MarkdownDocument("# 模型简介").Replace("</body>", imageHtml & "</body>")
-                End Using
-            Catch ex As Exception
-                browser.DocumentText = MarkdownDocument(
-                    "# 模型简介" & Environment.NewLine & Environment.NewLine &
-                    "模型介绍图片加载失败：`" & ex.Message & "`")
-            End Try
-        End Sub
-
-        Private Sub BuildTutorialBrowserPage()
-            Const homeUrl As String = "https://github.com/user-Wing/VideoEnhancer/blob/main/README.md"
-            _pageTutorial.Dock = DockStyle.Fill
-            _pageTutorial.BackColor = Color.Transparent
-            _pageTutorial.Padding = New Padding(12)
-
-            Dim card As New Panel With {
-                .Dock = DockStyle.Fill,
-                .BackColor = Color.FromArgb(36, 36, 40),
-                .Padding = New Padding(1)
-            }
-            Dim content As New Panel With {
-                .Dock = DockStyle.Fill,
-                .BackColor = Color.FromArgb(24, 24, 28),
-                .Padding = New Padding(14, 12, 14, 14)
-            }
-            Dim toolbar As New Panel With {
-                .Dock = DockStyle.Top,
-                .Height = 50,
-                .BackColor = Color.FromArgb(24, 24, 28),
-                .Padding = New Padding(0, 2, 0, 10)
-            }
-            Dim openButton As New ModernButton With {
-                .Text = "打开",
-                .Dock = DockStyle.Right,
-                .Width = 92,
-                .BorderRadius = 8,
-                .BackColor1 = Color.FromArgb(0, 120, 212),
-                .HoverBackColor1 = Color.FromArgb(17, 94, 163),
-                .PressedBackColor1 = Color.FromArgb(0, 91, 158),
-                .ForeColor = Color.White
-            }
-            Dim addressHost As New Panel With {
-                .Dock = DockStyle.Fill,
-                .BackColor = Color.FromArgb(52, 52, 57),
-                .Padding = New Padding(12, 7, 12, 5),
-                .Margin = New Padding(0, 0, 10, 0)
-            }
-            Dim address As New TextBox With {
-                .Dock = DockStyle.Fill,
-                .Text = homeUrl,
-                .BorderStyle = BorderStyle.None,
-                .BackColor = Color.FromArgb(52, 52, 57),
-                .ForeColor = Color.FromArgb(238, 238, 240),
-                .Font = New Font("Microsoft YaHei UI", 10.0F)
-            }
-            Dim browser As New WebBrowser With {
-                .Dock = DockStyle.Fill,
-                .AllowWebBrowserDrop = False,
-                .IsWebBrowserContextMenuEnabled = True,
-                .WebBrowserShortcutsEnabled = True,
-                .ScriptErrorsSuppressed = True,
-                .ScrollBarsEnabled = True
-            }
-
-            Dim navigate As Action =
-                Sub()
-                    Dim target = address.Text.Trim()
-                    If String.IsNullOrWhiteSpace(target) Then target = homeUrl
-                    If Not target.Contains("://") Then target = "https://" & target
-                    Dim uri As Uri = Nothing
-                    If Not Uri.TryCreate(target, UriKind.Absolute, uri) OrElse
-                       (uri.Scheme <> Uri.UriSchemeHttp AndAlso uri.Scheme <> Uri.UriSchemeHttps) Then
-                        ShowStatus("请输入有效的 http/https 网页地址", True)
-                        Return
-                    End If
-                    address.Text = uri.AbsoluteUri
-                    browser.Navigate(uri)
-                End Sub
-
-            AddHandler openButton.Click, Sub(sender, e) navigate()
-            AddHandler address.KeyDown,
-                Sub(sender, e)
-                    If e.KeyCode = Keys.Enter Then
-                        e.SuppressKeyPress = True
-                        navigate()
-                    End If
-                End Sub
-            AddHandler browser.Navigated,
-                Sub(sender, e)
-                    If browser.Url IsNot Nothing Then address.Text = browser.Url.AbsoluteUri
-                End Sub
-            AddHandler browser.Navigating,
-                Sub(sender, e)
-                    If e.Url IsNot Nothing Then address.Text = e.Url.AbsoluteUri
-                End Sub
-
-            addressHost.Controls.Add(address)
-            toolbar.Controls.Add(addressHost)
-            toolbar.Controls.Add(openButton)
-            content.Controls.Add(browser)
-            content.Controls.Add(toolbar)
-            card.Controls.Add(content)
-            _pageTutorial.Controls.Add(card)
-            browser.Navigate(homeUrl)
+            _markdownReady.Add(page)
         End Sub
 
         Private Shared Function MarkdownDocument(markdown As String) As String
@@ -4151,7 +4045,6 @@ Namespace videoenhancer
                 "h2{font-size:16px;font-weight:400;color:#d0d0d0;margin:18px 0 8px;}h3{font-size:15px;color:#c8c8c8;}" &
                 "p,li{font-size:13px;line-height:1.65;}p{margin:4px 0 10px;}ul{padding:0 0 0 24px;margin:4px 0 12px;}" &
                 "li{padding:2px 0;}strong{color:#dcdcdc}code{background:#383838;padding:3px 6px;border-radius:5px;color:#9bc8ff}a{color:#479cff;}" &
-                "img{display:block;max-width:100%;height:auto;margin:18px auto;border-radius:8px;}" &
                 "::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#181818}::-webkit-scrollbar-thumb{background:#484848;border-radius:4px}</style></head><body>" &
                 body.ToString() & "</body></html>"
         End Function
@@ -4160,7 +4053,6 @@ Namespace videoenhancer
             Dim value = System.Net.WebUtility.HtmlEncode(If(text, ""))
             value = Regex.Replace(value, "\*\*(.+?)\*\*", "<strong>$1</strong>")
             value = Regex.Replace(value, "`(.+?)`", "<code>$1</code>")
-            value = Regex.Replace(value, "!\[(.*?)\]\((https?://[^\s)]+)\)", "<img src='$2' alt='$1'/>")
             value = Regex.Replace(value, "\[(.+?)\]\((https?://[^\s)]+)\)", "<a href='$2'>$1</a>")
             Return value
         End Function
@@ -4392,7 +4284,7 @@ Namespace videoenhancer
             Dim converter = Path.Combine(coreRoot, "python", "backend", "convert_tensorrt.py")
             Dim outputDir = GetPersonalizedTensorRtDirectory()
             If Not File.Exists(pythonExe) OrElse Not File.Exists(converter) Then
-                SetConverterStatus("找不到便携 Python 或 convert_tensorrt.py，请确认核心组件位于 videoenhancer.exe 同级目录。", True)
+                SetConverterStatus("找不到便携 Python 或 convert_tensorrt.py，请检查 videoenhancer.exe 的 core-path。", True)
                 Return
             End If
 
@@ -4445,8 +4337,25 @@ Namespace videoenhancer
         End Function
 
         Private Function ResolveCoreRoot() As String
-            Dim exePath = PluginConfig.ResolveInstalledExePath(_config.ExePath)
-            Return If(File.Exists(exePath), Path.GetDirectoryName(exePath), AppDomain.CurrentDomain.BaseDirectory)
+            Dim exeDir = If(File.Exists(_config.ExePath), Path.GetDirectoryName(_config.ExePath), AppDomain.CurrentDomain.BaseDirectory)
+            Dim iniPath = Path.Combine(exeDir, "videoenhancer.ini")
+            Try
+                If File.Exists(iniPath) Then
+                    For Each rawLine In File.ReadLines(iniPath)
+                        Dim line = rawLine.Trim()
+                        If line.StartsWith("core-path", StringComparison.OrdinalIgnoreCase) Then
+                            Dim equalsAt = line.IndexOf("="c)
+                            If equalsAt >= 0 Then
+                                Dim value = line.Substring(equalsAt + 1).Trim().Trim(""""c)
+                                If Not Path.IsPathRooted(value) Then value = Path.GetFullPath(Path.Combine(exeDir, value))
+                                If Directory.Exists(value) Then Return value
+                            End If
+                        End If
+                    Next
+                End If
+            Catch
+            End Try
+            Return exeDir
         End Function
 
         Private Function GetPersonalizedTensorRtDirectory() As String
@@ -4465,6 +4374,23 @@ Namespace videoenhancer
                 If Not String.IsNullOrWhiteSpace(lines(i)) Then Return lines(i).Trim()
             Next
             Return "未返回详细信息"
+        End Function
+
+        ''' <summary>从 CLI 标准错误中提取可直接展示给用户的错误正文。</summary>
+        Private Shared Function CliErrorMessage(text As String, fallback As String) As String
+            If String.IsNullOrWhiteSpace(text) Then Return fallback
+            Dim lines = text.Replace(Convert.ToChar(13), Convert.ToChar(10)).Split(Convert.ToChar(10))
+            For Each rawLine In lines
+                Dim line = rawLine.Trim()
+                If line.StartsWith("[错误]", StringComparison.Ordinal) Then
+                    Return line.Substring(4).Trim()
+                End If
+            Next
+            For Each rawLine In lines
+                Dim line = rawLine.Trim()
+                If line.Length > 0 AndAlso Not line.Contains("|") Then Return line
+            Next
+            Return fallback
         End Function
 
         ' ────────────────────────── 预览事件 / 工具 ──────────────────────────
@@ -4627,6 +4553,11 @@ Namespace videoenhancer
             If _engine IsNot Nothing Then
                 _engine.PreviewVisible = (_tabs.SelectedIndex = 1)
             End If
+            If _tabs.SelectedIndex = 5 Then
+                EnsureMarkdownPage(_pageModelInfo)
+            ElseIf _tabs.SelectedIndex = 6 Then
+                EnsureMarkdownPage(_pageTutorial)
+            End If
             ' 切换页面时清除底部状态提示
             ClearStatus()
             _btnCleanArchives.Visible = (_tabs.SelectedIndex = 3)
@@ -4672,6 +4603,14 @@ Namespace videoenhancer
 
         Protected Overrides Sub Dispose(disposing As Boolean)
             If disposing Then
+                ' LakeUI 3.22.0 在 TabControl 隐藏时会重新显示当前绑定页。
+                ' 先解除绑定，避免父窗体销毁期间访问已经 Dispose 的 ModernPanel。
+                Try
+                    For Each tab In _tabs.Items
+                        tab.BoundControl = Nothing
+                    Next
+                Catch
+                End Try
                 If Current Is Me Then
                     Current = Nothing
                 End If
@@ -4724,12 +4663,23 @@ Namespace videoenhancer
 
         Private Sub UpdateProcessOrderState()
             Dim combined = _config.UpscaleEnabled AndAlso _config.InterpEnabled
-            _cmbProcessOrder.Enabled = _config.Enabled
-            If String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase) Then
+            _cmbProcessOrder.Enabled = _config.Enabled AndAlso combined
+            Dim interpFirst = String.Equals(_config.ProcessOrder, "interp-first", StringComparison.OrdinalIgnoreCase)
+            If interpFirst Then
                 _lblProcessOrder.Text = "<font color=#B1BCCA>当前：先补帧，再超分。</font>"
             Else
                 _config.ProcessOrder = "upscale-first"
                 _lblProcessOrder.Text = "<font color=#B1BCCA>当前：先超分，再补帧。</font>"
+            End If
+            If _cmbProcessOrder.Items.Count >= 2 Then
+                Dim index = If(interpFirst, 1, 0)
+                Dim previousSync = _syncingProcessOrder
+                _syncingProcessOrder = True
+                ' LakeUI 通过 SelectedIndex 变化同步内部 SingleLineTextBoxRenderer；
+                ' 同索引赋值会被短路，因此先清空再选中，而不是直接写 Text。
+                _cmbProcessOrder.SelectedIndex = -1
+                _cmbProcessOrder.SelectedIndex = index
+                _syncingProcessOrder = previousSync
             End If
             _lblProcessOrder.Visible = combined
         End Sub
@@ -4794,7 +4744,7 @@ Namespace videoenhancer
             If _cmbBackend.Items.Count = 0 Then
                 Return
             End If
-            _cmbBackend.SelectedIndex = If(_config.Backend = "basicvsrpp", 5, If(_config.Backend = "flashvsr", 4, If(_config.Backend = "onnx", 3, If(_config.Backend = "tensorrt", 2, If(_config.Backend = "cuda", 1, 0)))))
+            _cmbBackend.SelectedIndex = If(_config.Backend = "flashvsr", 4, If(_config.Backend = "onnx", 3, If(_config.Backend = "tensorrt", 2, If(_config.Backend = "cuda", 1, 0))))
         End Sub
 
         ''' <summary>把配置的补帧倍率同步到下拉框（2/3/4/8）。</summary>

@@ -480,9 +480,9 @@ internal static class Program
         if (o.HasBackend)
         {
             var b = o.Backend.Trim().ToLowerInvariant();
-            if (b is not ("ncnn" or "cuda" or "tensorrt" or "onnx" or "flashvsr"))
+            if (b is not ("ncnn" or "cuda" or "tensorrt" or "onnx" or "flashvsr" or "basicvsrpp"))
             {
-                return Fail("-backend 仅支持 ncnn、cuda、tensorrt、onnx 或 flashvsr，当前值：" + o.Backend);
+                return Fail("-backend 仅支持 ncnn、cuda、tensorrt、onnx、flashvsr 或 basicvsrpp，当前值：" + o.Backend);
             }
             o.Backend = b;
         }
@@ -577,6 +577,7 @@ internal static class Program
         // 图片超分是独立路径：不依赖 FFmpegFreeUI/FFmpeg 编码参数。
         if (o.ImageInputs.Count > 0 || o.ImageFolders.Count > 0)
         {
+            if (o.Backend == "basicvsrpp") return Fail("BasicVSR++ 是连续视频帧模型，不能用于图片超分");
             return RunImageJob(o);
         }
 
@@ -646,6 +647,10 @@ internal static class Program
         string? interpModel = null;
         if (o.HasInterpModel)
         {
+            if (o.Backend == "basicvsrpp")
+            {
+                return Fail("BasicVSR++ 是时序视频超分管线，不能与 RIFE 补帧同时运行");
+            }
             interpModel = ResolveInterpModel(o.InterpModel, o.InterpBackend);
             if (interpModel.Length == 0)
             {
@@ -675,7 +680,7 @@ internal static class Program
             }
             else
             {
-                scale = DetectScale(model);
+                scale = o.Backend == "basicvsrpp" ? "4" : DetectScale(model);
             }
         }
 
@@ -1591,6 +1596,10 @@ internal static class Program
             {
                 return c;
             }
+            else if (backend == "basicvsrpp" && File.Exists(c) && IsBasicVsrPlusPlusModel(c))
+            {
+                return c;
+            }
             else if (Directory.Exists(c) && IsNcnnModelFolder(c))
             {
                 return c;
@@ -1626,10 +1635,10 @@ internal static class Program
         }
 
         Console.Error.WriteLine("[错误] 未找到可用模型：" + (string.IsNullOrWhiteSpace(requested) ? DefaultModel : requested));
-        if (backend == "cuda" || backend == "tensorrt" || backend == "onnx" || backend == "flashvsr")
+        if (backend == "cuda" || backend == "tensorrt" || backend == "onnx" || backend == "flashvsr" || backend == "basicvsrpp")
         {
-            Console.Error.WriteLine(backend == "tensorrt" ? "[提示] TensorRT 后端需要 PTH 源模型或预制 .engine；PTH 会按当前设备和输入尺寸自动编译。" : backend == "onnx" ? "[提示] ONNX 后端需要 models 或其子目录下的 .onnx 放大模型。" : "[提示] CUDA 后端需要 models 或其子目录下的 .pth/.pt/.pkl 放大模型。");
-            var pth = backend == "tensorrt" ? DiscoverTensorRTSelectableModels() : backend == "onnx" ? DiscoverOnnxModels() : DiscoverUpscalePthModels();
+            Console.Error.WriteLine(backend == "basicvsrpp" ? "[提示] BasicVSR++ 后端需要 models\\BasicVSR++ 下的官方 .pth 模型。" : backend == "tensorrt" ? "[提示] TensorRT 后端需要 PTH 源模型或预制 .engine；PTH 会按当前设备和输入尺寸自动编译。" : backend == "onnx" ? "[提示] ONNX 后端需要 models 或其子目录下的 .onnx 放大模型。" : "[提示] CUDA 后端需要 models 或其子目录下的 .pth/.pt/.pkl 放大模型。");
+            var pth = backend == "basicvsrpp" ? DiscoverBasicVsrPlusPlusModels() : backend == "tensorrt" ? DiscoverTensorRTSelectableModels() : backend == "onnx" ? DiscoverOnnxModels() : DiscoverUpscalePthModels();
             if (pth.Count > 0)
             {
                 Console.Error.WriteLine(backend == "tensorrt" ? "[提示] 可用 TensorRT 放大模型：" : backend == "onnx" ? "[提示] 可用 ONNX 放大模型：" : "[提示] 可用 CUDA 放大模型：");
@@ -1681,6 +1690,9 @@ internal static class Program
 
     private static bool IsFlashVsrModelDirectory(string path) =>
         Directory.Exists(path) && FlashVsrWeights.All(name => File.Exists(Path.Combine(path, name)));
+
+    private static bool IsBasicVsrPlusPlusModel(string path) =>
+        IsPthModelFile(path) && IsInBasicVsrPlusPlusDirectory(path);
 
     /// <summary>从模型文件夹名解析放大倍率（RealESRGAN-AnimeVideoV3-2x → 2）。</summary>
     private static string? DetectScale(string modelFolder)
@@ -1840,7 +1852,7 @@ internal static class Program
             "--cwd", CoreRoot,
             "--ffmpeg_path", FfmpegExe,
         };
-        if (backend is "cuda" or "tensorrt" or "onnx" or "flashvsr")
+        if (backend is "cuda" or "tensorrt" or "onnx" or "flashvsr" or "basicvsrpp")
         {
             args.Add("--device");
             args.Add("cuda");
@@ -2457,7 +2469,7 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("[阶段] " + stageTitle);
         Console.WriteLine("[信息] 输入视频 : " + input);
-        Console.WriteLine("[信息] 推理后端 : " + (backend == "flashvsr" ? "FlashVSR（时序视频）" : backend == "cuda" ? "CUDA（PyTorch）" : backend == "tensorrt" ? "TensorRT（NVIDIA）" : backend == "onnx" ? "ONNX Runtime" : "NCNN（Vulkan）"));
+        Console.WriteLine("[信息] 推理后端 : " + (backend == "basicvsrpp" ? "BasicVSR++（时序视频）" : backend == "flashvsr" ? "FlashVSR（时序视频）" : backend == "cuda" ? "CUDA（PyTorch）" : backend == "tensorrt" ? "TensorRT（NVIDIA）" : backend == "onnx" ? "ONNX Runtime" : "NCNN（Vulkan）"));
         if (string.IsNullOrEmpty(model))
         {
             Console.WriteLine("[信息] 放大模型 : （未使用，仅补帧）");
@@ -2465,7 +2477,7 @@ internal static class Program
         else
         {
             Console.WriteLine("[信息] 放大模型 : " + model);
-            var scale = DetectScale(model);
+            var scale = backend == "basicvsrpp" ? "4" : DetectScale(model);
             if (!string.IsNullOrEmpty(scale))
             {
                 Console.WriteLine("[信息] 放大倍率 : " + scale + "x");
@@ -3066,6 +3078,7 @@ internal static class Program
             "tensorrt" => DiscoverTensorRTSelectableModels(),
             "onnx" => DiscoverOnnxModels(),
             "flashvsr" => DiscoverFlashVsrModels(),
+            "basicvsrpp" => DiscoverBasicVsrPlusPlusModels(),
             _ => new List<string>(),
         };
     }
@@ -3137,7 +3150,8 @@ internal static class Program
         var isTensorRT = backend == "tensorrt";
         var isOnnx = backend == "onnx";
         var isFlashVsr = backend == "flashvsr";
-        var models = isFlashVsr ? DiscoverFlashVsrModels() : isCuda ? DiscoverUpscalePthModels() : isTensorRT ? DiscoverTensorRTSelectableModels() : isOnnx ? DiscoverOnnxModels() : DiscoverModelFolders();
+        var isBasicVsrPlusPlus = backend == "basicvsrpp";
+        var models = isBasicVsrPlusPlus ? DiscoverBasicVsrPlusPlusModels() : isFlashVsr ? DiscoverFlashVsrModels() : isCuda ? DiscoverUpscalePthModels() : isTensorRT ? DiscoverTensorRTSelectableModels() : isOnnx ? DiscoverOnnxModels() : DiscoverModelFolders();
         string DisplayName(string path) => UpscaleModelDisplayName(path, backend);
         if (json)
         {
@@ -3146,7 +3160,8 @@ internal static class Program
             Console.WriteLine("[" + string.Join(",", names.Select(n => "\"" + n + "\"")) + "]");
             return 0;
         }
-        Console.WriteLine(isFlashVsr ? "可用 FlashVSR 时序视频模型："
+        Console.WriteLine(isBasicVsrPlusPlus ? "可用 BasicVSR++ 时序视频模型："
+            : isFlashVsr ? "可用 FlashVSR 时序视频模型："
             : isTensorRT
             ? "可用放大模型（TensorRT，PTH 首次使用自动构建本机 Engine）："
             : isOnnx ? "可用放大模型（ONNX Runtime，递归扫描 models 的 .onnx 文件）："
@@ -3163,7 +3178,7 @@ internal static class Program
         }
         foreach (var m in models)
         {
-            var scale = DetectScale(m);
+            var scale = isBasicVsrPlusPlus ? "4" : DetectScale(m);
             Console.WriteLine("  " + DisplayName(m) + (scale is null ? "" : "  (" + scale + "x)"));
         }
         return 0;
@@ -3193,7 +3208,7 @@ internal static class Program
         foreach (var pattern in new[] { "*.pth", "*.pt", "*.pkl" })
         {
             foreach (var f in Directory.GetFiles(ModelsDir, pattern, SearchOption.AllDirectories)
-                         .Where(p => !IsInRifeDirectory(p) && !IsInFlashVsrDirectory(p)))
+                         .Where(p => !IsInRifeDirectory(p) && !IsInFlashVsrDirectory(p) && !IsInBasicVsrPlusPlusDirectory(p)))
             {
                 set.Add(f);
             }
@@ -3241,6 +3256,15 @@ internal static class Program
             .ToList();
     }
 
+    private static List<string> DiscoverBasicVsrPlusPlusModels()
+    {
+        if (!Directory.Exists(ModelsDir)) return new List<string>();
+        return Directory.GetFiles(ModelsDir, "*.pth", SearchOption.AllDirectories)
+            .Where(IsInBasicVsrPlusPlusDirectory)
+            .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
     /// <summary>TensorRT 模型显示为相对 models 的无扩展名路径，避免子目录中同名模型冲突。</summary>
     private static string TensorRTEngineDisplayName(string path)
     {
@@ -3250,7 +3274,7 @@ internal static class Program
     /// <summary>超分模型显示为相对 models 的路径，避免分类目录中的同名模型冲突。</summary>
     private static string UpscaleModelDisplayName(string path, string backend)
     {
-        return RelativeModelDisplayName(path, removeExtension: backend is "cuda" or "tensorrt" or "onnx");
+        return RelativeModelDisplayName(path, removeExtension: backend is "cuda" or "tensorrt" or "onnx" or "basicvsrpp");
     }
 
     private static string RelativeModelDisplayName(string path, bool removeExtension)
@@ -3277,6 +3301,14 @@ internal static class Program
             + Path.DirectorySeparatorChar;
         var fullPath = Path.GetFullPath(path);
         return fullPath.StartsWith(rifeRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsInBasicVsrPlusPlusDirectory(string path)
+    {
+        var root = Path.GetFullPath(Path.Combine(ModelsDir, "BasicVSR++"))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsInFlashVsrDirectory(string path)
@@ -3360,7 +3392,8 @@ internal static class Program
         writer.WriteLine("  -scene-threshold <N>  转场检测阈值（RVE 官方外部 0-10 标尺；数值越低越敏感，默认 4）");
         writer.WriteLine("  -dynamic-optical-flow  开启 RIFE 动态光流尺度（仅 CUDA/PyTorch 补帧有效）");
         writer.WriteLine("  -tile-size <N>  超分分块边长（0 为 RVE 默认；至少 32；仅 NCNN/CUDA/TensorRT）");
-        writer.WriteLine("  -backend <ncnn|cuda|tensorrt|onnx|flashvsr>  超分推理后端；");
+        writer.WriteLine("  -backend <ncnn|cuda|tensorrt|onnx|flashvsr|basicvsrpp>  超分推理后端；");
+        writer.WriteLine("        basicvsrpp 使用 models\\BasicVSR++ 下的官方 x4 时序 PTH，仅支持视频与 NVIDIA CUDA；");
         writer.WriteLine("        所有后端均递归扫描 models 子目录；RIFE 仅用于补帧，不混入放大模型；");
         writer.WriteLine("        cuda 使用 .pth/.pt/.pkl；tensorrt 接受 PTH 或 .engine，缺少缓存时会自动构建；");
         writer.WriteLine("        TensorRT 缓存名包含 GPU、TensorRT 版本、输入尺寸和源模型摘要；onnx 使用 .onnx；");

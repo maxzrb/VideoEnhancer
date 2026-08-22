@@ -597,7 +597,9 @@ Namespace videoenhancer
                 Else
                     _cmbModel.SelectedIndex = 0
                 End If
-                Dim modeText = If(_config.Backend = "tensorrt",
+                Dim modeText = If(_config.Backend = "basicvsrpp",
+                    "（BasicVSR++，models\\BasicVSR++ 下的官方 .pth 时序模型）",
+                    If(_config.Backend = "tensorrt",
                     "（TensorRT，PTH 首次使用自动构建 Engine）",
                     If(_config.Backend = "onnx",
                     "（ONNX Runtime，models 下的 .onnx 文件）",
@@ -605,11 +607,11 @@ Namespace videoenhancer
                     "（FlashVSR，连续视频帧专用模型目录）",
                     If(_config.Backend = "cuda",
                     "（CUDA，models 下的 .pth/.pt/.pkl 文件）",
-                    "（models 目录，.param/.bin 文件夹）"))))
+                    "（models 目录，.param/.bin 文件夹）")))))
                 ShowStatus($"已从 videoenhancer.exe 读取 {models.Count} 个可用模型 " & modeText, False)
             Else
-                If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr") AndAlso _config.UpscaleEnabled Then
-                    Dim missingExt = If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "tensorrt", "PTH 或 .engine", If(_config.Backend = "onnx", ".onnx", ".pth")))
+                If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp") AndAlso _config.UpscaleEnabled Then
+                    Dim missingExt = If(_config.Backend = "basicvsrpp", "BasicVSR++ 官方 .pth", If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "tensorrt", "PTH 或 .engine", If(_config.Backend = "onnx", ".onnx", ".pth"))))
                     _cmbModel.WaterText = "未找到 " & missingExt & " 放大模型"
                     ShowStatus("未找到 " & missingExt & " 放大模型，请确认 models 目录", True)
                     ' 保留用户选择的 TensorRT，不因一次扫描失败自动改回 NCNN。
@@ -680,12 +682,19 @@ Namespace videoenhancer
                 Return
             End If
             _config.Backend = backend
+            If backend = "basicvsrpp" Then
+                _config.InterpEnabled = False
+                _config.InterpModel = ""
+                _switchInterp.Checked = False
+            End If
             _config.Save()
             ' 切换后端后重新读取两个模型列表（CUDA 需要 .pth 模型；活动模式无 .pth 时由 Apply*List 自动回退）
             RefreshUpscaleModels()
             RefreshInterpModels()
             UpdateAdvancedControlState()
-            Dim modeText = If(backend = "tensorrt",
+            Dim modeText = If(backend = "basicvsrpp",
+                "BasicVSR++（NVIDIA）：官方 x4 时序视频超分，不与 RIFE/图片模式混用",
+                If(backend = "tensorrt",
                 "TensorRT（NVIDIA）：超分 Engine 自动构建；组合补帧自动使用 NCNN RIFE",
                 If(backend = "onnx",
                 "ONNX Runtime：超分用 .onnx；组合补帧自动使用 NCNN RIFE",
@@ -693,7 +702,7 @@ Namespace videoenhancer
                 "FlashVSR（NVIDIA）：连续视频帧扩散超分；组合补帧会自动分两阶段",
                 If(backend = "cuda",
                 "CUDA（PyTorch）：超分用 models 下的 .pth 模型，补帧用 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型",
-                "NCNN（Vulkan）"))))
+                "NCNN（Vulkan）")))))
             ShowStatus("推理方式：" & modeText, False)
         End Sub
 
@@ -718,6 +727,9 @@ Namespace videoenhancer
 
         Private Shared Function BackendValue(item As Object) As String
             Dim text = If(item Is Nothing, "", item.ToString())
+            If text.Contains("BasicVSR++") Then
+                Return "basicvsrpp"
+            End If
             If text.Contains("FlashVSR") Then
                 Return "flashvsr"
             End If
@@ -1456,6 +1468,7 @@ Namespace videoenhancer
             _cmbBackend.Items.Add("TensorRT (NVIDIA)")
             _cmbBackend.Items.Add("ONNX Runtime")
             _cmbBackend.Items.Add("FlashVSR (NVIDIA · 视频)")
+            _cmbBackend.Items.Add("BasicVSR++ (NVIDIA · 视频)")
             AddHandler _cmbBackend.SelectedIndexChanged, AddressOf OnBackendSelected
             _cmbModel.WaterText = "选择放大模型…"
             ConfigureCombo(_cmbModel)
@@ -1479,8 +1492,12 @@ Namespace videoenhancer
             tileHint.TextAlign = ContentAlignment.BottomLeft
             tileHint.Margin = Padding.Empty
             ConfigureDpiSwitch(_switchInterp)
+            If String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase) Then
+                _config.InterpEnabled = False
+                _config.InterpModel = ""
+            End If
             _switchInterp.Checked = _config.InterpEnabled
-            _switchInterp.Enabled = _config.Enabled
+            _switchInterp.Enabled = _config.Enabled AndAlso Not String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase)
             AddHandler _switchInterp.CheckedChanged, AddressOf OnInterpSwitchChanged
             Dim interpHeader = BuildOfficialModeHeader(
                 "运动补帧", "", _switchInterp, _lblSwitchInterp)
@@ -1748,6 +1765,7 @@ Namespace videoenhancer
             _cmbBackend.Items.Add("TensorRT (NVIDIA)")
             _cmbBackend.Items.Add("ONNX Runtime")
             _cmbBackend.Items.Add("FlashVSR (NVIDIA · 视频)")
+            _cmbBackend.Items.Add("BasicVSR++ (NVIDIA · 视频)")
             AddHandler _cmbBackend.SelectedIndexChanged, AddressOf OnBackendSelected
 
             Dim upscaleModelLabel As Label = CreateTextLabel("放大模型", 8.7F, FontStyle.Regular, UiTextSecondary)
@@ -2201,6 +2219,7 @@ Namespace videoenhancer
             _cmbBackend.Items.Add("TensorRT (NVIDIA)")
             _cmbBackend.Items.Add("ONNX Runtime")
             _cmbBackend.Items.Add("FlashVSR (NVIDIA · 视频)")
+            _cmbBackend.Items.Add("BasicVSR++ (NVIDIA · 视频)")
             AddHandler _cmbBackend.SelectedIndexChanged, AddressOf OnBackendSelected
             rowUpscale.Controls.Add(_cmbBackend)
             _lblSwitch.Text = "<font color=#E8E8E8><b>超分开关</b></font>"
@@ -4807,9 +4826,13 @@ Namespace videoenhancer
             _switchUpscale.Enabled = _config.Enabled
             _syncingSwitch = False
             ' 补帧开关：仅主开关开启时可操作
+            If String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase) Then
+                _config.InterpEnabled = False
+                _config.InterpModel = ""
+            End If
             _syncingInterpSwitch = True
             _switchInterp.Checked = _config.InterpEnabled
-            _switchInterp.Enabled = _config.Enabled
+            _switchInterp.Enabled = _config.Enabled AndAlso Not String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase)
             _syncingInterpSwitch = False
             ' 推理方式 / 补帧倍率：仅主开关开启时可操作
             _syncingBackend = True
@@ -4848,12 +4871,12 @@ Namespace videoenhancer
             End If
         End Sub
 
-        ''' <summary>把配置的推理后端同步到下拉框（0=NCNN，1=CUDA，2=TensorRT，3=ONNX，4=FlashVSR）。</summary>
+        ''' <summary>把配置的推理后端同步到下拉框（0=NCNN，1=CUDA，2=TensorRT，3=ONNX，4=FlashVSR，5=BasicVSR++）。</summary>
         Private Sub SyncBackendCombo()
             If _cmbBackend.Items.Count = 0 Then
                 Return
             End If
-            _cmbBackend.SelectedIndex = If(_config.Backend = "flashvsr", 4, If(_config.Backend = "onnx", 3, If(_config.Backend = "tensorrt", 2, If(_config.Backend = "cuda", 1, 0))))
+            _cmbBackend.SelectedIndex = If(_config.Backend = "basicvsrpp", 5, If(_config.Backend = "flashvsr", 4, If(_config.Backend = "onnx", 3, If(_config.Backend = "tensorrt", 2, If(_config.Backend = "cuda", 1, 0)))))
         End Sub
 
         ''' <summary>把配置的补帧倍率同步到下拉框（2/3/4/8）。</summary>

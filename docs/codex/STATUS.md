@@ -769,3 +769,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
   - ModelScope 读缓存追平 1.11.3 待观察；追平前老客户端（≤1.11.2）无法发现新版。
   - `main` 相对 `origin/main`（上游 user-Wing）为 ahead 12 / behind 5，独立维护不合并不推送 origin；fork 已同步。
 - Git status: 工作树干净（记录文件更新前）；1.11.3 相关三个提交已推送 fork 并打 tag `v1.11.3`；建议本条记录随收尾提交。
+
+### 2026-08-24 00:15 - ZCode
+
+- User decision: 用户询问版本号为何到 1.11.3，决定自 1.0 系重新开始；经确认选择立即切换并发布 1.0.3。
+- Explanation recorded: 1.11.x 来源于独立维护开始时继承的本机 1.9.5 基数（1.9.6-preview → 1.10.1 → 1.11.0 独立 SemVer 起点 → 同日 .1/.2/.3 迭代），不代表真实迭代跨度；上游线停在 1.4.2 仅作基线记录。
+- Work completed: `PluginVersion.Current`、csproj `<Version>`、根 README 统一改为 1.0.3（ToolVersion 自动跟随）；`release/build-modelscope-release.ps1 -Notes "版本编号重置…"` 构建通过，EXE `--version`=1.0.3，四项更新隔离测试 PASS；`-PublishGithub -PublishModelScope` 一键发布成功。
+- Verification: GitHub `releases/latest` API 实测已指向 `v1.0.3`（双资产 stable.json + ZIP）；本机 `C:\Program portable\3FUI\plugin` 三文件已用发布包覆盖，EXE/DLL SHA-256 与 package 一致，`update-result.txt` 写为 `OK|1.0.3`（下次启动显示"已更新到 v1.0.3"）；再次运行 `modelscope upload` 返回 "All files were already committed"（7/7），确认 1.0.3 已写入服务端。
+- Known issue持续: ModelScope resolve/tree/raw API 读侧快照仍停在 2026-08-23 21:27 的 1.11.2（>2.5 小时未追平），写入侧一切正常。影响：≤1.11.2 旧客户端在追平前看不到新版本；1.11.x 已装机器对 1.0.3 永远不提示更新（数值比较），需手动升级一次（本机已完成，3060 机待用户手动处理）。1.0.3 起新协议客户端走 GitHub 检查+兜底不受影响。
+- Git status: 提交前工作树含版本切换与记录修改；将随本次收尾提交并推送 fork。`main` 相对 `origin/main`（上游）为 ahead 14 / behind 5，独立维护不合并不推送。

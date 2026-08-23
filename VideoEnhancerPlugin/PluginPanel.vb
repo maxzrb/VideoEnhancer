@@ -343,10 +343,6 @@ Namespace videoenhancer
                 Dim message = "VideoEnhancer " & manifest.Version & " 可用" &
                     Environment.NewLine & "当前版本：" & PluginVersion.Current &
                     Environment.NewLine & "更新包：" & FormatDownloadSize(manifest.Package.Size)
-                If Not String.IsNullOrWhiteSpace(manifest.Notes) Then
-                    message &= Environment.NewLine & Environment.NewLine &
-                        "更新内容：" & Environment.NewLine & manifest.Notes.Trim()
-                End If
                 message &= Environment.NewLine & Environment.NewLine &
                     "下载完成后将自动关闭并重启 3FUI。" & Environment.NewLine &
                     "现在下载并安装吗？"
@@ -1278,10 +1274,11 @@ Namespace videoenhancer
             sectionStatus.Controls.Add(_lblStatus, 0, 0)
             _btnCheckUpdates.Text = "检查更新 v" & PluginVersion.Current
             _btnCheckUpdates.Dock = DockStyle.Fill
+            _btnCheckUpdates.AutoSize = False
             _btnCheckUpdates.Margin = New Padding(12, 4, 0, 4)
             ConfigureSecondaryButton(_btnCheckUpdates)
             AddHandler _btnCheckUpdates.Click, AddressOf OnCheckUpdates
-            sectionStatus.Controls.Add(_btnCheckUpdates, 1, 0)
+            sectionStatus.Controls.Add(_btnCheckUpdates, 2, 0)
             _btnCleanArchives.Text = "清理临时文件"
             _btnCleanArchives.Dock = DockStyle.Fill
             _btnCleanArchives.Margin = New Padding(12, 4, 0, 4)
@@ -1295,7 +1292,7 @@ Namespace videoenhancer
             _btnCleanArchives.PressedBackColor2 = Color.FromArgb(220, 160, 36, 36)
             _btnCleanArchives.Visible = False
             AddHandler _btnCleanArchives.Click, AddressOf OnCleanDownloadArchives
-            sectionStatus.Controls.Add(_btnCleanArchives, 2, 0)
+            sectionStatus.Controls.Add(_btnCleanArchives, 1, 0)
             root.Controls.Add(sectionStatus, 0, 1)
             ModernPanel1.Controls.Add(root)
             Controls.Add(ModernPanel1)
@@ -3016,23 +3013,24 @@ Namespace videoenhancer
                 .Padding = Padding.Empty
             }
             header.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 190.0F))
             header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 174.0F))
+            header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 190.0F))
             header.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             header.Controls.Add(CreateOfficialSectionHeading(
                 "模型资源库", "从 ModelScope 获取模型与后端组件"), 0, 0)
             _btnDownloadPluginUpdate.Text = "下载插件更新"
             _btnDownloadPluginUpdate.Dock = DockStyle.Fill
+            _btnDownloadPluginUpdate.AutoSize = False
             _btnDownloadPluginUpdate.Margin = New Padding(12, 7, 0, 7)
             ConfigureSecondaryButton(_btnDownloadPluginUpdate)
             AddHandler _btnDownloadPluginUpdate.Click, AddressOf OnCheckUpdates
-            header.Controls.Add(_btnDownloadPluginUpdate, 1, 0)
+            header.Controls.Add(_btnDownloadPluginUpdate, 2, 0)
             _btnRefreshDownloads.Text = "刷新资源"
             _btnRefreshDownloads.Dock = DockStyle.Fill
             _btnRefreshDownloads.Margin = New Padding(12, 7, 0, 7)
             ConfigureSecondaryButton(_btnRefreshDownloads)
             AddHandler _btnRefreshDownloads.Click, Sub(sender, e) LoadDownloadModels(True)
-            header.Controls.Add(_btnRefreshDownloads, 2, 0)
+            header.Controls.Add(_btnRefreshDownloads, 1, 0)
             root.Controls.Add(header, 0, 0)
 
             ConfigureDownloadList()

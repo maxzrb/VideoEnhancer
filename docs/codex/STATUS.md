@@ -1,22 +1,22 @@
 # Project Status
 
-Last updated: 2026-08-24 00:59
+Last updated: 2026-08-24 01:28
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 在独立版本 1.0.3 基线上接入 RIFE TensorRT 补帧自动构建，并重新核对插件、CLI、模型镜像和便携 Python 布局。
-- Current state: 当前独立版本为 1.0.3，GitHub Release v1.0.3 与 ModelScope 数据集均已发布；本轮未升版、未发布。CLI 已改为 TensorRT 补帧只接收 RIFE `.pth/.pt/.pkl`，由 RVE 按阶段实际输入尺寸自动构建/复用 Engine；GIMM/GMFSS 继续只走 CUDA/PyTorch。CLI、插件构建和隔离模型发现测试通过。
+- Current objective: 在独立版本 1.0.3 基线上补齐 RIFE TensorRT 补帧权重，并保证 ModelScope 模型清单可完整分页读取。
+- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。RIFE TensorRT 接入已提交；5 个官方 RIFE `.pkl` 权重已上传公开数据集 `AerithDream/VideoEnhancer-Models`，远端路径、大小和 SHA-256 全部验证一致。CLI 已修复 ModelScope tree API 默认 100 条分页截断，在线模型页现完整返回 105 项，其中 5 个 RIFE TensorRT 权重可下载、可发现。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 向 ModelScope 镜像补充兼容 RVE 的 RIFE PyTorch 权重后，在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次构建及二次缓存命中；确认后再决定是否升至 1.0.4 并发布。
+- Next recommended step: 在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次 Engine 构建及二次缓存命中；确认后再决定是否升至 1.0.4 并发布。
 
 ## Active TODO
 
 - [x] Task: 评估并接入自有 ModelScope 模型镜像。
   - Owner: user / Codex
   - Status: `AerithDream/VideoEnhancer-Models` 已接入 CLI，排除 `PotPlayer.7z`；用户为测试暂时转为公开，后续仓库可见性由用户自行处理。2026-08-23 增量同步 `Frame-Interpolation/GIMM-VFI.7z`、`GMFSS.7z`、`RIFE.7z`，并补交旧 `RIFE/RIFE.7z` 兼容包。
-  - Notes/blockers: CLI 默认仓库、可配置仓库 ID、显式私库令牌、认证错误码和插件提示均已实现；公开模式当前清单对界面返回 84 项（旧 Python 包已隐藏），3 个新版包可列出，新 RIFE 包真实下载、SHA-256、解压和安装标记验证通过。旧包 resolve 返回 HTTP 200，但 ModelScope tree API 有缓存延迟。仍需用户在真实 3FUI 界面验证交互；上游仓库仍没有逐文件 LICENSE/NOTICE/COPYING。
+  - Notes/blockers: CLI 默认仓库、可配置仓库 ID、显式私库令牌、认证错误码和插件提示均已实现；公开模式分页读取后当前清单对界面返回 105 项（旧 Python 包已隐藏），含 5 个新增 RIFE `.pkl`。真实 CLI 下载 `rife4.6.pkl` 并通过 SHA-256；仍需用户在真实 3FUI 界面验证交互。上游仓库仍没有逐文件 LICENSE/NOTICE/COPYING。
 
 - [x] Task: 审查作者 v1.4.2 测试版并选择性合并。
   - Owner: Codex
@@ -57,7 +57,7 @@ Updated by: Codex
   - Owner: Codex / next agent
   - Status: 超分 PTH 的 CLI 预构建缓存已提交；本轮补帧 TensorRT 改为向 RVE 传入 RIFE 权重，由 RVE 根据实际阶段尺寸自动构建缓存；CLI/插件构建及隔离模型筛选通过。
   - Relevant files: `cli/Program.cs`, `VideoEnhancerPlugin/PluginPanel.vb`
-  - Notes/blockers: `convert_tensorrt.py` 仍只负责单帧超分，补帧不得调用它；RIFE Engine 由 `InterpolateRifeTorch` 内部构建。当前 ModelScope 只有 NCNN RIFE 包，没有兼容的 RIFE PyTorch 权重，且本机没有 NVIDIA 环境，真实编译待测。
+  - Notes/blockers: `convert_tensorrt.py` 仍只负责单帧超分，补帧不得调用它；RIFE Engine 由 `InterpolateRifeTorch` 内部构建。ModelScope 已补齐 5 个兼容权重；本机没有 NVIDIA 环境，真实编译仍待测。
 - [x] Task: 支持超分与补帧组合，并明确“先补后超/先超后补”策略。
   - Owner: Codex / next agent
   - Status: implemented and committed (`ce75515`); five-stage argument/pipeline integration test passed
@@ -66,8 +66,8 @@ Updated by: Codex
 
 - [ ] Task: 补齐 RIFE PyTorch 权重并完成真实 TensorRT 补帧验证。
   - Owner: user / Codex
-  - Status: 代码和模型筛选契约已就绪；ModelScope 在线清单目前只有 `Frame-Interpolation/RIFE.7z`（NCNN），兼容 RVE 的 RIFE `.pth/.pt/.pkl` 数量为 0。
-  - Notes/blockers: 需先选择并镜像具备再分发条件的 RIFE 权重，再在 NVIDIA 环境验证仅补帧、先超后补、先补后超及二次缓存命中；确认前不发布新版本。
+  - Status: 代码和模型筛选契约已就绪；`rife4.6.pkl`、`rife4.7.pkl`、`rife4.25.pkl`、`rife4.26.pkl`、`rife4.26.heavy.pkl` 已上传并完成远端 SHA-256/真实 CLI 下载/隔离发现验证。
+  - Notes/blockers: 仍需在 NVIDIA 环境验证仅补帧、先超后补、先补后超及二次缓存命中；确认前不发布新版本。
 
 - [ ] Task: 在用户实际 3FUI 环境做视觉与交互回归。
   - Owner: user / next agent
@@ -153,9 +153,9 @@ Updated by: Codex
 
 ## Risks And Blockers
 
-- Risk/blocker: 根工作区不是 Git；只有 canonical source `preview/1.9.6-preview.1/src` 是 Git 仓库。
-  - Impact: 功能源码可通过提交回退，但根目录运行产物、preview.2 发布包和 HandShake 文档不在同一 Git 历史中。
-  - Mitigation or next check: 保留 preview.2 ZIP 与根目录备份；跨设备前先推送 canonical source 的 4 个本地提交，并单独复制发布/记录文件。
+- Risk/blocker: 根目录现为独立维护 Git 主线，`main` 与原作者 `origin/main` 已分叉。
+  - Impact: 对原作者上游直接执行普通 `git pull` 不能快进，强行合并会把独立发行线与上游混在一起。
+  - Mitigation or next check: 只选择性移植上游功能；独立维护提交推送到 `fork`，不合并或推送原作者 `origin`。
 - Risk/blocker: 尚未在用户实际 3FUI 窗口中做 DPI 视觉截图回归。
   - Impact: 极端缩放或不同宿主版本下仍可能需要小幅坐标调整。
   - Mitigation or next check: 在实际宿主中检查主页面、模型下载页、图片超分页和视频对比工作室。
@@ -228,10 +228,11 @@ Updated by: Codex
 
 - Current known environment: Windows PowerShell，.NET SDK 10，工作区 `D:\pyprogram\3FUI plugin`。
 - Recheck required before: 更换 3FUI/LakeUI 宿主版本后重新编译插件。
-- Local-only notes: 本次从 3FUI 6.1.39 官方单文件包提取 `FFmpegFreeUI.dll`/`LakeUI.dll` 到临时目录，并通过 `VideoEnhancerPlugin/build.ps1 -HostBin <目录>` 编译；工作区 `videoenhancer.ini` 的 `core-path` 指向不存在的 `C:\PortableSoft\VideoEnhancer-CLI`，用于验证列表命令不再依赖该配置。本机没有可调用的 `nvidia-smi`；可用系统 Python 3.14 和 FFmpeg 8.1.1 完成伪后端/FFV1 测试。
+- Local-only notes: 本次从 3FUI 6.1.39 官方单文件包提取 `FFmpegFreeUI.dll`/`LakeUI.dll` 到临时目录，并通过 `VideoEnhancerPlugin/build.ps1 -HostBin <目录>` 编译；工作区 `videoenhancer.ini` 的 `core-path` 指向不存在的 `C:\PortableSoft\VideoEnhancer-CLI`，用于验证列表命令不再依赖该配置。本机没有可调用的 `nvidia-smi`；可用系统 Python 3.14 和 FFmpeg 8.1.1 完成伪后端/FFV1 测试。终端策略拒绝清理两个 2026-08-24 隔离测试目录，具体路径记录在最新 Session Log。
 
 ## Verification And Commands
 
+- Latest 2026-08-24 checks: CLI Release build and single-file publish passed with version 1.0.3 (0 errors, 2 existing CA1416 warnings); ordered backend tests 6/6 passed; ModelScope returned 127 tree entries and 105 downloadable items after pagination; all five RIFE remote sizes/SHA-256 matched local assets; isolated real CLI download and TensorRT discovery of five weights passed.
 - Commands run:
   - `dotnet build cli\VideoEnhancer.csproj -c Release`: 成功，0 错误，2 个既有 Windows 平台分析警告。
   - `cli\build.ps1`: 成功发布单文件 `videoenhancer.exe`。
@@ -262,12 +263,13 @@ Updated by: Codex
 
 ## Git Sync
 
-- Git repository: 根目录 no；`preview/1.9.6-preview.1/src` yes
-- Branch: 预览源码 `main`
-- Last known commit: `aaa32b5`（本地 `main`，`main...origin/main [ahead 5, behind 2]`）
-- Uncommitted changes: none（`aaa32b5` 已包含全部 RVE/分块/下载修复）
-- Working tree clean: 根目录不是 Git；预览源码 yes
-- Commit recommended before switching agents/devices: no；推送前需先合并远端 2 个领先提交（`git pull` 后处理可能的冲突再 `git push`）。
+- Git repository: 根目录 yes
+- Branch: `main`
+- Last known feature commit: `25dba3b feat: add RIFE TensorRT interpolation support`
+- Upstream relation: 相对原作者 `origin/main` 为 ahead 16 / behind 5；`git pull --ff-only` 安全中止，独立维护线不合并该上游。
+- Uncommitted changes: 本条记录提交前为 ModelScope 分页修复和收尾记录；完成第二个提交后以 `git status` 为准。
+- Working tree clean: 本条记录提交前 no；收尾目标 yes。
+- Commit recommended before switching agents/devices: yes，本轮分页修复和记录应先提交；推送 `fork` 需用户另行要求。
 
 ## Session Log
 
@@ -805,3 +807,16 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Blocker: 在线 `Frame-Interpolation` 只有 GIMM-VFI、GMFSS、RIFE 三个压缩包，兼容 TensorRT 的 RIFE PyTorch 权重为 0；本机无可调用的 NVIDIA 环境，因此没有执行真实 Engine 编译。未上传模型、未部署到 3FUI、未创建 1.0.4、未发布。
 - Files changed: `cli/Program.cs`、`cli/README.md`、`VideoEnhancerPlugin/PluginConfig.vb`、`VideoEnhancerPlugin/PluginPanel.vb`、`VideoEnhancerPlugin/README.md`、`docs/codex/STATUS.md`、`version/工作进度.md`。根目录 EXE/DLL 为本地构建产物并由 Git 忽略。
 - Git status: 功能与文档文件及 HandShake 记录有未提交修改，工作树不干净；建议审核后提交到 fork，再继续模型上传和 GPU 实测。
+
+### 2026-08-24 01:28 - Codex
+
+- Objective: 按用户要求先提交 RIFE TensorRT 接入，再向公开 ModelScope 数据集补充兼容 RVE 的 RIFE 权重。
+- Orientation/Git: 读取 `AGENTS.md`、HandShake skill、`docs/codex/INDEX.md` 和完整 `STATUS.md`；`git pull --ff-only` 因独立主线与原作者上游分叉安全中止，没有合并或改写工作树。先将已验证源码和记录提交为 `25dba3b feat: add RIFE TensorRT interpolation support`。
+- Model source: 从 `TNTwise/real-video-enhancer-models` 的 GitHub Release `models` 下载 `rife4.6.pkl`、`rife4.7.pkl`、`rife4.25.pkl`、`rife4.26.pkl`、`rife4.26.heavy.pkl` 到本地镜像。5 个文件大小与 GitHub 资产元数据一致；GitHub 仅为较新的 heavy 资产提供服务端 digest，其余 4 个旧资产 digest 为空，本地 SHA-256 均已记录并用于上传后比对。
+- ModelScope upload: 逐文件上传至公开数据集 `AerithDream/VideoEnhancer-Models/Frame-Interpolation/RIFE/`，每次显式使用 `--repo_type dataset --no-cache`，没有 `--sync`、没有删除远端文件、没有改变公开状态。5/5 提交成功。
+- Hashes: `rife4.6.pkl` `008646e761f0e67cb77f0c6c44cfe3c3e5a05d9d9465311b9681ca650ce030db`；`rife4.7.pkl` `fcf3492b10f17fb035156ea4177ed87b1f517eae54fe4500e878f5d186043d5e`；`rife4.25.pkl` `6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2`；`rife4.26.pkl` `45c7f74156704769dc9f85cfcaf8552e1e926f9399dcfa3a553dee88fac6f53f`；`rife4.26.heavy.pkl` `4cc518e172156ad6207b9c7a43364f518832d83a4325d484240493a9e2980537`。ModelScope tree API 的 5 个远端路径、大小和 SHA-256 与本地逐项一致。
+- Pagination finding/fix: 上传后 CLI 只返回 85 项，检查确认远端 Git HEAD 有 116 个文件且本轮 5 个提交只有新增。真实根因是 ModelScope tree API 返回 `PageSize=100, TotalCount=127`，旧 CLI 只读取第一页。`cli/Program.cs` 现每页请求 500 条，并按 `TotalCount`/实际返回数继续翻页；完整可下载清单为 105 项，不再漏掉 Param-Bin、PTH、旧 RIFE 和 TensorRT-Default。
+- Verification: CLI Release 构建成功（0 错误、2 个既有 CA1416）；顺序后端单元测试 6/6；单文件发布版本仍为 1.0.3；在线清单为 105 项且含 5 个 RIFE `.pkl`。隔离 CLI 从 ModelScope 真实下载 `rife4.6.pkl`（21,273,159 字节）并通过 SHA-256，TensorRT 补帧发现结果为 `RIFE/rife4.25`、`RIFE/rife4.26.heavy`、`RIFE/rife4.26`、`RIFE/rife4.6`、`RIFE/rife4.7`。
+- Limitations/local notes: 本机无 NVIDIA 环境，未执行真实 Engine 编译。终端策略拒绝递归删除两个已验证位于 `%TEMP%` 的隔离目录，残留为 `videoenhancer-rife-download-test-0070ee4c40ad420e8ca182335695a312` 和 `videoenhancer-modelscope-history-40b44d10fcb04d409d1641a6d487d493`；二者不在仓库、模型镜像或 3FUI 安装目录。
+- Version/release: 版本保持 1.0.3；未部署到 3FUI、未创建 GitHub Release、未修改 `version/版本迭代记录.md`。
+- Git status: 分页源码和本次收尾记录待第二个提交；完成后预计工作树 clean。独立主线不合并、不推送原作者 `origin`，推送 `fork` 仍待用户另行要求。

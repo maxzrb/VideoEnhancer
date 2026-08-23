@@ -49,9 +49,11 @@ internal static class Program
         Environment.GetEnvironmentVariable("VIDEOENHANCER_MODELSCOPE_DATASET")?.Trim() is { Length: > 0 } value
             ? value.Trim('/').Replace('\\', '/')
             : DefaultModelScopeDataset;
-    private static string ModelScopeTreeApi =>
+    private const int ModelScopeTreePageSize = 500;
+    private static string ModelScopeTreeApi(int pageNumber) =>
         "https://www.modelscope.cn/api/v1/datasets/" + ModelScopeDataset +
-        "/repo/tree?Revision=master&Recursive=true";
+        "/repo/tree?Revision=master&Recursive=true&PageNumber=" + pageNumber +
+        "&PageSize=" + ModelScopeTreePageSize;
     private static string ModelScopeResolveRoot =>
         "https://www.modelscope.cn/datasets/" + ModelScopeDataset + "/resolve/master/";
 
@@ -1362,25 +1364,46 @@ internal static class Program
         ApplyModelScopeAuthentication(client);
         client.DefaultRequestHeaders.UserAgent.ParseAdd("VideoEnhancer/" + ToolVersion);
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-        var json = client.GetStringAsync(ModelScopeTreeApi).GetAwaiter().GetResult();
-        using var document = JsonDocument.Parse(json);
-        var files = document.RootElement.GetProperty("Data").GetProperty("Files");
         var result = new List<RemoteModel>();
         var allowedRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { "Backend", "BasicVSR++", "Bin", "FlashVSR", "Frame-Interpolation", "ONNX", "Param-Bin", "RIFE", "PTH", "TensorRT-Default" };
-        foreach (var file in files.EnumerateArray())
+        var fetchedEntries = 0;
+        for (var pageNumber = 1; ; pageNumber++)
         {
-            if (!string.Equals(file.GetProperty("Type").GetString(), "blob", StringComparison.OrdinalIgnoreCase)) continue;
-            var path = file.GetProperty("Path").GetString()?.Replace('\\', '/').TrimStart('/') ?? "";
-            if (path.Length == 0 || path.EndsWith("/.gitkeep", StringComparison.OrdinalIgnoreCase)) continue;
-            var slash = path.IndexOf('/');
-            var root = slash < 0 ? path : path[..slash];
-            if (!allowedRoots.Contains(root)) continue;
-            result.Add(new RemoteModel(
-                file.GetProperty("Name").GetString() ?? System.IO.Path.GetFileName(path),
-                path,
-                file.TryGetProperty("Size", out var size) ? size.GetInt64() : 0,
-                file.TryGetProperty("Sha256", out var hash) ? hash.GetString() ?? "" : ""));
+            var json = client.GetStringAsync(ModelScopeTreeApi(pageNumber)).GetAwaiter().GetResult();
+            using var document = JsonDocument.Parse(json);
+            var rootElement = document.RootElement;
+            var files = rootElement.GetProperty("Data").GetProperty("Files");
+            var returnedEntries = files.GetArrayLength();
+            fetchedEntries += returnedEntries;
+
+            foreach (var file in files.EnumerateArray())
+            {
+                if (!string.Equals(file.GetProperty("Type").GetString(), "blob", StringComparison.OrdinalIgnoreCase)) continue;
+                var path = file.GetProperty("Path").GetString()?.Replace('\\', '/').TrimStart('/') ?? "";
+                if (path.Length == 0 || path.EndsWith("/.gitkeep", StringComparison.OrdinalIgnoreCase)) continue;
+                var slash = path.IndexOf('/');
+                var root = slash < 0 ? path : path[..slash];
+                if (!allowedRoots.Contains(root)) continue;
+                result.Add(new RemoteModel(
+                    file.GetProperty("Name").GetString() ?? System.IO.Path.GetFileName(path),
+                    path,
+                    file.TryGetProperty("Size", out var size) ? size.GetInt64() : 0,
+                    file.TryGetProperty("Sha256", out var hash) ? hash.GetString() ?? "" : ""));
+            }
+
+            var totalCount = rootElement.TryGetProperty("TotalCount", out var total)
+                && total.TryGetInt32(out var parsedTotal)
+                    ? parsedTotal
+                    : -1;
+            // ModelScope 默认只返回 100 条。根据总数翻页；旧接口缺少总数时，
+            // 以实际返回数小于请求页大小作为结束条件。
+            if (returnedEntries == 0
+                || (totalCount >= 0 && fetchedEntries >= totalCount)
+                || (totalCount < 0 && returnedEntries < ModelScopeTreePageSize))
+            {
+                break;
+            }
         }
         // Backend 曾同时保留无日期包和日期包；界面只展示最新日期包，避免用户下载两套
         // 内容几乎相同的便携 Python。旧文件继续留在镜像中供历史版本使用。

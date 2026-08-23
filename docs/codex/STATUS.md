@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-23 21:17
-Updated by: Codex
+Last updated: 2026-08-23 23:59
+Updated by: ZCode
 
 ## Current Snapshot
 
-- Current objective: 以独立 SemVer 维护 VideoEnhancer，并通过 ModelScope 提供可校验、可回滚、需用户确认的插件稳定版更新。
-- Current state: 正式主线与 ModelScope stable 已升为独立版本 1.11.1，上游基线仍为 1.4.2。模型下载页新增“下载插件更新”兜底入口，复用同一更新协议且不把插件 ZIP 混入模型清单。本机安装目录刻意保留带兜底按钮的过渡 1.11.0 DLL/CLI，用于真实触发 1.11.0 -> 1.11.1；已验证它能发现并下载校验远端新包。
-- Last active agent: Codex
-- Likely next agent: user / Codex
-- Next recommended step: 在已启动的 3FUI 中先拒绝启动自动更新提示，再进入“模型下载”页点击“下载插件更新”，确认退出、替换和重启后显示 v1.11.1；随后提交当前源码与记录，再处理 `main` 相对远端 `ahead 9, behind 5` 的分叉。
+- Current objective: 以独立 SemVer 维护 VideoEnhancer：版本检查以 GitHub Release（maxzrb/VideoEnhancer）为唯一标准，ModelScope 为更新包首选下载镜像、GitHub 兜底。
+- Current state: 1.11.3 已发布（GitHub Release v1.11.3 + ModelScope 写入成功但 resolve 读缓存当晚未追平）。CLI 版本号单一来源化（csproj `<Version>` → 运行时程序集元数据，`--version` 可查）。本机 3FUI 安装目录已通过真实 apply-update 升至 1.11.3（三文件与发布包逐字节一致）。实机已验证 GitHub 检查发现 1.11.3、ModelScope 失效时自动回退 GitHub 下载并通过 SHA-256。
+- Last active agent: ZCode
+- Likely next agent: user / Codex / ZCode
+- Next recommended step: 用户下次打开 3FUI 确认“已更新到 v1.11.3”提示、更新按钮右对齐布局与精简后的弹窗观感（弹窗要到 1.11.4 才会再次出现）；观察 ModelScope resolve 缓存是否追平 1.11.3（老客户端 ≤1.11.2 只查 ModelScope，追平前看不到新版）；下次发布可直接用 `release\build-modelscope-release.ps1 -PublishGithub -PublishModelScope` 一键流程。
 
 ## Active TODO
 
@@ -739,3 +739,33 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - 升级发现：直接加载已安装的过渡 1.11.0 DLL，读取远端得到 Remote=1.11.1、HasUpdate=True；实际下载到 `%LocalAppData%\FFmpegFreeUI\VideoEnhancer\updates\1.11.1`，长度和 SHA-256 与清单一致。未启动替换，刻意保留给用户在真实模型下载页点击测试。
 - 实机入口：已启动可见的 `C:\Program portable\3FUI\FFmpegFreeUI.exe`（启动 PID 3676）。用户需在启动自动提示中先点“否”，再从模型下载页点“下载插件更新”，确认退出、三文件替换、自动重启和结果提示。
 - 剩余：源码工作树仍不干净且未提交；实机确认后建议提交，再处理 Git 分叉。
+
+### 2026-08-23 23:59 - ZCode
+
+- Objective: 按用户要求统一 CLI 内部版本号与独立发行版本，并把版本检查迁移到 GitHub Releases（唯一标准），ModelScope 首选下载、GitHub 兜底；下一版延续 1.11 系。
+- Orientation: 读取 `AGENTS.md`、HandShake skill、`docs/codex/INDEX.md`、`STATUS.md`；`git pull` 因本地未提交改动被阻止（按记录预期，未改写工作树）。发现工作树版本已是 1.11.2 且 ModelScope 线上 stable.json 也是 1.11.2（2026-08-23 21:27 发布，"优化更新确认窗口"——该轮未记入 STATUS，本条补记），故下一版定为 1.11.3。
+- 计划确认: 经计划模式探索（两个只读代理 + 人工核读 PluginUpdater.vb/Program.cs/发布脚本）后用户批准；用户确认 GitHub 托管在现有 fork `maxzrb/VideoEnhancer`，发布脚本要一键自动上传。
+- Work completed（提交 `43db6fc` 基线 + `f37986e` + `47d4b8a`）:
+  - Step 0: 提交此前未提交的 1.11.x 更新器体系（16 文件）。
+  - 版本单一来源: `Program.cs` 删除 `ToolVersion` 字面量，运行时读 csproj `<Version>` 的 InformationalVersion（裁剪发布下保留，`+`后缀剥离，回退 Assembly Version）；新增 `-v/--version`；`deploy.ps1`、`release/build-modelscope-release.ps1`、`release/test-updater.ps1` 的 `$Version` 默认改为正则读取 `PluginVersion.vb`；发布脚本构建后运行 EXE `--version` 做端到端校验。
+  - 更新协议: `PluginUpdater.vb` 重写——`FetchLatestManifestAsync` 走 `api.github.com/repos/<repo>/releases/latest`（默认 `maxzrb/VideoEnhancer`，env `VIDEOENHANCER_UPDATE_GITHUB_REPO` 覆盖、`VIDEOENHANCER_UPDATE_GITHUB_TOKEN` 可选），解析 `tag_name`（去 `v` 前缀）、按名找 `stable.json` 资产、沿用原清单校验并交叉校验标签与清单版本一致；404 报"远端尚无稳定版 Release"；`DownloadPackageAsync` 双源（ModelScope `BuildResolveUrl(manifest.Package.Path)` 首选 → GitHub 资产按文件名匹配回退，两源均校验大小+SHA-256，双败报两源错误）；面板文案"从 GitHub 检查更新"。
+  - 发布一键化: `release/build-modelscope-release.ps1` 新增 `-PublishGithub`（`gh release create v<V> zip stable.json --repo <repo>`）/ `-PublishModelScope`（`modelscope upload <ds> <dist>`），未加开关时打印手动命令；`Invoke-Native` 包装避免 PS5.1 EAP=Stop 把原生 stderr 当终止错误。
+  - 用户 UI 反馈（游戏中口头反馈）: 更新按钮右对齐——底部状态栏与模型页头部交换列位使更新按钮位于最右（`检查更新`/`下载插件更新`），更新弹窗移除"更新内容"段。
+  - 版本全面升至 1.11.3；README/插件 README/cli README/modelscope-README 同步协议说明；`.gitignore` 加 `/.zcode/`。
+- 补记 1.11.2 轮次: 2026-08-23 21:27 左右有一轮未记录的发布——版本升 1.11.2、精简更新确认窗口文案、构建并上传 ModelScope（线上 stable.json publishedAt=21:27:41），本机曾构建过渡 DLL。该轮无 STATUS/工作进度条目，本轮已把 1.11.2 写入版本记录历史段。
+- Commands/verification:
+  - `release/build-modelscope-release.ps1`: 三次全量构建均通过（0 错误、2 个既有 CA1416 警告），版本一致性 + `--version` 端到端校验通过；产物 `releases/1.11.3/VideoEnhancer-1.11.3-win-x64.zip`（15,020,251 字节，SHA-256 `922e24f6…`）。
+  - `release/test-updater.ps1`: success/traversal/tamper/rollback 四项 PASS。
+  - Git: fork `maxzrb/VideoEnhancer` 推送 `5cafaca→f37986e→47d4b8a`（含一次 amend force-push 清除误入的 build-err.txt）；tag `v1.11.3` 两次重切（首次产物缺 UI 修复、零下载后删除重发）最终指向 `47d4b8a`；`gh release view` 确认双资产。
+  - 实机验证（过渡 1.11.2 DLL 装入 `C:\Program portable\3FUI\plugin`）: 3FUI 启动后台检查弹出"发现新版本"（GitHub 检查 ✓，用户查看后反馈 UI 意见）；反射 harness 加载真实 DLL 得 manifest.version=1.11.3、HasUpdate=True、githubFallback URL 正确；真实下载 15,020,251 字节 SHA-256 与清单一致（ModelScope 失效 → GitHub 兜底路径实际命中）。
+  - 真实替换: 直接以安装 EXE 自更新触发 IO_SharingViolation → 正确回滚并写 ERROR 结果文件（意外验证回滚）；按真实流程复制到临时 updater 目录执行 → `OK|1.11.3`，安装目录 EXE/DLL/layout 三文件与发布包哈希一致，EXE `--version`=1.11.3。
+  - ModelScope: `-PublishModelScope` 上传报告 committed 0 失败；但 resolve/tree/raw API 与 SDK 下载读取侧缓存延迟超 1 小时仍显示 1.11.2（写入侧"already committed"确认已落库）。单文件重传 stable.json 亦报告成功但读取未变。
+- Incidents/notes:
+  - 会话中 3FUI 曾被最小化、前台为用户游戏进程；CUA 拒绝焦点抢占（正确行为），改用反射 harness + CLI 直跑 apply-update 完成验证，弹窗内"是"的最终肉眼确认留给用户下次启动。
+  - Write 工具写出的 .ps1 为无 BOM UTF-8，PS5.1 按 ANSI 解析导致中文脚本语法错误；已按原约定重编码为 UTF-8 BOM 修复。
+  - 一次编辑意外把 `sectionStatus.RowStyles.Add` 与 `_lblStatus.AutoSize` 挤到同一行（BC30205），且 Bash 管道掩盖构建失败导致旧 DLL 被误装；已修复并改用退出码判断。
+- Remaining:
+  - 用户实机确认 1.11.3 更新结果提示、右对齐按钮布局；新弹窗样式要到 1.11.4 才会再次出现。
+  - ModelScope 读缓存追平 1.11.3 待观察；追平前老客户端（≤1.11.2）无法发现新版。
+  - `main` 相对 `origin/main`（上游 user-Wing）为 ahead 12 / behind 5，独立维护不合并不推送 origin；fork 已同步。
+- Git status: 工作树干净（记录文件更新前）；1.11.3 相关三个提交已推送 fork 并打 tag `v1.11.3`；建议本条记录随收尾提交。

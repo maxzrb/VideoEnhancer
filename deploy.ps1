@@ -1,7 +1,7 @@
 ﻿# 一键发布：把 outputs 中的产物发布到版本存档目录 + 各运行目录
 # 规则：每个版本更新都发布到 C:\Users\ARXChem\Documents\LakeUI-2\videoenhancer.3fui\<版本>\
 param(
-    [string]$Version = '1.4'
+    [string]$Version = '1.11.2'
 )
 $ErrorActionPreference = 'Stop'
 $base = Split-Path -Parent $MyInvocation.MyCommand.Path

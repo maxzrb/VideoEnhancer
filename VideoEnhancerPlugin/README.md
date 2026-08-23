@@ -6,9 +6,11 @@
 
 ## 安装
 
-1. 把编译产物复制到主程序目录下的 Plugin 文件夹：
+1. 把三个发行文件复制到主程序目录下的 Plugin 文件夹：
    ```
+   <主程序目录>\Plugin\videoenhancer.exe
    <主程序目录>\Plugin\videoenhancer.3fui.dll
+   <主程序目录>\Plugin\videoenhancer-layout.json
    ```
    （文件名必须以 `.3fui.dll` 结尾，宿主按 `*.3fui.dll` 扫描加载；
    程序集名保持 `videoenhancer`，入口类型为 `videoenhancer.Entry`。）
@@ -146,6 +148,14 @@
 `%LocalAppData%\FFmpegFreeUI\videoenhancer.plugin.json`
 （ExePath / Model / Enabled / UpscaleEnabled / InterpEnabled / InterpModel / InterpFactor / Backend）。
 支持环境变量 `VIDEOENHANCER_CONFIG_DIR` 覆盖配置目录（便携/测试用）。
+
+## 自动更新
+
+插件页面加载后会在后台读取公开 ModelScope 数据集 `AerithDream/VideoEnhancer-Releases` 的 `stable.json`，底部也可手动点击“检查更新”。远端独立 SemVer 高于当前版本时才提示，用户确认后下载并校验更新包；不会静默覆盖运行文件。
+
+模型下载页右上方另有“下载插件更新”入口，使用相同的 Release 数据集、版本比较、校验和更新事务，作为底部按钮不可用或不便查找时的兜底；插件 ZIP 不混入模型仓库清单，也不会进入模型解压目录。
+
+更新时临时 CLI 会等待 3FUI 完全退出，只允许替换 EXE、插件 DLL 和布局 JSON，替换前备份，失败自动回滚，成功后重启 3FUI。可用 `VIDEOENHANCER_UPDATE_DATASET=owner/name` 覆盖更新数据集；配置中的 `AutoCheckUpdates` 可关闭启动后台检查。
 
 ## 构建
 

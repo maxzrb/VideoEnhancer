@@ -4,6 +4,7 @@ Imports System.Diagnostics
 Imports System.Drawing
 Imports System.IO
 Imports System.Linq
+Imports System.Security.Cryptography
 Imports System.Text
 Imports System.Text.Json
 Imports System.Text.RegularExpressions
@@ -219,11 +220,14 @@ Namespace videoenhancer
         Private Const MaxParallelDownloads As Integer = 3
         Private ReadOnly _downloadList As New UltraDetailListView()
         Private ReadOnly _btnRefreshDownloads As New ModernButton()
+        Private ReadOnly _btnDownloadPluginUpdate As New ModernButton()
         Private ReadOnly _btnCleanArchives As New ModernButton()
+        Private ReadOnly _btnCheckUpdates As New ModernButton()
         Private _downloadsLoaded As Boolean = False
         Private _downloadsLoading As Boolean = False
         Private _downloadOnline As Boolean = True
         Private _archiveCleanupBusy As Boolean = False
+        Private _updateCheckBusy As Boolean = False
         Private _downloadActiveCount As Integer = 0
         Private _downloadActionsEnabled As Boolean = True
         Private _downloadListConfigured As Boolean = False
@@ -298,11 +302,90 @@ Namespace videoenhancer
             QueueHook.AttachQueueMenu()
             AddHandler _queueMenuTimer.Tick, AddressOf OnQueueMenuTick
             _queueMenuTimer.Start()
+            Dim updateResult = PluginUpdater.ConsumeUpdateResult()
+            If updateResult.StartsWith("OK|", StringComparison.Ordinal) Then
+                ShowStatus("已更新到 v" & updateResult.Substring(3), False)
+            ElseIf updateResult.StartsWith("ERROR|", StringComparison.Ordinal) Then
+                ShowStatus("上次自动更新失败：" & updateResult.Substring(6), True)
+            End If
+            If _config.AutoCheckUpdates Then StartAutomaticUpdateCheck()
         End Sub
 
         Private Sub OnQueueMenuTick(sender As Object, e As EventArgs)
             QueueHook.AttachQueueMenu()
         End Sub
+
+        Private Async Sub StartAutomaticUpdateCheck()
+            Await Task.Delay(1500)
+            If IsDisposed Then Return
+            Await CheckForUpdatesAsync(True)
+        End Sub
+
+        Private Async Sub OnCheckUpdates(sender As Object, e As EventArgs)
+            Await CheckForUpdatesAsync(False)
+        End Sub
+
+        ''' <summary>检查独立稳定版；自动检查失败时保持安静，发现新版本仍由用户确认。</summary>
+        Private Async Function CheckForUpdatesAsync(silent As Boolean) As Task
+            If _updateCheckBusy Then Return
+            _updateCheckBusy = True
+            Dim userAccepted = False
+            _btnCheckUpdates.Enabled = False
+            _btnDownloadPluginUpdate.Enabled = False
+            If Not silent Then ShowStatus("正在从 ModelScope 检查更新…", False)
+            Try
+                Dim manifest = Await PluginUpdater.FetchStableManifestAsync()
+                If Not PluginUpdater.HasUpdate(manifest) Then
+                    If Not silent Then ShowStatus("当前已是最新稳定版 v" & PluginVersion.Current, False)
+                    Return
+                End If
+
+                Dim message = "VideoEnhancer " & manifest.Version & " 可用" &
+                    Environment.NewLine & "当前版本：" & PluginVersion.Current &
+                    Environment.NewLine & "更新包：" & FormatDownloadSize(manifest.Package.Size)
+                If Not String.IsNullOrWhiteSpace(manifest.Notes) Then
+                    message &= Environment.NewLine & Environment.NewLine &
+                        "更新内容：" & Environment.NewLine & manifest.Notes.Trim()
+                End If
+                message &= Environment.NewLine & Environment.NewLine &
+                    "下载完成后将自动关闭并重启 3FUI。" & Environment.NewLine &
+                    "现在下载并安装吗？"
+                If MessageBox.Show(Me, message, "发现新版本",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Information,
+                        MessageBoxDefaultButton.Button1) <> DialogResult.Yes Then Return
+                userAccepted = True
+
+                Dim installedExe = PluginConfig.ResolveInstalledExePath(_config.ExePath)
+                If String.IsNullOrWhiteSpace(installedExe) OrElse Not File.Exists(installedExe) Then
+                    Throw New FileNotFoundException("找不到已安装的 videoenhancer.exe")
+                End If
+                Dim targetDirectory = Path.GetDirectoryName(Path.GetFullPath(installedExe))
+                If String.IsNullOrWhiteSpace(targetDirectory) OrElse
+                    Not File.Exists(Path.Combine(targetDirectory, "videoenhancer.3fui.dll")) Then
+                    Throw New InvalidOperationException("自动更新要求 EXE 与插件 DLL 位于同一 plugin 目录")
+                End If
+                Dim hostExe = Environment.ProcessPath
+                If String.IsNullOrWhiteSpace(hostExe) OrElse Not File.Exists(hostExe) Then
+                    Throw New FileNotFoundException("无法确定 3FUI 主程序路径")
+                End If
+
+                ShowStatus("正在下载 VideoEnhancer v" & manifest.Version & "…", False)
+                Dim packagePath = Await PluginUpdater.DownloadPackageAsync(manifest,
+                    Sub(percent) ShowStatus("正在下载更新：" & percent & "%", False))
+                ShowStatus("更新包校验通过，正在准备重启 3FUI…", False)
+                PluginUpdater.StartUpdate(packagePath, installedExe, targetDirectory,
+                    Environment.ProcessId, hostExe)
+                Application.Exit()
+            Catch ex As Exception
+                If Not silent OrElse userAccepted Then ShowStatus("检查或安装更新失败：" & ex.Message, True)
+            Finally
+                _updateCheckBusy = False
+                If Not IsDisposed Then
+                    _btnCheckUpdates.Enabled = True
+                    _btnDownloadPluginUpdate.Enabled = True
+                End If
+            End Try
+        End Function
 
         ' ────────────────────────── 插件总开关 ──────────────────────────
 
@@ -574,7 +657,8 @@ Namespace videoenhancer
                         For Each pattern In New String() {"*.engine", "*.pth", "*.pt", "*.pkl"}
                             For Each p In Directory.GetFiles(modelDir, pattern, SearchOption.AllDirectories)
                                 Dim relative = Path.GetRelativePath(modelDir, p).Replace(Convert.ToChar(92), "/"c)
-                                If relative.StartsWith("RIFE/", StringComparison.OrdinalIgnoreCase) Then Continue For
+                                If relative.StartsWith("Frame-Interpolation/", StringComparison.OrdinalIgnoreCase) OrElse
+                                   relative.StartsWith("RIFE/", StringComparison.OrdinalIgnoreCase) Then Continue For
                                 If relative.StartsWith("TensorRT-Cache/", StringComparison.OrdinalIgnoreCase) Then Continue For
                                 Dim n = Path.ChangeExtension(relative, Nothing)
                                 If Not String.IsNullOrWhiteSpace(n) AndAlso Not models.Contains(n, StringComparer.OrdinalIgnoreCase) Then models.Add(n)
@@ -598,7 +682,7 @@ Namespace videoenhancer
                     _cmbModel.SelectedIndex = 0
                 End If
                 Dim modeText = If(_config.Backend = "basicvsrpp",
-                    "（BasicVSR++，models\\BasicVSR++ 下的官方 .pth 时序模型）",
+                    "（BasicVSR++，官方 .pth 或 config.py/chkpts.pth 优化目录）",
                     If(_config.Backend = "tensorrt",
                     "（TensorRT，PTH 首次使用自动构建 Engine）",
                     If(_config.Backend = "onnx",
@@ -611,7 +695,7 @@ Namespace videoenhancer
                 ShowStatus($"已从 videoenhancer.exe 读取 {models.Count} 个可用模型 " & modeText, False)
             Else
                 If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp") AndAlso _config.UpscaleEnabled Then
-                    Dim missingExt = If(_config.Backend = "basicvsrpp", "BasicVSR++ 官方 .pth", If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "tensorrt", "PTH 或 .engine", If(_config.Backend = "onnx", ".onnx", ".pth"))))
+                    Dim missingExt = If(_config.Backend = "basicvsrpp", "BasicVSR++ .pth 或优化目录", If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "tensorrt", "PTH 或 .engine", If(_config.Backend = "onnx", ".onnx", ".pth"))))
                     _cmbModel.WaterText = "未找到 " & missingExt & " 放大模型"
                     ShowStatus("未找到 " & missingExt & " 放大模型，请确认 models 目录", True)
                     ' 保留用户选择的 TensorRT，不因一次扫描失败自动改回 NCNN。
@@ -638,18 +722,18 @@ Namespace videoenhancer
                     _cmbInterp.SelectedIndex = 0
                 End If
                 Dim modeText = If(_config.InterpBackend = "tensorrt",
-                    "（TensorRT，RIFE .pth 自动构建 Engine）",
+                    "（TensorRT，Frame-Interpolation 下的 .engine）",
                     If(_config.InterpBackend = "cuda",
-                    "（CUDA，" & Convert.ToChar(92) & "RIFE 下的 .pth 文件）",
-                    "（NCNN，models" & Convert.ToChar(92) & "RIFE）"))
+                    "（CUDA/PyTorch，Frame-Interpolation）",
+                    "（NCNN，Frame-Interpolation 下的模型目录）"))
                 ShowStatus($"已读取 {models.Count} 个补帧模型 " & modeText, False)
             Else
                 If _config.InterpBackend = "cuda" OrElse _config.InterpBackend = "tensorrt" Then
-                    _cmbInterp.WaterText = "未找到 .pth 补帧模型"
-                    ShowStatus(If(_config.InterpBackend = "tensorrt", "TensorRT", "CUDA") & " RIFE 需要 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型", _config.InterpEnabled)
+                    _cmbInterp.WaterText = "未找到兼容的补帧模型"
+                    ShowStatus("未在 models" & Convert.ToChar(92) & "Frame-Interpolation 找到与 " & If(_config.InterpBackend = "tensorrt", "TensorRT", "CUDA/PyTorch") & " 兼容的补帧模型", _config.InterpEnabled)
                 Else
                     _cmbInterp.WaterText = "未找到补帧模型"
-                    ShowStatus("未在 models" & Convert.ToChar(92) & "RIFE 目录找到含 .param/.bin 的补帧模型", True)
+                    ShowStatus("未在 models" & Convert.ToChar(92) & "Frame-Interpolation 找到含 .param/.bin 的补帧模型；旧 models" & Convert.ToChar(92) & "RIFE 仍可读取", True)
                 End If
             End If
         End Sub
@@ -668,7 +752,18 @@ Namespace videoenhancer
             If String.IsNullOrWhiteSpace(model) Then
                 Return
             End If
-            _config.InterpModel = model.Trim()
+            Dim selectedModel = model.Trim()
+            If (selectedModel.StartsWith("GIMM-VFI/", StringComparison.OrdinalIgnoreCase) OrElse
+                selectedModel.StartsWith("GMFSS/", StringComparison.OrdinalIgnoreCase)) AndAlso
+               Not String.Equals(_config.InterpBackend, "cuda", StringComparison.OrdinalIgnoreCase) Then
+                _config.InterpBackend = "cuda"
+                _syncingInterpBackend = True
+                SyncInterpBackendCombo()
+                _syncingInterpBackend = False
+                UpdateAdvancedControlState()
+                ShowStatus("该补帧模型仅支持 CUDA/PyTorch，已自动切换后端", False)
+            End If
+            _config.InterpModel = selectedModel
             _config.Save()
         End Sub
 
@@ -693,15 +788,15 @@ Namespace videoenhancer
             RefreshInterpModels()
             UpdateAdvancedControlState()
             Dim modeText = If(backend = "basicvsrpp",
-                "BasicVSR++（NVIDIA）：官方 x4 时序视频超分，不与 RIFE/图片模式混用",
+                "BasicVSR++（NVIDIA）：官方 x4 权重或 1x 优化目录，不与补帧/图片模式混用",
                 If(backend = "tensorrt",
-                "TensorRT（NVIDIA）：超分 Engine 自动构建；组合补帧自动使用 NCNN RIFE",
+                "TensorRT（NVIDIA）：超分 Engine 自动构建；补帧使用 Frame-Interpolation 下的 Engine",
                 If(backend = "onnx",
-                "ONNX Runtime：超分用 .onnx；组合补帧自动使用 NCNN RIFE",
+                "ONNX Runtime：超分用 .onnx；补帧可独立选择 NCNN 或 CUDA",
                 If(backend = "flashvsr",
                 "FlashVSR（NVIDIA）：连续视频帧扩散超分；组合补帧会自动分两阶段",
                 If(backend = "cuda",
-                "CUDA（PyTorch）：超分用 models 下的 .pth 模型，补帧用 models" & Convert.ToChar(92) & "RIFE 下的 .pth 模型",
+                "CUDA（PyTorch）：超分用 models 下的权重，补帧用 Frame-Interpolation 下的权重",
                 "NCNN（Vulkan）")))))
             ShowStatus("推理方式：" & modeText, False)
         End Sub
@@ -879,9 +974,17 @@ Namespace videoenhancer
                                  If p Is Nothing Then
                                      Return
                                  End If
-                                 Dim stdout = p.StandardOutput.ReadToEnd()
+                                 Dim stdoutTask = p.StandardOutput.ReadToEndAsync()
+                                 Dim stderrTask = p.StandardError.ReadToEndAsync()
                                  p.WaitForExit(120000)
-                                 Dim summary = stdout.Split(Convert.ToChar(10)).FirstOrDefault(Function(l) l.Contains("[环境检查]"))
+                                 Dim stdout = stdoutTask.GetAwaiter().GetResult()
+                                 Dim stderr = stderrTask.GetAwaiter().GetResult()
+                                 Dim lines = (stdout & Environment.NewLine & stderr).Split(
+                                     {Convert.ToChar(13), Convert.ToChar(10)}, StringSplitOptions.RemoveEmptyEntries)
+                                 Dim summary = lines.FirstOrDefault(Function(l) l.Contains("[缺失]"))
+                                 If String.IsNullOrWhiteSpace(summary) Then
+                                     summary = lines.LastOrDefault(Function(l) l.Contains("[环境检查]"))
+                                 End If
                                  Dim ok = p.ExitCode = 0
                                  Dim text = If(ok, "环境检测通过：" & If(summary, "ffmpeg / python / 模型库就绪"),
                                                   "环境检测未通过：" & If(summary, "请查看 videoenhancer.exe --check 输出"))
@@ -1094,7 +1197,7 @@ Namespace videoenhancer
             _config.Save()
             RefreshInterpModels()
             UpdateAdvancedControlState()
-            ShowStatus("补帧后端：" & If(backend = "tensorrt", "TensorRT（RIFE .pth 自动构建 Engine）", If(backend = "cuda", "CUDA（PyTorch）", "NCNN（Vulkan）")), False)
+            ShowStatus("补帧后端：" & If(backend = "tensorrt", "TensorRT（现成 Engine）", If(backend = "cuda", "CUDA（PyTorch 权重）", "NCNN（Vulkan）")), False)
         End Sub
 
         Private Sub OnDynamicOpticalFlowSelected(sender As Object, e As EventArgs)
@@ -1156,13 +1259,14 @@ Namespace videoenhancer
 
             Dim sectionStatus As New BufferedTableLayoutPanel With {
                 .Dock = DockStyle.Fill,
-                .ColumnCount = 2,
+                .ColumnCount = 3,
                 .RowCount = 1,
                 .BackColor = Color.Transparent,
                 .Margin = Padding.Empty,
                 .Padding = New Padding(0, 4, 0, 0)
             }
             sectionStatus.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+            sectionStatus.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
             sectionStatus.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 210.0F))
             sectionStatus.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             _lblStatus.AutoSize = False
@@ -1172,6 +1276,12 @@ Namespace videoenhancer
             _lblStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _lblStatus.Text = "<font color=#888888>就绪</font>"
             sectionStatus.Controls.Add(_lblStatus, 0, 0)
+            _btnCheckUpdates.Text = "检查更新 v" & PluginVersion.Current
+            _btnCheckUpdates.Dock = DockStyle.Fill
+            _btnCheckUpdates.Margin = New Padding(12, 4, 0, 4)
+            ConfigureSecondaryButton(_btnCheckUpdates)
+            AddHandler _btnCheckUpdates.Click, AddressOf OnCheckUpdates
+            sectionStatus.Controls.Add(_btnCheckUpdates, 1, 0)
             _btnCleanArchives.Text = "清理临时文件"
             _btnCleanArchives.Dock = DockStyle.Fill
             _btnCleanArchives.Margin = New Padding(12, 4, 0, 4)
@@ -1185,7 +1295,7 @@ Namespace videoenhancer
             _btnCleanArchives.PressedBackColor2 = Color.FromArgb(220, 160, 36, 36)
             _btnCleanArchives.Visible = False
             AddHandler _btnCleanArchives.Click, AddressOf OnCleanDownloadArchives
-            sectionStatus.Controls.Add(_btnCleanArchives, 1, 0)
+            sectionStatus.Controls.Add(_btnCleanArchives, 2, 0)
             root.Controls.Add(sectionStatus, 0, 1)
             ModernPanel1.Controls.Add(root)
             Controls.Add(ModernPanel1)
@@ -2899,23 +3009,30 @@ Namespace videoenhancer
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             Dim header As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
-                .ColumnCount = 2,
+                .ColumnCount = 3,
                 .RowCount = 1,
                 .BackColor = Color.Transparent,
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
             header.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+            header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 190.0F))
             header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 174.0F))
             header.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             header.Controls.Add(CreateOfficialSectionHeading(
                 "模型资源库", "从 ModelScope 获取模型与后端组件"), 0, 0)
+            _btnDownloadPluginUpdate.Text = "下载插件更新"
+            _btnDownloadPluginUpdate.Dock = DockStyle.Fill
+            _btnDownloadPluginUpdate.Margin = New Padding(12, 7, 0, 7)
+            ConfigureSecondaryButton(_btnDownloadPluginUpdate)
+            AddHandler _btnDownloadPluginUpdate.Click, AddressOf OnCheckUpdates
+            header.Controls.Add(_btnDownloadPluginUpdate, 1, 0)
             _btnRefreshDownloads.Text = "刷新资源"
             _btnRefreshDownloads.Dock = DockStyle.Fill
             _btnRefreshDownloads.Margin = New Padding(12, 7, 0, 7)
             ConfigureSecondaryButton(_btnRefreshDownloads)
             AddHandler _btnRefreshDownloads.Click, Sub(sender, e) LoadDownloadModels(True)
-            header.Controls.Add(_btnRefreshDownloads, 1, 0)
+            header.Controls.Add(_btnRefreshDownloads, 2, 0)
             root.Controls.Add(header, 0, 0)
 
             ConfigureDownloadList()
@@ -3495,6 +3612,10 @@ Namespace videoenhancer
                     If stderr.Contains("NO_NETWORK|", StringComparison.Ordinal) Then
                         _downloadOnline = False
                         ShowOfflineDownloadStatus()
+                    ElseIf stderr.Contains("AUTH_REQUIRED|", StringComparison.Ordinal) Then
+                        _downloadOnline = True
+                        AddDownloadMessage("模型仓库需要认证", "设置 ModelScope 令牌后重启 3FUI", UiDanger)
+                        ShowStatus("私有模型仓库需要有效令牌，请设置 VIDEOENHANCER_MODELSCOPE_TOKEN 或 MODELSCOPE_API_TOKEN 后重启 3FUI。", True)
                     Else
                         _downloadOnline = True
                         AddDownloadMessage("模型列表读取失败", "点击右上角刷新资源重试", UiDanger)
@@ -3516,7 +3637,7 @@ Namespace videoenhancer
                             })
                         Next
                     End Using
-                    Dim categoryOrder = New String() {"Backend", "Bin", "ONNX", "Param-Bin", "FlashVSR", "RIFE", "PTH", "TensorRT-Default"}
+                    Dim categoryOrder = New String() {"Backend", "BasicVSR++", "Bin", "ONNX", "Param-Bin", "FlashVSR", "Frame-Interpolation", "RIFE", "PTH", "TensorRT-Default"}
                     For Each group In entries.GroupBy(Function(entry) DownloadCategory(entry.RelativePath)).
                             OrderBy(Function(value)
                                         Dim index = Array.FindIndex(categoryOrder, Function(name) name.Equals(value.Key, StringComparison.OrdinalIgnoreCase))
@@ -3549,8 +3670,10 @@ Namespace videoenhancer
             Select Case category.ToUpperInvariant()
                 Case "ONNX" : Return "ONNX 模型"
                 Case "PARAM-BIN" : Return "Param-Bin 模型"
-                Case "RIFE" : Return "RIFE 模型"
+                Case "FRAME-INTERPOLATION" : Return "Frame-Interpolation 补帧模型"
+                Case "RIFE" : Return "旧版 RIFE 补帧模型"
                 Case "PTH" : Return "PTH 模型"
+                Case "BASICVSR++" : Return "BasicVSR++ 模型"
                 Case "BACKEND" : Return "Backend 后端"
                 Case Else : Return category
             End Select
@@ -3592,6 +3715,10 @@ Namespace videoenhancer
                         Return Directory.Exists(Path.Combine(coreRoot, "bin", "PortableGit"))
                     End If
                 End If
+                If category.Equals("Frame-Interpolation", StringComparison.OrdinalIgnoreCase) Then
+                    Return IsDownloadArchive(suffix) AndAlso
+                        File.Exists(FrameInterpolationArchiveMarkerPath(coreRoot, normalized))
+                End If
                 If category.Equals("RIFE", StringComparison.OrdinalIgnoreCase) Then
                     Return Directory.Exists(Path.Combine(coreRoot, "models", "RIFE")) AndAlso
                         Directory.EnumerateFiles(Path.Combine(coreRoot, "models", "RIFE"), "*.param", SearchOption.AllDirectories).Any() AndAlso
@@ -3607,6 +3734,21 @@ Namespace videoenhancer
             Catch
                 Return False
             End Try
+        End Function
+
+        Private Shared Function IsDownloadArchive(valuePath As String) As Boolean
+            Select Case Path.GetExtension(valuePath).ToLowerInvariant()
+                Case ".7z", ".zip", ".rar", ".gz", ".xz", ".zst", ".tar"
+                    Return True
+                Case Else
+                    Return False
+            End Select
+        End Function
+
+        Private Shared Function FrameInterpolationArchiveMarkerPath(coreRoot As String, relativePath As String) As String
+            Dim normalized = relativePath.Replace("\"c, "/"c).ToUpperInvariant()
+            Dim hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)))
+            Return Path.Combine(coreRoot, "models", "Frame-Interpolation", ".downloads", hash & ".installed")
         End Function
 
         Private Sub AddDownloadGroup(category As String, entries As List(Of DownloadModelEntry))
@@ -3698,6 +3840,9 @@ Namespace videoenhancer
                 _downloadOnline = False
                 SetDownloadActionsEnabled(False)
                 ShowOfflineDownloadStatus()
+            ElseIf result.Errors.Contains("AUTH_REQUIRED|") Then
+                SetDownloadRowState(relativePath, "需要认证", "重试", UiDanger, UiAccent)
+                ShowStatus("私有模型仓库需要有效令牌，请设置 VIDEOENHANCER_MODELSCOPE_TOKEN 或 MODELSCOPE_API_TOKEN 后重启 3FUI。", True)
             Else
                 SetDownloadRowState(relativePath, "下载失败", "重试", UiDanger, UiAccent)
                 ShowStatus(CliErrorMessage(result.Errors, "模型下载失败"), True)
@@ -3763,7 +3908,9 @@ Namespace videoenhancer
                     If result.ExitCode <> 0 Then
                         failed = True
                         failureMessage = CliErrorMessage(result.Errors, "模型下载失败")
-                        SetDownloadRowState(finishedPath, "下载失败", "重试", UiDanger, UiAccent)
+                        SetDownloadRowState(finishedPath,
+                            If(result.Errors.Contains("AUTH_REQUIRED|"), "需要认证", "下载失败"),
+                            "重试", UiDanger, UiAccent)
                         If result.Errors.Contains("NO_NETWORK|") Then _downloadOnline = False
                     Else
                         completed += 1
@@ -3925,6 +4072,8 @@ Namespace videoenhancer
 
         Private Sub UpdateDownloadUtilityButtons()
             _btnRefreshDownloads.Enabled = Not _downloadsLoading AndAlso
+                _downloadActiveCount = 0 AndAlso Not _archiveCleanupBusy
+            _btnDownloadPluginUpdate.Enabled = Not _updateCheckBusy AndAlso
                 _downloadActiveCount = 0 AndAlso Not _archiveCleanupBusy
             _btnCleanArchives.Enabled = _downloadActiveCount = 0 AndAlso Not _archiveCleanupBusy
         End Sub

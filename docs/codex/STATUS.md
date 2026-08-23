@@ -1,17 +1,45 @@
 # Project Status
 
-Last updated: 2026-08-23 01:40
+Last updated: 2026-08-23 21:17
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 完成项目目录整理，保留根目录主线并暂停新增 PR。
-- Current state: 根目录已成为唯一活动源码树；上游更新、预览版有效修改和 BasicVSR++ 适配已合并到主线。旧源码、旧构建物和 PR worktree 已归档。自包含 CLI、插件 DLL 和布局文件已在实际 3FUI 插件目录完成验证复制。
+- Current objective: 以独立 SemVer 维护 VideoEnhancer，并通过 ModelScope 提供可校验、可回滚、需用户确认的插件稳定版更新。
+- Current state: 正式主线与 ModelScope stable 已升为独立版本 1.11.1，上游基线仍为 1.4.2。模型下载页新增“下载插件更新”兜底入口，复用同一更新协议且不把插件 ZIP 混入模型清单。本机安装目录刻意保留带兜底按钮的过渡 1.11.0 DLL/CLI，用于真实触发 1.11.0 -> 1.11.1；已验证它能发现并下载校验远端新包。
 - Last active agent: Codex
 - Likely next agent: user / Codex
-- Next recommended step: 在 NVIDIA/3060 机器上验证 TensorRT 和 BasicVSR++；不要提交生成的 EXE/DLL 或 `__pycache__`。当前整理提交完成后，后续功能应直接从根目录主线继续。
+- Next recommended step: 在已启动的 3FUI 中先拒绝启动自动更新提示，再进入“模型下载”页点击“下载插件更新”，确认退出、替换和重启后显示 v1.11.1；随后提交当前源码与记录，再处理 `main` 相对远端 `ahead 9, behind 5` 的分叉。
 
 ## Active TODO
+
+- [x] Task: 评估并接入自有 ModelScope 模型镜像。
+  - Owner: user / Codex
+  - Status: `AerithDream/VideoEnhancer-Models` 已接入 CLI，排除 `PotPlayer.7z`；用户为测试暂时转为公开，后续仓库可见性由用户自行处理。2026-08-23 增量同步 `Frame-Interpolation/GIMM-VFI.7z`、`GMFSS.7z`、`RIFE.7z`，并补交旧 `RIFE/RIFE.7z` 兼容包。
+  - Notes/blockers: CLI 默认仓库、可配置仓库 ID、显式私库令牌、认证错误码和插件提示均已实现；公开模式当前清单返回 85 项，3 个新版包可列出，新 RIFE 包真实下载、SHA-256、解压和安装标记验证通过。旧包 resolve 返回 HTTP 200，但 ModelScope tree API 有缓存延迟。仍需用户在真实 3FUI 界面验证交互；上游仓库仍没有逐文件 LICENSE/NOTICE/COPYING。
+
+- [x] Task: 审查作者 v1.4.2 测试版并选择性合并。
+  - Owner: Codex
+  - Status: 已完成反编译审查、选择性移植、构建、隔离模型布局测试、ModelScope 增量同步与实际安装目录部署。
+  - Relevant files: `cli/Program.cs`, `cli/README.md`, `VideoEnhancerPlugin/PluginConfig.vb`, `VideoEnhancerPlugin/PluginPanel.vb`
+  - Notes/blockers: 保留旧 `models\RIFE` 兼容读取；新版 CUDA 补帧支持 `.pth/.pt/.pkl`，TensorRT 新目录只收 `.engine`；BasicVSR++ 优化目录为 1x，官方单 PTH 为 4x。未合并作者硬编码仓库、删除 `core-path`、旧环境检查和 1.4.2 版本号。GPU 推理仍待 NVIDIA 机器实测。
+
+- [ ] Task: 建立独立项目发行与上游同步流程。
+  - Owner: user / Codex
+  - Status: 独立 SemVer、上游基线记录、版本文档、ModelScope Release 生成脚本与公开稳定通道已完成；GitHub Actions/Release 自动发布和正式上游同步清单仍待后续。
+  - Planned scope: GitHub Actions/Release、上游提交筛选与同步记录。
+  - Notes/blockers: 用户确认不分发 `PotPlayer.7z`；ModelScope 创建数据集时自动填入 Apache-2.0 标签，项目自身与第三方代码/载荷的正式许可证仍需另行整理。
+
+- [x] Task: 借助 ModelScope 实现插件自动更新。
+  - Owner: Codex
+  - Status: 1.11.1 稳定清单和 ZIP 已上传公开数据集；模型下载页兜底入口、插件与 CLI 更新协议、校验、回滚、重启和下次启动结果提示均已完成。
+  - Relevant files: `VideoEnhancerPlugin/PluginUpdater.vb`, `PluginVersion.vb`, `PluginPanel.vb`, `PluginConfig.vb`, `cli/Program.cs`, `release/build-modelscope-release.ps1`, `release/test-updater.ps1`
+  - Notes/blockers: 隔离测试覆盖成功、路径穿越、篡改和文件锁回滚；本机过渡 1.11.0 插件已从公开远端发现 1.11.1 并下载通过 SHA-256。仍需用户在真实 3FUI 中点击模型页兜底入口，确认退出和自动重启体验。
+
+- [ ] Task: 为模型镜像建立逐文件来源/授权清单。
+  - Owner: user / Codex
+  - Status: 初步审计完成，97 个可下载文件均待逐文件核实；已识别 FlashVSR、RIFE、BasicVSR++、Real-ESRGAN、FFmpeg、Git、mkvtoolnix、PotPlayer 等来源线索。
+  - Notes/blockers: 上游项目代码许可证不等于预训练权重或转换后 TensorRT/ONNX 文件的再分发授权；PotPlayer.7z 为高风险商业软件，且当前 CLI 不会列出根目录文件；Backend/python 压缩包是混合依赖集合，不能用单一 Apache 标记覆盖。
 
 - [x] Task: 使用 LakeUI 列表视图重构模型下载页，减少窗口缩放时的大量控件布局和重绘。
   - Owner: Codex / next agent
@@ -609,3 +637,105 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - 记录：更新根目录 `AGENTS.md`、`docs/codex/INDEX.md`、`docs/codex/STATUS.md`、`version/工作进度.md` 和 `.gitignore`。
 - 验证：`git pull` 已为 up to date；`git diff --cached --check` 通过；整理提交为 `bc5f5a5 chore: 整理主线目录并归档旧文件`。生成的 EXE、DLL 和 `__pycache__` 未纳入提交。
 - Git：`main` 相对 `origin/main` 为 ahead 9；工作树 clean，整理提交已完成，远端尚未推送。
+
+### 2026-08-23 12:30 - Codex
+
+- 用户提出是否应将模型下载源迁移到自有 ModelScope 仓库；本轮按咨询性质仅做只读评估，未修改业务源码、未创建 PR、未提交或推送。
+- 检查结果：`cli/Program.cs` 中 tree API 和 resolve 根地址硬编码为 `ARXChem/VideoEnhancer-Models`；下载器已经保留远端相对路径到 `models`、`python`、`bin` 的映射，并校验文件大小与 SHA-256，因此迁移可优先采用同路径镜像 + 可配置 endpoint 的小改动方案。
+- 风险与决策：原仓库及其中第三方模型的再分发许可证尚未核实；在获得用户确认和许可证依据前，不实施整库搬运或公开镜像。建议先确认自有仓库命名、是否保留旧源 fallback，以及是否需要一次性迁移脚本。
+- Git：启动时 `git pull` 因本地 `main` 与远端分叉产生 3 个文件冲突，已执行 `git merge --abort` 撤销本次同步；当前 `main...origin/main [ahead 9, behind 4]`，工作树 clean。
+
+### 2026-08-23 12:45 - Codex
+
+- 用户决策：项目作为独立项目维护，不再追随原作者的 QQ 群 Release；GitHub 作为源码/Release 主站，ModelScope 作为模型和大文件源，仅不定期同步上游功能。
+- 处理边界：可以实现独立发行、可配置 ModelScope、迁移清单、文件校验和上游同步流程；不上传或协助公开再分发明知无授权的模型文件，许可证未知时优先支持私有镜像或占位配置。
+- 本轮未修改业务源码、未访问 QQ 资源、未上传模型或创建远端仓库。下一步需要用户提供独立 GitHub 仓库与 ModelScope 仓库 ID，或明确先只做本地代码骨架。
+
+### 2026-08-23 13:10 - Codex
+
+- 对 `ARXChem/VideoEnhancer-Models` 做了在线只读审计：API 返回 118 项，排除目录、`.gitkeep`、README 和 `.gitattributes` 后 101 个 blob；按当前 CLI `allowedRoots` 实际可下载 97 个文件，总体约 13.56 GiB。
+- 授权证据：根 README 只声明数据集卡片 `Apache License 2.0`；`FlashVSR/README.md` 声明 `apache-2.0` 并附上游项目链接。仓库没有逐文件许可证、NOTICE 或来源映射。
+- 待核实/不可直接视为已授权：全部 97 个可下载文件，尤其 `Backend/*.7z`、`Param-Bin/NCNN-20260821.7z`、`RIFE/RIFE.7z`、15 个 `TensorRT-Default/*.engine`、28 个 `ONNX/*.onnx`、42 个 `PTH/*.pth`、`Bin/*.7z` 和 5 个 `FlashVSR/*` 权重文件。`BasicVSR++/*.pth` 与根目录 `PotPlayer.7z` 虽不在当前下载筛选中，也没有逐文件授权证据；PotPlayer 属于商业软件，风险最高。
+- 交叉核对到的上游代码许可证线索：FlashVSR Apache-2.0、Real-ESRGAN BSD-3-Clause、RIFE MIT、OpenMMLab/BasicVSR++ Apache-2.0、FFmpeg 至少存在 LGPL/GPL 构建差异；这些只证明代码/项目线索，不足以证明对应权重、转换产物或打包二进制可按同一许可证再分发。
+- Git：仍为 `main...origin/main [ahead 9, behind 4]`；仅 HandShake 文档有未提交修改，未上传或复制任何模型文件。
+
+### 2026-08-23 13:20 - Codex
+
+- 用户明确确认：`PotPlayer.7z` 不纳入自有发行线；希望继续推进模型分发。
+- 决策：后续技术实现排除 `PotPlayer.7z`，并将模型源、清单、校验和 Release 流程继续解耦；对没有授权证据的第三方资源只支持私有镜像、手动导入或占位配置，不代为公开上传或发行。
+- 本轮未修改业务源码、未上传模型；Git 仍为 `main...origin/main [ahead 9, behind 4]`，工作树只有 HandShake 文档修改。
+
+### 2026-08-23 13:25 - Codex
+
+- 用户要求先上传到私有 ModelScope 库。当前等待私有数据集 ID；不在聊天中接收或保存 Token，上传时使用用户本机环境变量。
+- 预估范围：排除 `PotPlayer.7z` 后，待处理资源约 13.56 GiB；仍需用户确认是否上传其余 97 个可下载文件，或先分批上传模型权重。
+- 本轮未上传文件、未修改业务源码；Git 状态未变化。
+
+### 2026-08-23 13:30 - Codex
+
+- 私有镜像目标 `AerithDream/VideoEnhancer-Models` 已创建并保持 private；ModelScope CLI 登录身份为 `AerithDream`。
+- 下载：从 `ARXChem/VideoEnhancer-Models` 下载到本机 `D:\modelscope-mirror\VideoEnhancer-Models`，共 108 个文件/约 13.5 GiB，明确排除 `PotPlayer.7z`；本地 D 盘余量约 49 GiB。
+- 上传：使用 `modelscope upload` 目录批处理、断点缓存和 4 workers；第一次使用 `path_in_repo='.'` 时服务端返回 `invalid commit action` 且未提交，随后省略该参数重试成功。
+- 结果：上传报告 108/108 committed，0 failed；其中 95 个 LFS blob 服务端复用、13 个普通文件提交。通过 ModelScope SDK 查询目标与上游元数据：目标 100 个非 `.gitkeep` blob，上游 101 个，唯一缺失为 `PotPlayer.7z`；路径、大小、SHA-256 全部一致。
+- 验证：私有目标 `README.md` 可成功下载；`modelscope info` 显示 `AerithDream/VideoEnhancer-Models` 为 private。
+- Git：工作树仍只有 `docs/codex/STATUS.md` 和 `version/工作进度.md` 修改，`main...origin/main [ahead 9, behind 4]`；未提交源码或生成物。
+
+### 2026-08-23 18:59 - Codex
+
+- 目标：继续 CLI 本地化，将模型下载切换到自有 ModelScope，并复核上游是否值得合并。
+- 上游：执行 `git fetch origin --prune`；`origin/main` 最新仍为 `375a3f5`（2026-08-23 08:39，合并 PR #9），本地仍为 `ahead 9, behind 4`。PR #10 的后端感知检查已在本地主线等价实现；PR #9 混有删除 `core-path`、移除 UI 和格式噪音，只把结构化 `ffprobe` HDR 探测保留为以后选择性移植候选。本轮没有合并上游提交。
+- 源码：`cli/Program.cs` 默认仓库改为 `AerithDream/VideoEnhancer-Models`，支持 `VIDEOENHANCER_MODELSCOPE_DATASET`、`VIDEOENHANCER_MODELSCOPE_TOKEN` 和 `MODELSCOPE_API_TOKEN`；私库清单请求增加认证，私库下载使用进程内 HTTP，避免令牌出现在 aria2 命令行；增加 `AUTH_REQUIRED` 错误码。`PluginPanel.vb` 增加列表、单项和批量下载的认证提示；`cli/README.md` 同步说明。
+- 认证调研：ModelScope `modelscope login` 的 API 会话位于 Python pickle Cookie 的 `m_session_id`，`credentials/git_token` 不能访问私有 tree/resolve API；CLI 不自动反序列化不稳定的 Python pickle。曾临时写入用户级令牌用于验证，用户随后把测试集转为公开，已删除该用户环境变量；没有输出令牌或写入仓库。
+- 验证：CLI Release 构建 0 错误、2 个既有 CA1416 警告；插件用 3FUI 6.1.39 官方程序集构建成功；私库令牌模式清单返回 82 项，README 和 740,318 字节 ONNX 下载及 SHA-256 校验通过；用户将测试集公开后，无令牌模式清单仍返回 82 项，aria2 下载同一 ONNX 成功并通过校验。测试下载文件均已清理。
+- 部署：执行 `cli/build.ps1` 生成单文件 CLI；将 `videoenhancer.exe`（17,399,816 字节）、`videoenhancer.3fui.dll`（5,276,160 字节）和布局复制到 `C:\Program portable\3FUI\plugin`，三项 SHA-256 与工作区构建物一致；部署后的 CLI 无令牌读取 82 项成功。
+- 用户决策：ModelScope 测试集目前公开，Codex 不再修改其可见性；插件功能测试结束后由用户自行决定是否恢复私有。
+- Git：`main...origin/main [ahead 9, behind 4]`，修改文件为 `VideoEnhancerPlugin/PluginPanel.vb`、`cli/Program.cs`、`cli/README.md`、`docs/codex/STATUS.md`、`version/工作进度.md`；工作树不干净，未提交、未推送。生成的 EXE/DLL 未纳入 Git。
+
+### 2026-08-23 19:13 - Codex
+
+- 用户反馈 3FUI 启动反复显示“环境检测未通过：[环境检查] videoenhancer v1.9.6-preview.2”。
+- 根因一：`cli/Program.cs` 的 `ToolVersion` 仍是 preview.2，而 `cli/VideoEnhancer.csproj` 已为 1.10.1；已统一为正式版本 1.10.1。
+- 根因二：`RunCheck(verbose: true)` 会无条件验证目录内全部 TensorRT Engine，即使当前后端不是 TensorRT；当前机器无 CUDA，因此无关 Engine 导致启动检测失败。现仅在实际后端为 `tensorrt` 时验证 Engine，显式 `--validate-engines` 功能不变。
+- 根因三：插件环境检查只取 stdout 第一条 `[环境检查]`，因此失败提示只显示版本行；现并行读取 stdout/stderr，优先显示 `[缺失]`，否则显示最后一条环境总结，避免隐藏真实原因和 stderr 管道阻塞。
+- 当前用户配置原为 `Backend=tensorrt`、PTH 模型；已在 3FUI 未运行时改为 `Backend=ncnn` 和同名 `Param-Bin/AnimeJaNai-V3-2x-HD-Sharp1-Compact-430K`，其他设置保持不变。该配置位于 `%LocalAppData%\FFmpegFreeUI\videoenhancer.plugin.json`，不在 Git 中。
+- 验证：CLI Release 构建成功（0 错误、2 个既有 CA1416 警告）；插件用 3FUI 6.1.39 程序集构建成功；单文件 EXE 报告 v1.10.1。安装目录执行 `--check -backend ncnn` 识别 22 个模型并全部通过；显式 TensorRT 检查仍因无 CUDA 正确退出 1 并显示真实缺失项。
+- 部署：重新生成并复制 `videoenhancer.exe`（17,399,914 字节）、`videoenhancer.3fui.dll`（5,276,672 字节）和布局到 `C:\Program portable\3FUI\plugin`，三项哈希与工作区一致。
+- 版本：`version/版本迭代记录.md` 将 1.10.1 设为正式独立维护主线，1.9.6-preview.2 移入历史；尚未创建 GitHub Release。
+- Git：`main...origin/main [ahead 9, behind 4]`，工作树不干净，未提交、未推送；生成的 EXE/DLL 未纳入 Git。
+
+### 2026-08-23 20:08 - Codex
+
+- 目标：审查作者最新测试版 `D:\read\videoenhancer.exe`，选择性合并适合独立主线的新增能力，并部署测试。
+- 样本：作者 EXE 为 v1.4.2，17,441,903 字节，SHA-256 `3FE47EE098C680AC2F31FA9EE771DF07FE4D1437511F95E62A7A248D65CFA737`，未签名；已用临时工具解包和反编译。`origin/main` 仍停在 `375a3f5`，没有该测试版源码。
+- 取舍：移植 `models\Frame-Interpolation`、CUDA `.pth/.pt/.pkl` 递归发现、TensorRT `.engine`、GIMM-VFI/GMFSS 自动切 CUDA、BasicVSR++ `config.py + chkpts.pth` 1x 优化目录、ModelScope 新分类和逐包安装标记；保留旧 `models\RIFE` 双读兼容。拒绝作者测试版中的 `ARXChem` 硬编码、删除 `core-path`、旧 `RunCheck` 和 1.4.2 版本号。
+- 源码：修改 `cli/Program.cs`、`cli/README.md`、`VideoEnhancerPlugin/PluginConfig.vb`、`VideoEnhancerPlugin/PluginPanel.vb`。补帧目录从超分自动发现和显式路径解析中排除；TensorRT 新目录只列 Engine，旧 RIFE PTH 仅保留兼容入口；BasicVSR++ 官方 PTH 为 4x、优化目录为 1x。
+- ModelScope：从作者仓库增量下载并校验 3 个文件，总计 774,800,482 字节；上传到 `AerithDream/VideoEnhancer-Models` 时服务端复用 3 个 LFS blob，0 失败。目标仍为 public；3 个新路径的大小和 SHA-256 与上游一致。旧 `RIFE/RIFE.7z` 已补交，resolve 返回 HTTP 200；tree API 暂有缓存延迟。
+- 验证：CLI Release 构建成功（0 错误、2 个既有 CA1416 警告）；插件用 3FUI 6.1.39 程序集构建成功。隔离目录 6 项发现断言全部通过，覆盖新 RIFE、GIMM-VFI、GMFSS、旧 RIFE、补帧目录排除和 BasicVSR++ 两种格式；文本确认官方 4x、优化目录 1x。真实从自有镜像下载 `Frame-Interpolation/RIFE.7z` 成功，解压到新目录、生成 1 个 `.downloads` 标记并发现 5 个实际 NCNN 模型。
+- 部署：执行 `cli/build.ps1`，复制到 `C:\Program portable\3FUI\plugin`。EXE 17,402,650 字节、SHA-256 `37116A21FEB65A36A40EE4BD9DD5F9727846163EACC64799A43BA8320A47686B`；DLL 5,278,208 字节、SHA-256 `BAB95BB500DC06C4D0368CAC55492920584CA3E916603EE06A62A3F1AF1D27E2`；布局哈希也与工作区一致。安装版 `-h` 显示 v1.10.1，公开镜像清单可见 3 个新版补帧包。
+- 限制：当前机器没有 NVIDIA 推理环境，GIMM-VFI、GMFSS 和 TensorRT Engine 只完成发现/参数面验证，未做真实 GPU 推理。终端安全策略拒绝递归删除隔离测试目录，残留位于 `%TEMP%\videoenhancer-model-layout-test-8db6c226beb44eddac5584126473562f`，不在仓库或 3FUI 安装目录。
+- Git：启动 `git pull` 因 `PluginPanel.vb`、`Program.cs`、`README.md` 的本地修改会被覆盖而中止，没有改写工作树。当前仍为 `main...origin/main [ahead 9, behind 4]`；工作树不干净，未提交、未推送。建议完成 3FUI 界面和 NVIDIA 实机验证后提交源码与 HandShake 记录，排除生成的 EXE/DLL。
+
+### 2026-08-23 20:58 - Codex
+
+- 目标与版本：用户确认采用独立 SemVer，并单独记录上游基线；正式版本从 1.10.1 升为 1.11.0，上游基线为 1.4.2，不使用上游版本决定更新。
+- 启动同步：重新读取 `AGENTS.md`、`docs/codex/INDEX.md`、`docs/codex/STATUS.md` 和 HandShake skill；`git pull` 因本地重叠修改中止且未改写工作树。远端新增 `cbfda2f` 的 HDR/后端检查在本地已有等价实现，未整体合并。
+- 插件：新增 `PluginVersion.vb` 和 `PluginUpdater.vb`；`PluginConfig` 增加 `AutoCheckUpdates`。插件加载后后台读取 ModelScope `stable.json`，底部提供“检查更新”按钮；发现更高 SemVer 后由用户确认，下载时校验大小与 SHA-256，随后复制 CLI 为临时更新器、退出并重启 3FUI；下次启动消费更新结果文件并显示成功或错误。
+- CLI：新增 `--apply-update` 内部模式及更新包、目标目录、等待 PID、重启程序和结果文件参数。ZIP 只允许 `package.json` 与三项运行文件；包内清单逐文件校验大小和 SHA-256。宿主退出后先完整备份再替换，任一失败恢复原文件；更新模式在 `core-path` 和后端检查前执行。
+- 发布端：新增 `release/build-modelscope-release.ps1`，校验版本一致后构建插件和自包含 CLI，生成含逐文件清单的 ZIP 与 `stable.json`；新增 `release/test-updater.ps1`。根 README、CLI/插件 README、csproj、deploy 默认版本和版本记录均更新为独立 1.11.0。
+- ModelScope：以登录身份 `AerithDream` 创建公开数据集 `AerithDream/VideoEnhancer-Releases`，上传 README、`stable.json` 和 `releases/1.11.0/VideoEnhancer-1.11.0-win-x64.zip`，3/3 提交成功、0 失败；未修改 `AerithDream/VideoEnhancer-Models` 的 public 状态。ModelScope 未显式指定许可证时自动标记 Apache-2.0，需在后续许可证整理中复核。
+- 验证：插件编译成功；CLI Release/单文件发布成功，仅保留 2 个既有 CA1416 Windows 平台警告。隔离更新测试通过正常替换、`../` 路径拒绝、包内篡改拒绝，以及 EXE/DLL 已替换后布局文件写入失败的真实回滚；编译后的插件下载客户端也正确拒绝故意错误的外层 SHA-256。远端 ZIP 为 15,143,282 字节，SHA-256 `2C1562711069D3683806EF19B7DE63B6F1158DF318843BA6E36FD3509F106E22`，与远端清单一致；插件客户端读取远端得到 Current=Remote=1.11.0、HasUpdate=False。
+- 部署：确认 3FUI 未运行后，将 EXE 17,449,371 字节、DLL 5,293,568 字节和布局复制到 `C:\Program portable\3FUI\plugin`；三项源/目标 SHA-256 一致，安装版帮助显示 v1.11.0。
+- Git：`main...origin/main [ahead 9, behind 5]`；工作树包含本轮与前序未提交源码/文档修改和新增 release 脚本，仍不干净，未提交、未推送。生成的根 EXE/DLL 与 `release/dist` 由 `.gitignore` 排除。建议实机确认更新按钮和重启体验后提交，再单独处理远端分叉。
+
+### 2026-08-23 21:15 - Codex
+
+- 目标：按用户要求发布 1.11.1，并让模型下载页也能触发插件更新，作为底部检查更新按钮的兜底。
+- 启动：读取 `AGENTS.md`、HandShake skill、`docs/codex/INDEX.md` 与 `STATUS.md`；`git pull` 因 README、插件、CLI 和发布脚本的既有未提交修改会被覆盖而中止，没有改写、stash 或回滚工作树。仍为 `main...origin/main [ahead 9, behind 5]`。
+- UI：`PluginPanel.vb` 在官方模型下载页标题栏新增 `_btnDownloadPluginUpdate`“下载插件更新”，与刷新资源并列；按钮复用 `CheckForUpdatesAsync`，检查或模型下载忙碌时正确禁用。插件 ZIP 继续使用独立 Release 数据集，不进入模型 tree API、模型目录或解压逻辑。
+- 过渡测试：先保持版本 1.11.0 构建带兜底入口的 DLL，并在 3FUI 未运行时只覆盖安装目录 DLL，保留 1.11.0 CLI；安装 DLL SHA-256 与过渡构建一致。随后才把源码和发布配置升至 1.11.1，以便真实测试升级发现。
+- 版本：`PluginVersion.Current`、CLI `ToolVersion`、csproj、deploy、两个 release 脚本、根 README 和版本记录统一为 1.11.1；发布脚本新增 CLI 常量一致性校验。上游基线保持 1.4.2。
+- 构建与测试：`release/build-modelscope-release.ps1` 成功构建插件和自包含 CLI，仅有 2 条既有 CA1416 Windows 平台警告；`release/test-updater.ps1` 的正常替换、路径穿越拒绝、包内篡改拒绝和部分替换后文件锁回滚全部通过。
+- ModelScope：向公开 `AerithDream/VideoEnhancer-Releases` 上传 `stable.json` 和 `releases/1.11.1/VideoEnhancer-1.11.1-win-x64.zip`，2 个新/变更文件提交成功、0 失败；未使用 `--sync`，1.11.0 历史包保留。1.11.1 ZIP 为 15,143,363 字节，SHA-256 `1ED57927DF9B81315A27BB79097B10576C25E5239914EB7EAF01B6477448AE62`，远端实读一致。
+- 升级发现：直接加载已安装的过渡 1.11.0 DLL，读取远端得到 Remote=1.11.1、HasUpdate=True；实际下载到 `%LocalAppData%\FFmpegFreeUI\VideoEnhancer\updates\1.11.1`，长度和 SHA-256 与清单一致。未启动替换，刻意保留给用户在真实模型下载页点击测试。
+- 实机入口：已启动可见的 `C:\Program portable\3FUI\FFmpegFreeUI.exe`（启动 PID 3676）。用户需在启动自动提示中先点“否”，再从模型下载页点“下载插件更新”，确认退出、三文件替换、自动重启和结果提示。
+- 剩余：源码工作树仍不干净且未提交；实机确认后建议提交，再处理 Git 分叉。

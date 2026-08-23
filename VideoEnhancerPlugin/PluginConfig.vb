@@ -12,9 +12,9 @@ Namespace videoenhancer
         Public Property Enabled As Boolean = False
         ''' <summary>超分开关：是否将"加入编码队列"hook 到 videoenhancer.exe 中转。</summary>
         Public Property UpscaleEnabled As Boolean = True
-        ''' <summary>补帧开关：启用 RIFE 补帧，可与超分组合。</summary>
+        ''' <summary>补帧开关：启用 RIFE、GIMM-VFI 或 GMFSS 补帧，可与超分组合。</summary>
         Public Property InterpEnabled As Boolean = False
-        ''' <summary>补帧模型：ncnn 为 models\RIFE 下的子文件夹名（如 rife-v4.25），cuda 为 .pth 文件名（如 rife46）。</summary>
+        ''' <summary>补帧模型：优先使用 models\Frame-Interpolation 下的架构相对路径；旧 models\RIFE 继续兼容。</summary>
         Public Property InterpModel As String = ""
         ''' <summary>补帧倍率（RIFE --interpolate_factor，默认 2；须为大于 1 的数字）。</summary>
         Public Property InterpFactor As Double = 2.0
@@ -26,7 +26,7 @@ Namespace videoenhancer
         Public Property UpscaleTileSize As Integer = 0
         ''' <summary>超分推理后端：ncnn、cuda、tensorrt、onnx 或 flashvsr。</summary>
         Public Property Backend As String = "ncnn"
-        ''' <summary>RIFE 补帧后端：ncnn、cuda（PyTorch）或 tensorrt。</summary>
+        ''' <summary>补帧后端：ncnn、cuda（PyTorch 权重）或 tensorrt（Engine）。</summary>
         Public Property InterpBackend As String = "ncnn"
         ''' <summary>组合处理顺序：upscale-first（画质优先，默认）或 interp-first（速度/算力优先）。</summary>
         Public Property ProcessOrder As String = "upscale-first"
@@ -34,6 +34,8 @@ Namespace videoenhancer
         Public Property ImageOutputOriginal As Boolean = False
         Public Property ImagePng As Boolean = True
         Public Property ImageSuffix As String = "timestamp"
+        ''' <summary>插件页面首次加载后是否在后台检查稳定版更新。</summary>
+        Public Property AutoCheckUpdates As Boolean = True
 
         Private Shared Function GetConfigDir() As String
             ' 支持环境变量覆盖（测试/便携部署用），默认 %LocalAppData%\FFmpegFreeUI

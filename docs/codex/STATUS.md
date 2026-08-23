@@ -778,3 +778,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Verification: GitHub `releases/latest` API 实测已指向 `v1.0.3`（双资产 stable.json + ZIP）；本机 `C:\Program portable\3FUI\plugin` 三文件已用发布包覆盖，EXE/DLL SHA-256 与 package 一致，`update-result.txt` 写为 `OK|1.0.3`（下次启动显示"已更新到 v1.0.3"）；再次运行 `modelscope upload` 返回 "All files were already committed"（7/7），确认 1.0.3 已写入服务端。
 - Known issue持续: ModelScope resolve/tree/raw API 读侧快照仍停在 2026-08-23 21:27 的 1.11.2（>2.5 小时未追平），写入侧一切正常。影响：≤1.11.2 旧客户端在追平前看不到新版本；1.11.x 已装机器对 1.0.3 永远不提示更新（数值比较），需手动升级一次（本机已完成，3060 机待用户手动处理）。1.0.3 起新协议客户端走 GitHub 检查+兜底不受影响。
 - Git status: 提交前工作树含版本切换与记录修改；将随本次收尾提交并推送 fork。`main` 相对 `origin/main`（上游）为 ahead 14 / behind 5，独立维护不合并不推送。
+
+### 2026-08-24 00:25 - ZCode
+
+- User finding: 用户发现 ModelScope 上多了一个同名**模型**仓库 `AerithDream/VideoEnhancer-Releases`——此前"读缓存延迟"诊断错误，真实根因如下。
+- Root cause: `modelscope upload` 不带 `--repo_type` 时默认按 model 处理；`release/build-modelscope-release.ps1` 的 `-PublishModelScope` 漏写该参数，昨晚起所有发布上传都进了自动创建的同名模型仓库（数据集从未收到 1.11.3/1.0.3，所以 resolve 一直停在 1.11.2）。且上传目录内的本地断点缓存 `.ms_upload_cache` 的 key 不含仓库类型，导致后续重试（即使补了 `--repo_type dataset`）也被误判为"already committed"而跳过。
+- Fix: 发布脚本两处 `modelscope upload` 补 `--repo_type dataset`（含手动命令提示行）；删除 `release/dist/modelscope/.ms_upload_cache` 后重新以 dataset 类型上传——7/7 committed（5 个 ZIP 服务端 LFS 复用）。
+- Verification: 数据集 resolve 的 `stable.json` 现返回 **1.0.3**，`releases/1.0.3/...zip` 返回 302；"ModelScope 读缓存延迟"问题不存在，已关闭该观察项。
+- Remaining (user manual): 误建的同名模型仓库 API 禁止删除（E3001 仅网页控制台可删），需用户在 https://www.modelscope.cn/models/AerithDream/VideoEnhancer-Releases 页面手动删除。
+- Git status: 脚本修复与记录随本次提交推送 fork。

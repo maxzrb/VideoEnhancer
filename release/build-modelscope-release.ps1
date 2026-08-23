@@ -128,7 +128,7 @@ if ($PublishModelScope) {
     if (-not (Get-Command modelscope -ErrorAction SilentlyContinue)) {
         throw '未找到 modelscope CLI；请先安装并 modelscope login 后重试'
     }
-    $code = Invoke-Native { modelscope upload $ModelScopeReleaseDataset $distRoot }
+    $code = Invoke-Native { modelscope upload $ModelScopeReleaseDataset $distRoot --repo_type dataset }
     if ($code -ne 0) { throw "modelscope upload 失败（$ModelScopeReleaseDataset）" }
     Write-Host "OK: ModelScope 已同步（$ModelScopeReleaseDataset）"
 }
@@ -137,5 +137,5 @@ if (-not $PublishGithub -and -not $PublishModelScope) {
     Write-Host "ModelScope 上传目录：$distRoot"
     Write-Host '手动发布命令：'
     Write-Host "  gh release create v$Version `"$zipPath`" `"$stablePath`" --repo $GithubRepo --title `"VideoEnhancer $Version`" --notes `"$Notes`""
-    Write-Host "  modelscope upload $ModelScopeReleaseDataset `"$distRoot`""
+    Write-Host "  modelscope upload $ModelScopeReleaseDataset `"$distRoot`" --repo_type dataset"
 }

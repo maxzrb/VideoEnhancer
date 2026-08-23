@@ -332,9 +332,9 @@ Namespace videoenhancer
             Dim userAccepted = False
             _btnCheckUpdates.Enabled = False
             _btnDownloadPluginUpdate.Enabled = False
-            If Not silent Then ShowStatus("正在从 ModelScope 检查更新…", False)
+            If Not silent Then ShowStatus("正在从 GitHub 检查更新…", False)
             Try
-                Dim manifest = Await PluginUpdater.FetchStableManifestAsync()
+                Dim manifest = Await PluginUpdater.FetchLatestManifestAsync()
                 If Not PluginUpdater.HasUpdate(manifest) Then
                     If Not silent Then ShowStatus("当前已是最新稳定版 v" & PluginVersion.Current, False)
                     Return

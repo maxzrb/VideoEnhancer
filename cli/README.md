@@ -104,7 +104,7 @@ PowerShell 示例：
 
 ## 插件自动更新
 
-插件默认从公开数据集 `AerithDream/VideoEnhancer-Releases` 的 `stable.json` 检查独立稳定版，也可用 `VIDEOENHANCER_UPDATE_DATASET=owner/name` 切换更新源。发现更高 SemVer 后必须由用户确认；下载会校验清单中的大小与 SHA-256。
+插件以 GitHub Release 为唯一版本标准：读取 `maxzrb/VideoEnhancer` 的 `releases/latest`，并下载其附带的 `stable.json` 清单资产；可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖检查仓库，`VIDEOENHANCER_UPDATE_GITHUB_TOKEN` 供私有仓库或提高 API 限频使用。更新包下载首选 ModelScope 数据集 `AerithDream/VideoEnhancer-Releases`（可用 `VIDEOENHANCER_UPDATE_DATASET=owner/name` 切换），失败时回退 GitHub Release 资产；两源都校验清单中的大小与 SHA-256。发现更高 SemVer 后必须由用户确认。
 
 更新包只允许包含 `videoenhancer.exe`、`videoenhancer.3fui.dll`、`videoenhancer-layout.json` 和包内校验清单。插件将当前 CLI 复制为临时更新器，等待 3FUI 退出后备份并替换三个运行文件；任一替换失败会回滚，成功后自动重启 3FUI。`--apply-update` 及相关参数是插件内部更新协议，不作为普通处理命令使用。
 

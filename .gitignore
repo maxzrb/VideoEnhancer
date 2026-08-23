@@ -13,6 +13,9 @@
 /archive/
 **/__pycache__/
 
+# 本机 AI 会话目录
+/.zcode/
+
 # Root build artifacts
 /videoenhancer.exe
 /videoenhancer.3fui.dll

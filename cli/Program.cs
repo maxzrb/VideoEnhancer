@@ -19,7 +19,21 @@ namespace VideoEnhancer;
 /// </summary>
 internal static class Program
 {
-    private const string ToolVersion = "1.11.2";
+    // 版本唯一来源是 cli\VideoEnhancer.csproj 的 <Version>；运行时从程序集元数据读取，避免多处字面量漂移。
+    private static string ToolVersion { get; } = ResolveToolVersion();
+
+    private static string ResolveToolVersion()
+    {
+        var assembly = Assembly.GetEntryAssembly();
+        var informational = assembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informational))
+        {
+            // InformationalVersion 可能带 "+提交哈希" 元数据后缀，缓存目录等用途需要纯版本号。
+            var plus = informational.IndexOf('+');
+            return plus > 0 ? informational[..plus] : informational;
+        }
+        return assembly?.GetName().Version?.ToString(3) ?? "0.0.0";
+    }
     private const string EmbeddedPluginResource = "VideoEnhancer.Embedded.videoenhancer.3fui.dll";
     private const string EmbeddedAriaResource = "VideoEnhancer.Embedded.aria2-next.exe";
     private const string Embedded7ZipResource = "VideoEnhancer.Embedded.7za.exe";
@@ -347,6 +361,7 @@ internal static class Program
     private sealed class Options
     {
         public bool ShowHelp;
+        public bool ShowVersion;
         public bool ListModels;
         public bool CheckOnly;
         public bool DebugSplit;
@@ -493,6 +508,13 @@ internal static class Program
         }
 
         var o = ParseArgs(args);
+
+        if (o.ShowVersion)
+        {
+            // 发布脚本用它在构建后做端到端版本一致性校验。
+            Console.WriteLine(ToolVersion);
+            return 0;
+        }
 
         if (o.ShowHelp)
         {
@@ -791,6 +813,10 @@ internal static class Program
                 case "-h":
                 case "--help":
                     o.ShowHelp = true;
+                    break;
+                case "-v":
+                case "--version":
+                    o.ShowVersion = true;
                     break;
                 case "--list-models":
                 case "--search-models":
@@ -3788,6 +3814,7 @@ internal static class Program
         writer.WriteLine("  videoenhancer.exe --download-model <镜像相对路径>");
         writer.WriteLine("  videoenhancer.exe --download-url <链接> --download-output <文件>");
         writer.WriteLine("  videoenhancer.exe --extract-archive <压缩包> [--extract-output <目录>]");
+        writer.WriteLine("  videoenhancer.exe --version");
         writer.WriteLine();
         writer.WriteLine("必需参数");
         writer.WriteLine("  -i, --input <路径>");

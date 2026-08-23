@@ -1,10 +1,16 @@
 ﻿# 一键发布：把 outputs 中的产物发布到版本存档目录 + 各运行目录
 # 规则：每个版本更新都发布到 C:\Users\ARXChem\Documents\LakeUI-2\videoenhancer.3fui\<版本>\
 param(
-    [string]$Version = '1.11.2'
+    # 留空时自动读取 PluginVersion.vb 的当前版本。
+    [string]$Version = ''
 )
 $ErrorActionPreference = 'Stop'
 $base = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $Version) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $base 'VideoEnhancerPlugin\PluginVersion.vb'), [System.Text.Encoding]::UTF8)
+    if ($text -notmatch 'Public Const Current As String = "([^"]+)"') { throw '无法从 PluginVersion.vb 读取版本号' }
+    $Version = $Matches[1]
+}
 $archiveRoot = 'C:\Users\ARXChem\Documents\LakeUI-2\videoenhancer.3fui'
 $archive = Join-Path $archiveRoot $Version
 New-Item -ItemType Directory -Force -Path $archive | Out-Null

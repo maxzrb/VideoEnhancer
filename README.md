@@ -1,6 +1,6 @@
-# VideoEnhancer 1.11.2 独立维护版
+# VideoEnhancer 1.11.3 独立维护版
 
-> 当前独立版本为 1.11.2，上游同步基线为 1.4.2；两套版本号分别记录，不再跟随上游发行编号。
+> 当前独立版本为 1.11.3，上游同步基线为 1.4.2；两套版本号分别记录，不再跟随上游发行编号。
 
 # Short Guide for plugin: VideoEnhancer.3fui.dll
 

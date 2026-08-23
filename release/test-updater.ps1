@@ -1,5 +1,6 @@
-param(
-    [string]$Version = '1.11.2'
+﻿param(
+    # 留空时自动读取 PluginVersion.vb 的当前版本。
+    [string]$Version = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -7,6 +8,11 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $root = Split-Path -Parent $PSScriptRoot
+if (-not $Version) {
+    $text = [System.IO.File]::ReadAllText((Join-Path $root 'VideoEnhancerPlugin\PluginVersion.vb'), [System.Text.Encoding]::UTF8)
+    if ($text -notmatch 'Public Const Current As String = "([^"]+)"') { throw '无法从 PluginVersion.vb 读取版本号' }
+    $Version = $Matches[1]
+}
 $updater = Join-Path $root 'videoenhancer.exe'
 $package = Join-Path $PSScriptRoot "dist\modelscope\releases\$Version\VideoEnhancer-$Version-win-x64.zip"
 if (-not (Test-Path -LiteralPath $updater) -or -not (Test-Path -LiteralPath $package)) {

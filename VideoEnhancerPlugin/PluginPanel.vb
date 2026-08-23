@@ -718,7 +718,7 @@ Namespace videoenhancer
                     _cmbInterp.SelectedIndex = 0
                 End If
                 Dim modeText = If(_config.InterpBackend = "tensorrt",
-                    "（TensorRT，Frame-Interpolation 下的 .engine）",
+                    "（TensorRT，RIFE 权重首次使用自动构建 Engine）",
                     If(_config.InterpBackend = "cuda",
                     "（CUDA/PyTorch，Frame-Interpolation）",
                     "（NCNN，Frame-Interpolation 下的模型目录）"))
@@ -786,7 +786,7 @@ Namespace videoenhancer
             Dim modeText = If(backend = "basicvsrpp",
                 "BasicVSR++（NVIDIA）：官方 x4 权重或 1x 优化目录，不与补帧/图片模式混用",
                 If(backend = "tensorrt",
-                "TensorRT（NVIDIA）：超分 Engine 自动构建；补帧使用 Frame-Interpolation 下的 Engine",
+                "TensorRT（NVIDIA）：超分与 RIFE 补帧均按实际输入尺寸自动构建 Engine",
                 If(backend = "onnx",
                 "ONNX Runtime：超分用 .onnx；补帧可独立选择 NCNN 或 CUDA",
                 If(backend = "flashvsr",
@@ -1193,7 +1193,7 @@ Namespace videoenhancer
             _config.Save()
             RefreshInterpModels()
             UpdateAdvancedControlState()
-            ShowStatus("补帧后端：" & If(backend = "tensorrt", "TensorRT（现成 Engine）", If(backend = "cuda", "CUDA（PyTorch 权重）", "NCNN（Vulkan）")), False)
+            ShowStatus("补帧后端：" & If(backend = "tensorrt", "TensorRT（RIFE 权重自动构建 Engine）", If(backend = "cuda", "CUDA（PyTorch 权重）", "NCNN（Vulkan）")), False)
         End Sub
 
         Private Sub OnDynamicOpticalFlowSelected(sender As Object, e As EventArgs)

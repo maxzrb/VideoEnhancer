@@ -37,9 +37,9 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 
 - `-i` / `--input`：输入视频路径，含空格时加双引号。
 - `-modelpath` / `--modelpath` / `--model`：放大模型（完整路径 / models 下相对路径 / 模型名），省略用默认模型。NCNN、CUDA、TensorRT 都会递归搜索 `models` 的分类子目录，并排除独立的 `models\Frame-Interpolation` 和旧 `models\RIFE` 补帧目录；配合 `-no-upscale` 时可不提供（仅补帧模式）。
-- `-interp-model` / `--interp-model`：补帧模型，优先放在 `models\Frame-Interpolation` 并使用架构相对路径，如 `RIFE/rife-v4.25`、`GIMM-VFI/gimm-vfi`、`GMFSS/gmfss`；旧 `models\RIFE` 目录继续兼容。NCNN 使用含 `.param/.bin` 的目录，CUDA 递归识别 `.pth/.pt/.pkl`，TensorRT 使用现成 `.engine`；旧 RIFE 目录中的 TensorRT `.pth` 仅为已有配置保留兼容入口。
+- `-interp-model` / `--interp-model`：补帧模型，优先放在 `models\Frame-Interpolation` 并使用架构相对路径，如 `RIFE/rife-v4.25`、`GIMM-VFI/gimm-vfi`、`GMFSS/gmfss`；旧 `models\RIFE` 目录继续兼容。NCNN 使用含 `.param/.bin` 的目录，CUDA 递归识别 `.pth/.pt/.pkl`；TensorRT 目前只支持 RIFE `.pth/.pt/.pkl`，首次使用时由 RVE 按实际输入尺寸和当前 GPU 自动构建 Engine，GIMM/GMFSS 暂不提供 TensorRT。
 - `-interp-factor <N>`：补帧倍率（帧率倍数，默认 2，需大于 1；透传给 RIFE `--interpolate_factor`）。
-- `-interp-backend <ncnn|cuda|tensorrt>`：独立补帧后端；NCNN 使用 Vulkan 模型目录，CUDA/PyTorch 使用权重文件，TensorRT 使用 Engine。GIMM-VFI 与 GMFSS 选择后会自动切换到 CUDA。
+- `-interp-backend <ncnn|cuda|tensorrt>`：独立补帧后端；NCNN 使用 Vulkan 模型目录，CUDA/PyTorch 使用权重文件，TensorRT 从 RIFE 权重自动构建 Engine。GIMM-VFI 与 GMFSS 选择后会自动切换到 CUDA。
 - `-scene-threshold <N>`：转场检测阈值，使用 RVE 官方外部 0-10 标尺，默认 4；数值越低越敏感，越容易跳过转场处的插帧，直接透传给 RVE。
 - `-dynamic-optical-flow`：开启动态光流尺度，仅 CUDA/PyTorch RIFE 有效；TensorRT 会由 RVE 自动禁用。
 - `-tile-size <N>`：超分分块边长，0 表示 RVE 默认处理（不按显存自动试探）；显式值是输入帧边长，用于降低峰值显存但会增加处理时间。支持 NCNN、CUDA/PyTorch、TensorRT；ONNX 和 FlashVSR 不使用该参数。
@@ -48,14 +48,14 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 - `-backend <ncnn|cuda|tensorrt|onnx|flashvsr>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
   放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），
   补帧模型使用 `models\Frame-Interpolation` 下的 `.pth/.pt/.pkl` 文件；超分与补帧可独立使用。
-  `tensorrt` 使用 `models` 及其所有子目录中的 `.engine` 文件；NCNN 使用递归发现的 `.param/.bin` 模型文件夹。放大模型列表统一以相对 `models` 的路径显示。
+  `tensorrt` 的超分可选择 PTH 源模型或预置 `.engine`；补帧只选择 RIFE 权重并自动生成 Engine。NCNN 使用递归发现的 `.param/.bin` 模型文件夹。放大模型列表统一以相对 `models` 的路径显示。
 - `-no-upscale`：不放大（仅补帧模式，需配合 `-interp-model`）。
 - `-ffmpeg-settings`：FFmpeg 编码参数片段，**最后一个参数是输出文件路径**（无 `-o`），末尾 `-y` 表示覆盖。
   - 自动处理：`-map` 流映射会被移除（后端写进程自带映射），`-map_metadata 0` / `-map_chapters 0` 改写为 `1`；
   - 进度行按每秒 1 行节流输出，避免界面闪烁；
   - FPS 精确重算：用「已渲染帧数 / 有效耗时（总耗时 − 暂停耗时）」计算并保留两位小数
     （后端自报为取整且包含暂停时间），ETA 按相同速率重算；暂停状态来自 `-pause-shm` 共享内存字节。
-- `-h`：帮助（含 videoenhancer.ini 配置说明）；`-scale <N>`：强制倍率；`--list-models` / `--search-models`：按后端递归列出 `models` 子目录中的放大模型，并排除补帧目录；`--list-interp-models`：列出 `models\Frame-Interpolation` 与旧 `models\RIFE` 下的兼容补帧模型（CUDA 列权重，TensorRT 列 Engine；均可用 `--json` 输出一行 JSON 数组，供插件下拉框解析）；`--check`：仅检测环境。
+- `-h`：帮助（含 videoenhancer.ini 配置说明）；`-scale <N>`：强制倍率；`--list-models` / `--search-models`：按后端递归列出 `models` 子目录中的放大模型，并排除补帧目录；`--list-interp-models`：列出 `models\Frame-Interpolation` 与旧 `models\RIFE` 下的兼容补帧模型（CUDA 列全部权重，TensorRT 只列可自动构建的 RIFE 权重；均可用 `--json` 输出一行 JSON 数组，供插件下拉框解析）；`--check`：仅检测环境。
 - `-pause-shm <ID>`：透传暂停共享内存名（供插件暂停/恢复后端）；`-stop-shm <ID>`：停止共享内存名，字节变 1 时优雅停止，已处理部分正常写入输出文件（退出码 130）。
 - `--debug-split`：仅打印 `-ffmpeg-settings` 的拆分结果（`custom_encoder` / `output` / `overwrite`），用于调试 -map 剥除逻辑。
 
@@ -89,7 +89,7 @@ PowerShell 示例：
 - `bin\ffmpeg\ffmpeg.exe`
 - `python\python\python.exe` + `python\backend\rve-backend.py` + python 库
 - `models\` 模型库（含 `.param` / `.bin` 的模型文件夹）
-- `models\Frame-Interpolation\` 补帧模型库（NCNN：含 `.param/.bin` 的子文件夹；CUDA：`*.pth/*.pt/*.pkl`；TensorRT：`*.engine`；缺失时仅提示，不影响纯超分）
+- `models\Frame-Interpolation\` 补帧模型库（NCNN：含 `.param/.bin` 的子文件夹；CUDA：`*.pth/*.pt/*.pkl`；TensorRT：`RIFE/*.pth/*.pt/*.pkl`，Engine 首次使用自动生成；缺失时仅提示，不影响纯超分）
 - `models\RIFE\` 旧版补帧目录（只为已有安装和配置保留兼容读取，新下载不再写入）
 
 `--check` 会额外运行 `ffmpeg -version`、`import numpy, cv2` 与后端 `--version` 做功能验证。

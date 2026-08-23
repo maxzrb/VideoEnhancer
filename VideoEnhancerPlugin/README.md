@@ -44,15 +44,15 @@
    - 主程序队列执行进程名被设置为 videoenhancer.exe
      （`设置_v6.实例对象.替代进程文件名`），队列不再直接调用 ffmpeg；
    - 关闭（再次点击）时停止对参数面板的 hook，队列恢复直接执行 ffmpeg。
-2. 「超分开关」（BooleanSwitch）——打开时启用放大（需先开启插件总开关，与补帧互斥）；
+2. 「超分开关」（BooleanSwitch）——打开时启用放大（需先开启插件总开关，可与补帧组合）；
    右侧「选择推理方式」支持 `NCNN (Vulkan)`（默认）、`CUDA (PyTorch)`、
    `TensorRT (NVIDIA)` 和 `ONNX Runtime`；
    「放大模型」下拉框：首次展开会调用 `videoenhancer.exe --search-models`
    读取 models 目录可用模型并缓存（CUDA 时为 `models` 下的 `.pth/.pt/.pkl` 模型）；
    选择的模型写入插件配置。
-3. 「补帧开关」（BooleanSwitch）——打开时启用 RIFE 补帧（与超分互斥，不能同时开启）；
+3. 「补帧开关」（BooleanSwitch）——打开时启用 RIFE、GIMM-VFI 或 GMFSS 补帧，可与超分组合；
    「补帧模型」下拉框：首次展开会调用 `videoenhancer.exe --list-interp-models`
-   读取 `models\RIFE` 下的补帧模型（如 `rife-v4.25`；CUDA 时为 `.pth` 文件名，如 `rife46`）；
+   读取 `models\Frame-Interpolation` 下的补帧模型（如 `RIFE/rife-v4.25`；CUDA/TensorRT 时为 RIFE 权重名）；旧 `models\RIFE` 继续兼容；
    「补帧倍率」下拉框（2/3/4/8 倍）选择后弹窗提示：请前往「视频参数-画面帧」页面
    指定帧率为原视频的 X 倍；倍率作为 `-interp-factor` 传给 videoenhancer.exe。
 
@@ -190,10 +190,10 @@ pwsh -ExecutionPolicy Bypass -File .\build.ps1
 - 启用后队列任务不再直接执行 ffmpeg，而是执行 videoenhancer.exe
   （内部再调用 ffmpeg + rve-backend），请确保 videoenhancer.exe 的
   bin\ffmpeg / python / models 环境完整（`videoenhancer.exe --check` 可检测）。
-- 超分与补帧互斥（不能同时开启）：打开其中一个时另一个会被自动关闭并提示。
+- 超分与补帧可同时开启；组合时可选择先超后补或先补后超，跨后端会使用 FFV1 无损中间视频。
 - 仅补帧模式（未开超分开关、仅开补帧开关）时任务命令会自动附加 `-no-upscale`。
 - CUDA 推理（`-backend cuda`）：超分需在 `models` 下放置 `.pth/.pt/.pkl` 放大模型，
-  补帧需在 `models\RIFE` 下放置 `.pth` 补帧模型；当前开启的模式无 `.pth` 模型时
+  补帧需在 `models\Frame-Interpolation\RIFE` 下放置 RIFE `.pth/.pt/.pkl` 权重（旧 `models\RIFE` 继续兼容）；当前开启的模式无兼容模型时
   插件自动回退到 NCNN 并在状态区提示。
 - 多个插件同时修改 `替代进程文件名` 会互相影响，属已知限制。
 

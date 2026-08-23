@@ -1382,6 +1382,23 @@ internal static class Program
                 file.TryGetProperty("Size", out var size) ? size.GetInt64() : 0,
                 file.TryGetProperty("Sha256", out var hash) ? hash.GetString() ?? "" : ""));
         }
+        // Backend 曾同时保留无日期包和日期包；界面只展示最新日期包，避免用户下载两套
+        // 内容几乎相同的便携 Python。旧文件继续留在镜像中供历史版本使用。
+        var preferredPythonArchive = result
+            .Where(model => Regex.IsMatch(
+                model.Path, @"^Backend/python_\d{8}\.7z$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            .OrderByDescending(model => model.Path, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        if (preferredPythonArchive is not null)
+        {
+            result.RemoveAll(model =>
+                model.Path.Equals("Backend/python.7z", StringComparison.OrdinalIgnoreCase)
+                || (Regex.IsMatch(
+                        model.Path, @"^Backend/python_\d{8}\.7z$",
+                        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                    && !model.Path.Equals(preferredPythonArchive.Path, StringComparison.OrdinalIgnoreCase)));
+        }
+
         return result.OrderBy(m => m.Path, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
@@ -2317,10 +2334,10 @@ internal static class Program
 
     /// <summary>未显式指定时，为补帧选择与现有模型格式匹配的后端。</summary>
     private static string DefaultInterpBackend(string upscaleBackend) =>
-        upscaleBackend == "cuda" ? "cuda" : "ncnn";
+        upscaleBackend is "cuda" or "tensorrt" ? upscaleBackend : "ncnn";
 
     /// <summary>解析补帧模型路径：完整路径 / Frame-Interpolation 下相对路径 / 模型名；返回空串表示失败。</summary>
-    /// <remarks>新目录按后端区分 NCNN 文件夹、CUDA 权重和 TensorRT Engine；旧 models\RIFE 继续兼容读取。</remarks>
+    /// <remarks>新目录按后端区分 NCNN 文件夹和 PyTorch 权重；TensorRT 由 RVE 从 RIFE 权重自动构建 Engine。</remarks>
     private static string ResolveInterpModel(string requested, string backend)
     {
         var raw = requested.Trim().Trim('"');
@@ -2342,9 +2359,7 @@ internal static class Program
             }
             else if (backend == "tensorrt")
             {
-                if (File.Exists(candidate) && IsTensorRTEngineFile(candidate)) return candidate;
-                // 1.10.1 之前把 TensorRT 补帧源权重放在 models\RIFE；仅为旧配置保留该入口。
-                if (File.Exists(candidate) && IsPthModelFile(candidate) && IsInLegacyRifeDirectory(candidate)) return candidate;
+                if (File.Exists(candidate) && IsRifeInterpolationSource(candidate)) return candidate;
             }
             else if (Directory.Exists(candidate) && IsNcnnModelFolder(candidate))
             {
@@ -2372,7 +2387,7 @@ internal static class Program
 
         Console.Error.WriteLine("[错误] 未找到可用补帧模型：" + raw);
         Console.Error.WriteLine(backend is "cuda" or "tensorrt"
-            ? "[提示] 可用补帧模型（" + (backend == "tensorrt" ? "TensorRT .engine" : "CUDA/PyTorch") + "）："
+            ? "[提示] 可用补帧模型（" + (backend == "tensorrt" ? "RIFE TensorRT 自动构建" : "CUDA/PyTorch") + "）："
             : @"[提示] 可用补帧模型（models\Frame-Interpolation）：");
         foreach (var m in DiscoverInterpModels(backend))
         {
@@ -2405,11 +2420,11 @@ internal static class Program
         }
         if (backend == "tensorrt")
         {
-            var engines = roots.SelectMany(root => Directory.GetFiles(root, "*.engine", SearchOption.AllDirectories));
-            var legacyPth = Directory.Exists(LegacyRifeDir)
-                ? Directory.GetFiles(LegacyRifeDir, "*.pth", SearchOption.AllDirectories)
-                : Array.Empty<string>();
-            return engines.Concat(legacyPth)
+            // RVE 的补帧 TensorRT 路径以 RIFE PyTorch 权重为入口，并在权重旁按
+            // 分辨率/GPU/TensorRT 版本自动生成缓存。生成的 .engine 不能反过来当模型输入。
+            return roots.SelectMany(root => new[] { "*.pth", "*.pt", "*.pkl" }
+                    .SelectMany(pattern => Directory.GetFiles(root, pattern, SearchOption.AllDirectories)))
+                .Where(IsRifeInterpolationSource)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
@@ -2445,6 +2460,20 @@ internal static class Program
         return relative.Replace('\\', '/').TrimEnd('/');
     }
 
+    /// <summary>只有 RIFE 权重具备当前 RVE 后端的 TensorRT 自动构建实现。</summary>
+    private static bool IsRifeInterpolationSource(string path)
+    {
+        if (!File.Exists(path) || !IsPthModelFile(path)) return false;
+        if (IsInLegacyRifeDirectory(path)) return true;
+
+        var rifeRoot = Path.Combine(FrameInterpolationDir, "RIFE");
+        if (IsPathUnder(path, rifeRoot)) return true;
+
+        // 兼容用户直接放在 Frame-Interpolation 根目录的第三方 RIFE 权重。
+        return IsPathUnder(path, FrameInterpolationDir)
+            && Path.GetFileNameWithoutExtension(path).Contains("rife", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static int ListInterpModels(bool json, string backend)
     {
         var models = DiscoverInterpModels(backend);
@@ -2455,7 +2484,7 @@ internal static class Program
             return 0;
         }
         Console.WriteLine(backend is "cuda" or "tensorrt"
-            ? "可用补帧模型（" + (backend == "tensorrt" ? "TensorRT .engine" : "CUDA/PyTorch") + "，models\\Frame-Interpolation）："
+            ? "可用补帧模型（" + (backend == "tensorrt" ? "RIFE TensorRT 自动构建" : "CUDA/PyTorch") + "，models\\Frame-Interpolation）："
             : @"可用补帧模型（models\Frame-Interpolation）：");
         if (models.Count == 0)
         {
@@ -2923,6 +2952,10 @@ internal static class Program
         {
             Console.WriteLine("[信息] 补帧模型 : " + interpModel);
             Console.WriteLine("[信息] 补帧倍率 : " + (interpFactor ?? "2") + "x");
+            if (backend == "tensorrt")
+            {
+                Console.WriteLine("[TensorRT] RIFE 将按本阶段实际输入尺寸自动构建或复用 Engine 缓存。");
+            }
         }
         Console.WriteLine("[信息] 输出文件 : " + outputFile);
         Console.WriteLine("[信息] FFmpeg 参数 : " + customEncoder);
@@ -3832,7 +3865,7 @@ internal static class Program
         writer.WriteLine("  -scale <N>          强制放大倍率（如 2/3/4），默认从模型名自动识别");
         writer.WriteLine("  -interp-model <路径>  补帧模型：完整路径、models\\Frame-Interpolation 下的相对路径或模型名");
         writer.WriteLine("        （如 RIFE/rife-v4.25、GIMM-VFI/gimm-vfi）；旧 models\\RIFE 目录仍可读取；");
-        writer.WriteLine("        CUDA 使用 .pth/.pt/.pkl，TensorRT 使用 .engine，NCNN 使用 .param/.bin 文件夹");
+        writer.WriteLine("        CUDA 使用 .pth/.pt/.pkl；TensorRT 使用 RIFE 权重自动构建 Engine；NCNN 使用 .param/.bin 文件夹");
         writer.WriteLine("  -interp-factor <N>  补帧倍率（帧率倍数，默认 2，需大于 1）");
         writer.WriteLine("  -process-order <upscale-first|interp-first>  组合处理顺序；默认 upscale-first");
         writer.WriteLine("        画质优先：先超分，再补帧。速度/算力优先：先补帧，再超分。");
@@ -3855,7 +3888,7 @@ internal static class Program
         writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）");
         writer.WriteLine("  --list-interp-models  列出 models\\Frame-Interpolation 下可用的补帧模型并退出");
         writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）；");
-        writer.WriteLine("        加 -interp-backend cuda 列出 PyTorch 权重，tensorrt 列出 .engine；旧 RIFE 兼容读取");
+        writer.WriteLine("        加 -interp-backend cuda 列出全部 PyTorch 权重，tensorrt 只列 RIFE 权重；旧 RIFE 兼容读取");
         writer.WriteLine("  --check             仅检测运行环境（ffmpeg / python 库 / 模型库）并退出");
         writer.WriteLine("  --list-backends     列出后端，并逐个在当前 GPU 上反序列化 models 中的 TensorRT Engine");
         writer.WriteLine("  --validate-engines  递归验证全部 .engine；不兼容时提示在当前 GPU 上重新编译");

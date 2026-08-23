@@ -26,7 +26,7 @@ Namespace videoenhancer
         Public Property UpscaleTileSize As Integer = 0
         ''' <summary>超分推理后端：ncnn、cuda、tensorrt、onnx 或 flashvsr。</summary>
         Public Property Backend As String = "ncnn"
-        ''' <summary>补帧后端：ncnn、cuda（PyTorch 权重）或 tensorrt（Engine）。</summary>
+        ''' <summary>补帧后端：ncnn、cuda（PyTorch 权重）或 tensorrt（RIFE 权重自动构建 Engine）。</summary>
         Public Property InterpBackend As String = "ncnn"
         ''' <summary>组合处理顺序：upscale-first（画质优先，默认）或 interp-first（速度/算力优先）。</summary>
         Public Property ProcessOrder As String = "upscale-first"

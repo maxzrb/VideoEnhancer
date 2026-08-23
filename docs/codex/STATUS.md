@@ -1,28 +1,28 @@
 # Project Status
 
-Last updated: 2026-08-23 23:59
-Updated by: ZCode
+Last updated: 2026-08-24 00:59
+Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 以独立 SemVer 维护 VideoEnhancer：版本检查以 GitHub Release（maxzrb/VideoEnhancer）为唯一标准，ModelScope 为更新包首选下载镜像、GitHub 兜底。
-- Current state: 1.11.3 已发布（GitHub Release v1.11.3 + ModelScope 写入成功但 resolve 读缓存当晚未追平）。CLI 版本号单一来源化（csproj `<Version>` → 运行时程序集元数据，`--version` 可查）。本机 3FUI 安装目录已通过真实 apply-update 升至 1.11.3（三文件与发布包逐字节一致）。实机已验证 GitHub 检查发现 1.11.3、ModelScope 失效时自动回退 GitHub 下载并通过 SHA-256。
-- Last active agent: ZCode
+- Current objective: 在独立版本 1.0.3 基线上接入 RIFE TensorRT 补帧自动构建，并重新核对插件、CLI、模型镜像和便携 Python 布局。
+- Current state: 当前独立版本为 1.0.3，GitHub Release v1.0.3 与 ModelScope 数据集均已发布；本轮未升版、未发布。CLI 已改为 TensorRT 补帧只接收 RIFE `.pth/.pt/.pkl`，由 RVE 按阶段实际输入尺寸自动构建/复用 Engine；GIMM/GMFSS 继续只走 CUDA/PyTorch。CLI、插件构建和隔离模型发现测试通过。
+- Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 用户下次打开 3FUI 确认“已更新到 v1.11.3”提示、更新按钮右对齐布局与精简后的弹窗观感（弹窗要到 1.11.4 才会再次出现）；观察 ModelScope resolve 缓存是否追平 1.11.3（老客户端 ≤1.11.2 只查 ModelScope，追平前看不到新版）；下次发布可直接用 `release\build-modelscope-release.ps1 -PublishGithub -PublishModelScope` 一键流程。
+- Next recommended step: 向 ModelScope 镜像补充兼容 RVE 的 RIFE PyTorch 权重后，在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次构建及二次缓存命中；确认后再决定是否升至 1.0.4 并发布。
 
 ## Active TODO
 
 - [x] Task: 评估并接入自有 ModelScope 模型镜像。
   - Owner: user / Codex
   - Status: `AerithDream/VideoEnhancer-Models` 已接入 CLI，排除 `PotPlayer.7z`；用户为测试暂时转为公开，后续仓库可见性由用户自行处理。2026-08-23 增量同步 `Frame-Interpolation/GIMM-VFI.7z`、`GMFSS.7z`、`RIFE.7z`，并补交旧 `RIFE/RIFE.7z` 兼容包。
-  - Notes/blockers: CLI 默认仓库、可配置仓库 ID、显式私库令牌、认证错误码和插件提示均已实现；公开模式当前清单返回 85 项，3 个新版包可列出，新 RIFE 包真实下载、SHA-256、解压和安装标记验证通过。旧包 resolve 返回 HTTP 200，但 ModelScope tree API 有缓存延迟。仍需用户在真实 3FUI 界面验证交互；上游仓库仍没有逐文件 LICENSE/NOTICE/COPYING。
+  - Notes/blockers: CLI 默认仓库、可配置仓库 ID、显式私库令牌、认证错误码和插件提示均已实现；公开模式当前清单对界面返回 84 项（旧 Python 包已隐藏），3 个新版包可列出，新 RIFE 包真实下载、SHA-256、解压和安装标记验证通过。旧包 resolve 返回 HTTP 200，但 ModelScope tree API 有缓存延迟。仍需用户在真实 3FUI 界面验证交互；上游仓库仍没有逐文件 LICENSE/NOTICE/COPYING。
 
 - [x] Task: 审查作者 v1.4.2 测试版并选择性合并。
   - Owner: Codex
   - Status: 已完成反编译审查、选择性移植、构建、隔离模型布局测试、ModelScope 增量同步与实际安装目录部署。
   - Relevant files: `cli/Program.cs`, `cli/README.md`, `VideoEnhancerPlugin/PluginConfig.vb`, `VideoEnhancerPlugin/PluginPanel.vb`
-  - Notes/blockers: 保留旧 `models\RIFE` 兼容读取；新版 CUDA 补帧支持 `.pth/.pt/.pkl`，TensorRT 新目录只收 `.engine`；BasicVSR++ 优化目录为 1x，官方单 PTH 为 4x。未合并作者硬编码仓库、删除 `core-path`、旧环境检查和 1.4.2 版本号。GPU 推理仍待 NVIDIA 机器实测。
+  - Notes/blockers: 保留旧 `models\RIFE` 兼容读取；新版 CUDA 补帧支持 `.pth/.pt/.pkl`；本轮 TensorRT 改为只收 RIFE 权重并由 RVE 自动构建 Engine；BasicVSR++ 优化目录为 1x，官方单 PTH 为 4x。未合并作者硬编码仓库、删除 `core-path`、旧环境检查和 1.4.2 版本号。GPU 推理仍待 NVIDIA 机器实测。
 
 - [ ] Task: 建立独立项目发行与上游同步流程。
   - Owner: user / Codex
@@ -55,14 +55,19 @@ Updated by: ZCode
 
 - [x] Task: 为 TensorRT 增加首次使用自动编译、兼容性缓存键、进度/取消和明确错误提示。
   - Owner: Codex / next agent
-  - Status: implemented and committed (`762cabb`); fake-backend build/cache integration test passed
+  - Status: 超分 PTH 的 CLI 预构建缓存已提交；本轮补帧 TensorRT 改为向 RVE 传入 RIFE 权重，由 RVE 根据实际阶段尺寸自动构建缓存；CLI/插件构建及隔离模型筛选通过。
   - Relevant files: `cli/Program.cs`, `VideoEnhancerPlugin/PluginPanel.vb`
-  - Notes/blockers: 当前包装层只列出 `.engine` 并在运行前反序列化验证；模型转换页必须手动选择 `.pth`。需进一步确认打包后端 `convert_tensorrt.py` 的输入尺寸/profile 行为。
+  - Notes/blockers: `convert_tensorrt.py` 仍只负责单帧超分，补帧不得调用它；RIFE Engine 由 `InterpolateRifeTorch` 内部构建。当前 ModelScope 只有 NCNN RIFE 包，没有兼容的 RIFE PyTorch 权重，且本机没有 NVIDIA 环境，真实编译待测。
 - [x] Task: 支持超分与补帧组合，并明确“先补后超/先超后补”策略。
   - Owner: Codex / next agent
   - Status: implemented and committed (`ce75515`); five-stage argument/pipeline integration test passed
   - Relevant files: `preview/1.9.6-preview.1/src/VideoEnhancerPlugin/PluginPanel.vb`, `QueueHook.vb`, `cli/Program.cs`
-  - Notes/blockers: NCNN/CUDA 路径已有同时传参基础；TensorRT 当前给补帧解析 NCNN 目录却传 `-b tensorrt`，需先拆分两个阶段的后端选择或补齐 TensorRT RIFE 模型处理。
+  - Notes/blockers: TensorRT 补帧现只解析 RIFE PyTorch 权重；同后端 `upscale-first` 包装器在放大后尺寸初始化插帧器，`interp-first` 使用源尺寸，跨后端阶段则由中间视频真实尺寸驱动。真实 GPU 回归仍待执行。
+
+- [ ] Task: 补齐 RIFE PyTorch 权重并完成真实 TensorRT 补帧验证。
+  - Owner: user / Codex
+  - Status: 代码和模型筛选契约已就绪；ModelScope 在线清单目前只有 `Frame-Interpolation/RIFE.7z`（NCNN），兼容 RVE 的 RIFE `.pth/.pt/.pkl` 数量为 0。
+  - Notes/blockers: 需先选择并镜像具备再分发条件的 RIFE 权重，再在 NVIDIA 环境验证仅补帧、先超后补、先补后超及二次缓存命中；确认前不发布新版本。
 
 - [ ] Task: 在用户实际 3FUI 环境做视觉与交互回归。
   - Owner: user / next agent
@@ -787,3 +792,16 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Verification: 数据集 resolve 的 `stable.json` 现返回 **1.0.3**，`releases/1.0.3/...zip` 返回 302；"ModelScope 读缓存延迟"问题不存在，已关闭该观察项。
 - Remaining (user manual): 误建的同名模型仓库 API 禁止删除（E3001 仅网页控制台可删），需用户在 https://www.modelscope.cn/models/AerithDream/VideoEnhancer-Releases 页面手动删除。
 - Git status: 脚本修复与记录随本次提交推送 fork。
+
+
+### 2026-08-24 00:59 - Codex
+
+- Objective: 按用户要求重新通读大改后的 1.0.3 项目，并继续核对此前未完成的 TensorRT 补帧接入与“两套 Python”问题。
+- Orientation/Git: 读取 `AGENTS.md`、HandShake skill/protocol、`docs/codex/INDEX.md`、完整 `STATUS.md`、根 README 与核心源码。前序 `git pull` 进入冲突后已立即 `git merge --abort`，用户提交未丢失；本轮不再合并上游。`HEAD=32a0888`，`main` 与 `fork/main` 一致，相对原作者 `origin/main` 为 ahead 15 / behind 5。
+- Work completed: 修复前序编辑造成的 5 个文件整文件换行噪声，按字节仅重放真实语义改动；TensorRT 补帧发现只接受 RIFE `.pth/.pt/.pkl`，不再选择生成的 `.engine`；默认补帧后端在超分为 TensorRT 时跟随 TensorRT；UI、CLI 帮助和 README 同步“RVE 按实际输入尺寸自动构建 Engine”；在线模型清单隐藏旧 `Backend/python.7z`，保留最新日期包。
+- Architecture finding: 超分 TensorRT 的外置 `convert_tensorrt.py` 只支持单帧 NCHW 放大模型；补帧 Engine 必须由 RVE `InterpolateRifeTorch` 内部构建。`interp-first` 使用源分辨率；同后端 `upscale-first` 包装器把插帧器初始化为最终放大分辨率，同时保留源尺寸转场检测；跨后端第二阶段通过真实中间视频尺寸初始化。
+- Python finding: CLI 实际只运行 `python\python\python.exe`；`python\python\Lib\venv\scripts\nt\python.exe` 是标准库创建 venv 时复制的模板，不是第二套运行环境。真正重复的是本地镜像缓存中的 `Backend/python.7z` 与 `Backend/python_20260823.7z`，合计约 5.27 GB；当前在线 UI 只展示日期包。
+- Verification: 插件构建成功；`dotnet build cli/VideoEnhancer.csproj -c Release --no-restore` 成功（0 错误，2 个既有 CA1416）；`python -m unittest cli.tests.test_rve_ordered_backend -v` 6/6 通过；单文件 CLI 发布成功且 `--version=1.0.3`。隔离目录验证 CUDA 列出 GIMM/GMFSS/RIFE 共 5 个权重，TensorRT 只列 3 个 RIFE 权重并排除 GIMM/GMFSS/`.engine`，NCNN 只列模型目录。ModelScope 在线清单 84 项，只显示 `Backend/python_20260823.7z`。
+- Blocker: 在线 `Frame-Interpolation` 只有 GIMM-VFI、GMFSS、RIFE 三个压缩包，兼容 TensorRT 的 RIFE PyTorch 权重为 0；本机无可调用的 NVIDIA 环境，因此没有执行真实 Engine 编译。未上传模型、未部署到 3FUI、未创建 1.0.4、未发布。
+- Files changed: `cli/Program.cs`、`cli/README.md`、`VideoEnhancerPlugin/PluginConfig.vb`、`VideoEnhancerPlugin/PluginPanel.vb`、`VideoEnhancerPlugin/README.md`、`docs/codex/STATUS.md`、`version/工作进度.md`。根目录 EXE/DLL 为本地构建产物并由 Git 忽略。
+- Git status: 功能与文档文件及 HandShake 记录有未提交修改，工作树不干净；建议审核后提交到 fork，再继续模型上传和 GPU 实测。

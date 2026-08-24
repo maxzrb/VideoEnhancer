@@ -48,7 +48,7 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 - `-backend <ncnn|cuda|tensorrt|onnx|flashvsr>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
   放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），
   补帧模型使用 `models\Frame-Interpolation` 下的 `.pth/.pt/.pkl` 文件；超分与补帧可独立使用。
-  `tensorrt` 的超分可选择 PTH 源模型或预置 `.engine`；补帧只选择 RIFE 权重并自动生成 Engine。NCNN 使用递归发现的 `.param/.bin` 模型文件夹。放大模型列表统一以相对 `models` 的路径显示。
+  `tensorrt` 的超分只选择 PTH 源模型，任务启动时按当前 GPU、输入宽高、输出倍率、分块、精度及转换器版本自动生成或复用 `models\TensorRT-Cache` 中的 Engine；不再使用远端预置 `.engine`。补帧只选择 RIFE 权重并自动生成 flow/encode Engine，权重或运行时变化会使用新缓存，加载失败会删除成对缓存后自动重建。NCNN 使用递归发现的 `.param/.bin` 模型文件夹。放大模型列表统一以相对 `models` 的路径显示。
 - `-no-upscale`：不放大（仅补帧模式，需配合 `-interp-model`）。
 - `-ffmpeg-settings`：FFmpeg 编码参数片段，**最后一个参数是输出文件路径**（无 `-o`），末尾 `-y` 表示覆盖。
   - 自动处理：`-map` 流映射会被移除（后端写进程自带映射），`-map_metadata 0` / `-map_chapters 0` 改写为 `1`；
@@ -104,7 +104,7 @@ PowerShell 示例：
 
 ## 插件自动更新
 
-插件以 GitHub Release 为唯一版本标准：读取 `maxzrb/VideoEnhancer` 的 `releases/latest`，并下载其附带的 `stable.json` 清单资产；可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖检查仓库，`VIDEOENHANCER_UPDATE_GITHUB_TOKEN` 供私有仓库或提高 API 限频使用。更新包下载首选 ModelScope 数据集 `AerithDream/VideoEnhancer-Releases`（可用 `VIDEOENHANCER_UPDATE_DATASET=owner/name` 切换），失败时回退 GitHub Release 资产；两源都校验清单中的大小与 SHA-256。发现更高 SemVer 后必须由用户确认。
+插件以 GitHub Release 为唯一版本标准：优先读取 `maxzrb/VideoEnhancer` 的 `releases/latest` 及其 `stable.json` 清单资产；GitHub 不可达时读取 ModelScope `stable.json` 兜底。可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖检查仓库，`VIDEOENHANCER_UPDATE_GITHUB_TOKEN` 供私有仓库或提高 API 限频使用。更新包下载同样首选 GitHub Release 资产，失败时回退 ModelScope 数据集 `AerithDream/VideoEnhancer-Releases`（可用 `VIDEOENHANCER_UPDATE_DATASET=owner/name` 切换）；两源都校验清单中的大小与 SHA-256。发现更高 SemVer 后必须由用户确认。
 
 更新包只允许包含 `videoenhancer.exe`、`videoenhancer.3fui.dll`、`videoenhancer-layout.json` 和包内校验清单。插件将当前 CLI 复制为临时更新器，等待 3FUI 退出后备份并替换三个运行文件；任一替换失败会回滚，成功后自动重启 3FUI。`--apply-update` 及相关参数是插件内部更新协议，不作为普通处理命令使用。
 

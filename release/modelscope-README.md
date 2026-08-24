@@ -2,7 +2,7 @@
 
 VideoEnhancer 独立维护版的公开更新源，仅用于分发插件运行文件，不包含模型、Python 环境或 PotPlayer。
 
-- 版本检查以 GitHub `maxzrb/VideoEnhancer` 的 Release 为唯一标准；本数据集是更新包的首选下载镜像。
+- 版本检查以 GitHub `maxzrb/VideoEnhancer` 的 Release 为首选标准；GitHub 不可达时本数据集提供 `stable.json` 和更新包兜底。
 - `stable.json`：稳定通道结构化更新清单（与 GitHub Release 附带的清单资产内容一致）。
 - `releases/<version>/VideoEnhancer-<version>-win-x64.zip`：经 SHA-256 校验的三文件更新包。
 - ZIP 内 `package.json`：逐文件大小与 SHA-256，更新器只允许替换 `videoenhancer.exe`、`videoenhancer.3fui.dll` 和 `videoenhancer-layout.json`。

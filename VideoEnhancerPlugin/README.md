@@ -115,7 +115,7 @@
 ### 模型转换器
 
 - 可选择或直接拖入 `.pth` 放大模型，调用后端 `convert_tensorrt.py` 离线编译。
-- 输出目录自动设置为核心目录的 `models\TensorRT-Personalized`，与预置引擎分开管理。
+- 输出目录自动设置为核心目录的 `models\TensorRT-Personalized`，与任务按实际配置生成的 `models\TensorRT-Cache` 分开管理；转换进度会实时显示在页面中。
 - 页面说明 TensorRT 的推理效率优势、离线转换特性，以及 Engine 应在实际使用设备上重新编译。
 
 ### 队列执行流程
@@ -155,7 +155,7 @@
 
 模型下载页右上方另有“下载插件更新”入口，使用相同的 Release 数据集、版本比较、校验和更新事务，作为底部按钮不可用或不便查找时的兜底；插件 ZIP 不混入模型仓库清单，也不会进入模型解压目录。
 
-更新时临时 CLI 会等待 3FUI 完全退出，只允许替换 EXE、插件 DLL 和布局 JSON，替换前备份，失败自动回滚，成功后重启 3FUI。更新包下载首选 ModelScope 镜像（`VIDEOENHANCER_UPDATE_DATASET=owner/name` 可覆盖），失败回退 GitHub Release 资产；检查仓库可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖；配置中的 `AutoCheckUpdates` 可关闭启动后台检查。
+更新时临时 CLI 会等待 3FUI 完全退出，只允许替换 EXE、插件 DLL 和布局 JSON，替换前备份，失败自动回滚，成功后重启 3FUI。更新包下载首选 GitHub Release 资产，失败回退 ModelScope 镜像（`VIDEOENHANCER_UPDATE_DATASET=owner/name` 可覆盖）；GitHub 检查或下载不可达时均使用 ModelScope 兜底，检查仓库可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖；配置中的 `AutoCheckUpdates` 可关闭启动后台检查。
 
 ## 构建
 

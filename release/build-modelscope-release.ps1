@@ -3,7 +3,7 @@
     [string]$Version = '',
     [string]$UpstreamBase = '1.4.2',
     [string]$HostBin = 'C:\Users\maxzr\AppData\Local\Temp\FFmpegFreeUI.6.1.39.extracted',
-    [string]$Notes = '版本检查改为 GitHub Releases（唯一标准），下载首选 ModelScope、GitHub 兜底；CLI 版本号改为单一来源。',
+    [string]$Notes = 'GitHub 首选检查与下载，ModelScope 兜底；下载全部不重复下载当前插件 EXE。',
     [switch]$PublishGithub,
     [switch]$PublishModelScope,
     [string]$GithubRepo = 'maxzrb/VideoEnhancer',

@@ -49,7 +49,7 @@ Namespace videoenhancer
         Public Property BrowserDownloadUrl As String = ""
     End Class
 
-    ''' <summary>以 GitHub Release 为唯一版本标准读取独立发行清单；更新包首选 ModelScope、GitHub 兜底下载，并启动临时更新器。</summary>
+    ''' <summary>读取独立发行清单并执行更新；GitHub 首选，ModelScope 兜底。</summary>
     Public NotInheritable Class PluginUpdater
 
         Private Const DefaultGithubRepo As String = "maxzrb/VideoEnhancer"
@@ -62,8 +62,25 @@ Namespace videoenhancer
         Private Sub New()
         End Sub
 
-        ''' <summary>读取 GitHub 最新稳定 Release 附带的 stable.json；GitHub 是版本唯一标准。</summary>
+        ''' <summary>优先读取 GitHub 最新 Release；GitHub 不可达时读取 ModelScope stable.json。</summary>
         Public Shared Async Function FetchLatestManifestAsync() As Task(Of UpdateManifest)
+            Dim githubError As Exception = Nothing
+            Try
+                Return Await FetchGithubManifestAsync()
+            Catch ex As Exception
+                githubError = ex
+            End Try
+
+            Try
+                Return Await FetchModelScopeManifestAsync()
+            Catch modelScopeError As Exception
+                Throw New IOException("更新检查失败（GitHub 与 ModelScope 均不可用）：" &
+                    Environment.NewLine & "GitHub：" & If(githubError IsNot Nothing, githubError.Message, "未知错误") &
+                    Environment.NewLine & "ModelScope：" & modelScopeError.Message, modelScopeError)
+            End Try
+        End Function
+
+        Private Shared Async Function FetchGithubManifestAsync() As Task(Of UpdateManifest)
             Dim release As GithubRelease
             Using client = CreateGithubClient(TimeSpan.FromSeconds(15))
                 Dim api = "https://api.github.com/repos/" & GithubRepo & "/releases/latest"
@@ -114,6 +131,17 @@ Namespace videoenhancer
             Return manifest
         End Function
 
+        Private Shared Async Function FetchModelScopeManifestAsync() As Task(Of UpdateManifest)
+            Dim manifestJson As String
+            Using client = CreateClient(TimeSpan.FromSeconds(30))
+                manifestJson = Await client.GetStringAsync(BuildResolveUrl(ManifestAssetName))
+            End Using
+            Dim manifest = ParseManifest(manifestJson)
+            ' ModelScope 清单没有 GitHub API 返回的资产地址，后续下载阶段会按版本拼接 GitHub Release URL。
+            manifest.GithubPackageUrl = BuildGithubPackageUrl(manifest)
+            Return manifest
+        End Function
+
         Public Shared Function HasUpdate(manifest As UpdateManifest) As Boolean
             Dim currentVersion As Version = Nothing
             Dim remoteVersion As Version = Nothing
@@ -134,29 +162,30 @@ Namespace videoenhancer
             Dim destination = Path.Combine(updateDirectory, fileName)
             Dim temporary = destination & ".download"
             Try
-                ' 首选 ModelScope 镜像；失败时回退 GitHub Release 资产；两源都校验大小与 SHA-256。
+                ' GitHub 首选；受网络限制或资产不可达时回退 ModelScope；两源都校验大小与 SHA-256。
                 Dim downloaded As Boolean = False
-                Dim modelScopeError As Exception = Nothing
+                Dim githubError As Exception = Nothing
                 Try
-                    Await DownloadToFileAsync(BuildResolveUrl(manifest.Package.Path), manifest, progress, temporary, False)
+                    Dim githubUrl = manifest.GithubPackageUrl
+                    If String.IsNullOrWhiteSpace(githubUrl) Then githubUrl = BuildGithubPackageUrl(manifest)
+                    Await DownloadToFileAsync(githubUrl, manifest, progress, temporary, True)
                     downloaded = True
                 Catch ex As Exception
-                    modelScopeError = ex
+                    githubError = ex
                 End Try
-                If Not downloaded AndAlso Not String.IsNullOrWhiteSpace(manifest.GithubPackageUrl) Then
+                If Not downloaded Then
                     Try
-                        Await DownloadToFileAsync(manifest.GithubPackageUrl, manifest, progress, temporary, True)
+                        Await DownloadToFileAsync(BuildResolveUrl(manifest.Package.Path), manifest, progress, temporary, False)
                         downloaded = True
-                    Catch githubError As Exception
-                        Throw New IOException("更新包下载失败（ModelScope 与 GitHub 均未成功）：" &
-                            Environment.NewLine & "ModelScope：" &
-                            If(modelScopeError IsNot Nothing, modelScopeError.Message, "未知错误") &
-                            Environment.NewLine & "GitHub：" & githubError.Message)
+                    Catch modelScopeError As Exception
+                        Throw New IOException("更新包下载失败（GitHub 与 ModelScope 均未成功）：" &
+                            Environment.NewLine & "GitHub：" &
+                            If(githubError IsNot Nothing, githubError.Message, "未知错误") &
+                            Environment.NewLine & "ModelScope：" & modelScopeError.Message, modelScopeError)
                     End Try
                 End If
                 If Not downloaded Then
-                    Throw New IOException("更新包下载失败，且 GitHub Release 未提供更新包资产：" &
-                        If(modelScopeError IsNot Nothing, modelScopeError.Message, "未知错误"))
+                    Throw New IOException("更新包下载失败：" & If(githubError IsNot Nothing, githubError.Message, "未知错误"))
                 End If
                 File.Move(temporary, destination, True)
                 Return destination
@@ -319,6 +348,16 @@ Namespace videoenhancer
             Dim escapedPath = String.Join("/", relativePath.Replace("\"c, "/"c).Split("/"c).
                 Select(Function(part) Uri.EscapeDataString(part)))
             Return "https://www.modelscope.cn/datasets/" & escapedDataset & "/resolve/master/" & escapedPath
+        End Function
+
+        Private Shared Function BuildGithubPackageUrl(manifest As UpdateManifest) As String
+            If manifest Is Nothing OrElse manifest.Package Is Nothing Then
+                Throw New InvalidDataException("更新清单缺少更新包信息")
+            End If
+            Dim fileName = Path.GetFileName(manifest.Package.Path.Replace("/"c, Path.DirectorySeparatorChar))
+            If String.IsNullOrWhiteSpace(fileName) Then Throw New InvalidDataException("更新包文件名为空")
+            Return "https://github.com/" & GithubRepo & "/releases/download/v" &
+                Uri.EscapeDataString(manifest.Version.Trim()) & "/" & Uri.EscapeDataString(fileName)
         End Function
 
         Private Shared Sub ValidateRelativePath(relativePath As String)

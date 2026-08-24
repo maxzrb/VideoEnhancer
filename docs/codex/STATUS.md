@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-24 13:36
+Last updated: 2026-08-24 18:20
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 核对 TensorRT Engine 的设备缓存复用、参数变化隔离和失效重建机制。
-- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。超分 TensorRT 的 CLI 外层缓存会按源模型短 SHA-256、GPU 名称、TensorRT 版本、输入尺寸和分块尺寸隔离，并对已有缓存做反序列化校验后失效重建；但构建脚本当前没有把 CLI 探测到的输入宽高/分块参数传给转换器（转换器默认静态 1920x1080），且未把 Torch-TensorRT 版本纳入外层缓存键。RIFE TensorRT 使用 RVE 内部缓存，名称含权重文件名、profile 尺寸、GPU、TensorRT/Torch-TensorRT 版本等，但仅按文件存在判断，损坏或失效 Engine 不会自动删除重建；同名权重内容替换也不会触发缓存失效。真实 NVIDIA 回归仍未执行。
+- Current objective: 修复下载全部重复插件 EXE，并让自动更新按 GitHub 首选、ModelScope 兜底工作。
+- Current state: 独立版本已发布为 1.0.5。`下载全部` 保留资源列表中的 `Plugin/videoenhancer.exe` 供查看/单独下载，但批量路径明确排除它，避免重复覆盖当前插件。更新检查先请求 GitHub Releases，失败后读取 ModelScope `stable.json`；更新包下载同样 GitHub 首选、ModelScope 兜底，双方均执行大小和 SHA-256 校验。GitHub `v1.0.5` 与 ModelScope Releases 已同步。本机无 NVIDIA，真实 TRT 回归仍未执行。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 重启 3FUI，确认从 BasicVSR++ 切换到 TensorRT 后补帧开关恢复可点击；随后在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次 Engine 构建及二次缓存命中。
+- Next recommended step: 按 `release/发布流程.md` 作为后续版本门禁；退出 3FUI 后部署/验证 1.0.5 插件 DLL，并在可访问性受限网络中验证 GitHub 失败时 ModelScope 兜底；随后在 NVIDIA 机器实测 TRT Engine 构建与缓存命中。
 
 ## Active TODO
 
@@ -882,3 +882,95 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Prebuilt engine gap: 用户直接选择 `TensorRT-Default/*.engine` 时，若能反序列化即直接使用，不进入外层缓存；若失效，只有文件名含 `__gpu-` 且能剥出同名 PTH 时才可自动重建，远端 `*-x2-tensorrt.engine` 这类预置命名通常无法匹配对应 PTH。
 - RIFE interpolation path: RIFE TensorRT 由 RVE `InterpolateRifeTorch` 内部构建两套 Engine（flow/encode），缓存名包含权重文件名、静态或动态 profile、FP16、scale、GPU、TensorRT、Torch-TensorRT、ensemble 和优化级别，参数/设备/profile 变化会换名复用；但 `check_engine_exists()` 只检查文件存在，加载损坏/不兼容 Engine 时不会自动删除并重建，权重内容替换但文件名不变也不会因 SHA-256 变化而失效。
 - Conclusion: 当前“超分常规 PTH 缓存”具备基本复用和失效重建；“RIFE 补帧缓存”和“预置 Engine 失效重建”尚未达到可靠的自动重建标准，且超分转换尺寸参数传递需要修复。仅做代码核对，未修改实现、未执行真实 GPU 测试。
+
+### 2026-08-24 15:10 - Codex
+
+- Objective: 实现用户要求的设备专用 TensorRT Engine 机制：任务按当前配置自动生成/复用，RIFE 失效重建，3FUI 与模型转换页显示构建进度。
+- Changes: `cli/Program.cs` 增加 Torch-TensorRT 运行时探测、schema/精度/优化级别/转换配置缓存键；任务将输入宽高、输出倍率、tile、tile padding 传给 `convert_tensorrt.py`；Engine profile 验证器接收请求宽高并在超出 profile 时判定失效；TensorRT 下拉和远端下载列表不再展示预置 Engine。`VideoEnhancerPlugin/BackendProgress.vb` 解析任务构建事件；`PluginPanel.vb` 实时读取转换器进度并正确提取最终 `.engine` 路径。README 已同步本机缓存与预置 Engine 策略。
+- Python runtime changes (outside Git): `convert_tensorrt.py` 真正使用 width/height/output-scale/tile/precision/optimization 参数；`InterpolateRIFE.py` 加入权重 SHA-256、flow/encode 成对缓存清理、构建后加载失败重建和构建阶段事件；`validate_tensorrt_engines.py` 增加 profile 尺寸检查。
+- Packaging: 基于 `Backend/python_20260823.7z` 创建并上传 `Backend/python_20260824.7z`；远端 HTTP HEAD 返回 200，大小 `3447393513`，ETag/SHA-256 `dc399b4dc257b64b09d3175ac9afa3ca66bc388bc40e6313c9b85c5559055b17`。
+- Verification: `dotnet build cli/VideoEnhancer.csproj -c Release --no-restore` 通过（0 错误，2 个既有 CA1416）；`VideoEnhancerPlugin/build.ps1 -HostBin ... -SkipInstall` 通过；`cli/build.ps1` 单文件发布通过，CLI `--version` 为 `1.0.3`；`python -m py_compile` 覆盖转换器、RIFE、验证器和 TensorRTHandler；`python -m unittest cli.tests.test_rve_ordered_backend -v` 6/6 通过；`git diff --check` 通过。无 NVIDIA 环境，未声称真实 TRT 构建成功。
+- Deployment: 根目录 EXE/DLL/layout 已复制到 `C:\Program portable\3FUI\plugin`，EXE/DLL 源目标 SHA-256 一致。
+- Remote cleanup: 未删除 ModelScope 远端 `TensorRT-Default` 或其他文件；新客户端已隐藏预置 Engine，远端删除仍需用户明确确认。
+- Git status: `cli/Program.cs`、`cli/README.md`、`VideoEnhancerPlugin/BackendProgress.vb`、`VideoEnhancerPlugin/PluginPanel.vb`、`VideoEnhancerPlugin/README.md`、本记录和 `version/工作进度.md` 有未提交修改；独立主线未合并原作者 `origin`。建议完成上传确认后提交并推送 fork。
+
+### 2026-08-24 15:35 - Codex
+
+- Objective: 修复用户报告的启动环境检查误导和补帧开关状态分裂。
+- Changes: `VideoEnhancerPlugin/PluginPanel.vb` 增加环境检查进行中/完成状态；环境检查超时会停止子进程并显示非错误的加载中提示；仅基础组件缺失显示红色失败，模型目录尚未准备好显示“基础环境已就绪，模型列表仍在加载”。模型列表读取期间不再把空列表作为启动错误。新增 `SyncInterpSwitchFromConfig()`，在后端切换与 UI 刷新时同步 `_config.InterpEnabled`、开关 Checked/Enabled 和状态标签；BasicVSR++ 自动关闭补帧后，切回可组合后端保持关闭且显示一致。
+- Verification: `VideoEnhancerPlugin/build.ps1 -HostBin C:\Users\maxzr\AppData\Local\Temp\FFmpegFreeUI.6.1.39.extracted -SkipInstall` 通过；插件 DLL 已复制至 `C:\Program portable\3FUI\plugin`，源/目标 SHA-256 均为 `82603a6f6c0797058440a5695f7c97cf9426b32d13ce3a400ca3663e93c1fe3a`；`git diff --check` 通过。
+- Environment: 当前无 NVIDIA，未执行真实 TRT；`git pull` 因本地未提交修改被拒绝，未合并上游。
+- Git status: 工作树仍有本轮及上一轮功能、文档和记录修改，未提交；建议在 3FUI 重启回归后提交。
+
+### 2026-08-24 16:05 - Codex
+
+- Objective: 修复用户截图中补帧开关视觉为开启、但右侧状态文字为关闭的问题。
+- Changes: `VideoEnhancerPlugin/PluginPanel.vb` 的官方、普通和 legacy 三条页面构建路径改用 `SyncInterpSwitchFromConfig()`；同步函数加入空控件/已释放保护、`Try...Finally` 同步标志恢复，并在赋值 Checked/Enabled 后显式调用 LakeUI 控件的 `Invalidate(True)`、`Refresh()` 和 `Update()`，强制刷新自绘开关外观。
+- Verification: `VideoEnhancerPlugin/build.ps1 -HostBin C:\Users\maxzr\AppData\Local\Temp\FFmpegFreeUI.6.1.39.extracted -SkipInstall` 通过；源 DLL 与 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll` SHA-256 均为 `E478BFEA006D8ADB7949829FDAD6827F5C1C419B39EFB9C9C02631D2ED6E755D`；`git diff --check` 通过。
+- Runtime limitation: 当前没有完整可控的 3FUI 窗口自动化和 NVIDIA 环境，仍需用户重启宿主后验证 BasicVSR++ → TensorRT、TensorRT → BasicVSR++、手动开启补帧三组视觉交互。
+- Git status: `main...origin/main [ahead 24, behind 5]`；`VideoEnhancerPlugin/PluginPanel.vb` 及前序 TensorRT/记录文件仍有未提交修改。建议先在 3FUI 实测后提交，且不要直接合并原作者 `origin`。
+
+### 2026-08-24 16:20 - Codex
+
+- User report: 实机截图显示补帧开关滑块仍在右侧，虽然状态文字为“关闭”，说明 LakeUI GPU 绘制缓存未被普通 `Refresh` 替换。
+- Change: 在 `SyncInterpSwitchFromConfig()` 中加入 `RequestLakeSwitchRender()`，通过反射调用 LakeUI `BooleanSwitch` 的私有 `请求V3渲染(Boolean)`；若宿主版本没有该方法则回退到标准刷新，不影响兼容性。
+- Verification: `VideoEnhancerPlugin/build.ps1 -HostBin C:\Users\maxzr\AppData\Local\Temp\FFmpegFreeUI.6.1.39.extracted -SkipInstall` 通过；新 DLL SHA-256 为 `7A94ABF6E8A20495B0E5F49B9F1FB5E1EC5F1D8AD5C640D6CFA59B550A250D75`。
+- Deployment: 用户退出 3FUI 后已覆盖安装目录并核对源/目标哈希一致；可直接启动宿主进行视觉回归。
+
+### 2026-08-24 16:25 - Codex
+
+- Deployment: 用户确认已退出 3FUI，已将新构建的 `videoenhancer.3fui.dll` 复制到 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll`。
+- Verification: 工作区和安装目录 SHA-256 均为 `7A94ABF6E8A20495B0E5F49B9F1FB5E1EC5F1D8AD5C640D6CFA59B550A250D75`。
+- Next: 启动 3FUI，验证 BasicVSR++ 下开关为关闭且禁用，切回 TensorRT 后仍为关闭但可点击，手动打开后滑块和状态文字同时变为开启。
+
+### 2026-08-24 16:45 - Codex
+
+- User report: 上一版加入 V3 请求后仍存在 Checked/视觉状态矛盾。
+- Root cause: LakeUI `BooleanSwitch.Checked` 使用动画助手；同步时随后设置 `Enabled=False` 会停止动画但保留旧的 `Progress=1`，因此字段已为 False 仍绘制右侧滑块。
+- Fix: `SyncInterpSwitchFromConfig()` 暂时保存并设置 `AnimationDuration=0`，先同步 Checked 让动画进度立即落到目标，再设置 Enabled，最后恢复原动画时长；移除不必要的私有反射渲染调用。
+- Verification: 插件构建通过；新 DLL 已部署，源/目标 SHA-256 均为 `811BF85019877A31F90EF0EBF678065902B1E14AE73CAEEC3B6EE3748DF570A9`；`git diff --check` 通过。
+- Next: 用户重启 3FUI 后复测 BasicVSR++ ↔ TensorRT 和手动开关。
+
+### 2026-08-24 17:00 - Codex
+
+- User report: 主页面“检查更新”按钮白色背景贴住窗口最底部边框。
+- Fix: `VideoEnhancerPlugin/PluginPanel.vb` 将根布局底部状态行从 48px 调整为 60px，状态栏增加 8px 下内边距；按钮自身布局和更新逻辑不变。
+- Verification: 插件构建通过；新 DLL 工作区 SHA-256 为 `71F5439F5F071823A5BF5D23E651B3AF891C710FD95C2A3A251162AD1024C959`；`git diff --check` 通过。
+- Deployment blocker: 用户已重新启动 3FUI 进行前一版测试，安装目录 DLL 被占用，尚未覆盖部署；退出宿主后继续复制并校验。
+
+### 2026-08-24 17:05 - Codex
+
+- Deployment: 用户退出 3FUI 后已成功覆盖安装底部间距修复版 DLL。
+- Verification: 工作区与 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll` SHA-256 均为 `71F5439F5F071823A5BF5D23E651B3AF891C710FD95C2A3A251162AD1024C959`。
+- Next: 启动 3FUI 检查“检查更新”按钮与底部边框之间是否保留可见间距。
+
+### 2026-08-24 17:30 - Codex
+
+- User report: 环境检测再次显示“存在缺失项”；同时指出模型下载页“下载插件更新”和检查更新功能重复，原意是把插件 EXE 放入资源名称列表。
+- Changes: `PluginPanel.vb` 的环境检查只认以 `[缺失]` 开头且不属于模型库/补帧库/GPU/TensorRT Engine 的行；下载页按钮改为“下载全部”，点击后批量处理资源列表中所有未安装项；新增 `Plugin` 分类本地安装判断和下载目标映射。
+- Changes: `cli/Program.cs` 允许 `Plugin` 根目录、将 `Plugin/videoenhancer.exe` 下载至 `AppRoot`；ModelScope 已上传当前 `videoenhancer.exe` 到 `Plugin/videoenhancer.exe`。
+- Verification: CLI 构建和发布通过，插件构建通过；安装版 CLI `--check -backend tensorrt` 的 GPU Engine 不兼容不再应被插件解析为基础环境错误；`--list-download-models --json` 已返回 `Plugin/videoenhancer.exe`；`git diff --check` 通过。
+- Deployment: 最新 CLI EXE 已覆盖安装目录且 SHA-256 为 `62D1A92FDF206017991170CFBC9B1E26DFA2C07041726D6A2DB1A09D4491C74F`；插件 DLL 因 3FUI 正在运行被锁定，安装目录仍为上一版 `71F5439F...`，待用户退出宿主后覆盖。
+
+### 2026-08-24 18:05 - Codex
+
+- Objective: 修复“下载全部”重复下载当前 `videoenhancer.exe`，并将自动更新检查/下载源改为 GitHub 首选、ModelScope 兜底。
+- Changes: `VideoEnhancerPlugin/PluginPanel.vb` 的 `OnDownloadAllClick` 排除 `Plugin/videoenhancer.exe`；`PluginUpdater.vb` 拆分 GitHub/ModelScope 清单读取，GitHub 失败时解析 ModelScope `stable.json`，更新包下载顺序改为 GitHub→ModelScope，并为 ModelScope 清单构造 GitHub Release 资产 URL；版本源升至 1.0.5；发布脚本默认说明同步。
+- Release: GitHub `maxzrb/VideoEnhancer` 已创建 `v1.0.5`；ModelScope `AerithDream/VideoEnhancer-Releases` 已上传 `stable.json` 与 `releases/1.0.5/VideoEnhancer-1.0.5-win-x64.zip`。
+- Commands/verification: `dotnet build cli/VideoEnhancer.csproj -c Release --no-restore` 成功（2 个既有 CA1416 警告）；插件 `build.ps1 -SkipInstall` 成功；`release/test-updater.ps1 -Version 1.0.5` 的 success/traversal/tamper/rollback 全部通过；GitHub API、GitHub stable.json、ModelScope stable.json、ModelScope ZIP HEAD 均 HTTP 200；`git diff --check` 通过。
+- Environment: 本机无 NVIDIA，未执行真实 TensorRT 构建；发布首次因 `out/vbc.rsp` 被并发编译短暂占用，重试成功。
+- Git: `main...origin/main [ahead 24, behind 5]`，工作树含本轮与此前累计未提交修改；未执行提交、推送或上游合并。建议用户实测后统一提交。
+
+### 2026-08-24 18:20 - Codex
+
+- Objective: 为 GitHub / ModelScope 双本体发布和 ModelScope 模型资源发布建立统一门禁流程。
+- Changes: 新增 `release/发布流程.md`，记录独立 SemVer、仓库职责、EXE/DLL/layout 三文件更新包约束、构建与更新器隔离测试、GitHub→ModelScope 发布顺序、模型资源单独上传、PotPlayer 排除、远端哈希/版本交叉核验、失败重试与回滚、HandShake 收尾和最终签字表。
+- Verification: 文档中的命令与当前 `release/build-modelscope-release.ps1`、`release/test-updater.ps1`、`cli/Program.cs`、`PluginUpdater.vb` 的实际行为逐项对齐；`git diff --check` 通过。
+- Git: `main...origin/main [ahead 24, behind 5]`，新增文档及此前累计源码/记录修改均未提交；未执行上游合并。
+
+### 2026-08-24 18:40 - Codex
+
+- Objective: 重写 GitHub 首页 README，移除原作者教程、个人评价和不适合当前项目的宣传表述。
+- Changes: 根目录 `README.md` 改为功能、安装、后端、模型目录、CLI、HDR/处理顺序、ModelScope 下载、自动更新、故障排查、源码构建、许可证边界和反馈信息；删除“独立维护版”“独立版本”和上游基线表述，只保留当前版本 `1.0.5`。
+- Verification: README 全文检索无 `独立维护版`、`独立维护`、`独立版本`、`上游` 残留；`git diff --check` 通过。
+- Git: `main...origin/main [ahead 24, behind 5]`，README、发布流程和此前累计源码/记录修改均未提交。

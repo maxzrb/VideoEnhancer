@@ -420,7 +420,7 @@ internal static class Program
     }
 
     /// <summary>参与 TensorRT Engine 缓存隔离的本机运行时信息。</summary>
-    private sealed record TensorRtRuntime(string GpuName, string TensorRtVersion);
+    private sealed record TensorRtRuntime(string GpuName, string TensorRtVersion, string TorchTensorRtVersion);
 
     [STAThread]
     private static int Main(string[] args)
@@ -690,9 +690,25 @@ internal static class Program
             {
                 return 1;
             }
+            string? requestedScale = null;
+            if (o.HasScaleOverride)
+            {
+                if (!int.TryParse(o.ScaleOverride, out var requestedScaleValue) || requestedScaleValue < 1)
+                {
+                    return Fail("-scale 必须是大于 0 的整数，当前值：" + o.ScaleOverride);
+                }
+                requestedScale = requestedScaleValue.ToString(CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                requestedScale = o.Backend == "basicvsrpp" ? BasicVsrPlusPlusScale(model) : DetectScale(model);
+            }
             if (o.Backend == "tensorrt")
             {
-                model = EnsureTensorRtEngine(model, inputResolution.Item1, inputResolution.Item2, stopWatcher, tileSize);
+                var engineScale = int.TryParse(requestedScale, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedScale)
+                    ? parsedScale
+                    : 0;
+                model = EnsureTensorRtEngine(model, inputResolution.Item1, inputResolution.Item2, stopWatcher, tileSize, engineScale);
                 if (model.Length == 0) return stopWatcher?.IsStopRequested() == true ? 130 : 1;
             }
         }
@@ -1366,7 +1382,7 @@ internal static class Program
         client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         var result = new List<RemoteModel>();
         var allowedRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "Backend", "BasicVSR++", "Bin", "FlashVSR", "Frame-Interpolation", "ONNX", "Param-Bin", "RIFE", "PTH", "TensorRT-Default" };
+            { "Backend", "BasicVSR++", "Bin", "FlashVSR", "Frame-Interpolation", "ONNX", "Param-Bin", "Plugin", "RIFE", "PTH" };
         var fetchedEntries = 0;
         for (var pageNumber = 1; ; pageNumber++)
         {
@@ -1528,11 +1544,13 @@ internal static class Program
         if (slash <= 0) return Fail("模型镜像路径无效：" + model.Path, 1);
         var category = model.Path[..slash];
         var suffix = model.Path[(slash + 1)..].Replace('/', Path.DirectorySeparatorChar);
-        var destinationRoot = category.Equals("Backend", StringComparison.OrdinalIgnoreCase)
-            ? Path.Combine(CoreRoot, "python")
-            : category.Equals("Bin", StringComparison.OrdinalIgnoreCase)
-                ? Path.Combine(CoreRoot, "bin")
-                : Path.Combine(CoreRoot, "models", category);
+        var destinationRoot = category.Equals("Plugin", StringComparison.OrdinalIgnoreCase)
+            ? AppRoot
+            : category.Equals("Backend", StringComparison.OrdinalIgnoreCase)
+                ? Path.Combine(CoreRoot, "python")
+                : category.Equals("Bin", StringComparison.OrdinalIgnoreCase)
+                    ? Path.Combine(CoreRoot, "bin")
+                    : Path.Combine(CoreRoot, "models", category);
         var destination = SafeCombine(destinationRoot, suffix);
         var url = ModelScopeResolveRoot + string.Join("/", model.Path.Split('/').Select(Uri.EscapeDataString));
         Console.WriteLine("DOWNLOAD_START|" + model.Path);
@@ -1905,7 +1923,11 @@ internal static class Program
             var (width, height) = GetInputResolution(firstInput);
             if (width <= 0 || height <= 0)
                 return Fail("TensorRT 无法探测输入图片尺寸：" + firstInput, 1);
-            model = EnsureTensorRtEngine(model, width, height, stopWatcher: null);
+            var imageScale = DetectScale(model);
+            var imageScaleValue = int.TryParse(imageScale, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedImageScale)
+                ? parsedImageScale
+                : 0;
+            model = EnsureTensorRtEngine(model, width, height, stopWatcher: null, outputScale: imageScaleValue);
             if (model.Length == 0) return 1;
         }
 
@@ -3197,24 +3219,27 @@ internal static class Program
     /// 把 PTH 源模型解析为当前 GPU、TensorRT 版本和输入尺寸对应的 Engine。
     /// 已有 Engine 会先验证；不兼容时若能找到同名 PTH，则自动重建本机缓存。
     /// </summary>
-    private static string EnsureTensorRtEngine(string modelPath, int inputWidth, int inputHeight, StopWatcher? stopWatcher, int tileSize = 0)
+    private static string EnsureTensorRtEngine(
+        string modelPath, int inputWidth, int inputHeight, StopWatcher? stopWatcher, int tileSize = 0, int outputScale = 0)
     {
         var sourcePath = modelPath;
         if (IsTensorRTEngineFile(modelPath))
         {
-            if (ValidateTensorRTEngine(modelPath, printSuccess: true)) return modelPath;
+            // 预置或用户选择的 Engine 不再作为任务入口：始终回到同名 PTH，
+            // 按当前设备/尺寸/配置生成 models\TensorRT-Cache 下的专用 Engine。
             var baseName = Path.GetFileNameWithoutExtension(modelPath);
             var cacheMarker = baseName.IndexOf("__gpu-", StringComparison.OrdinalIgnoreCase);
             if (cacheMarker > 0) baseName = baseName[..cacheMarker];
+            baseName = Regex.Replace(baseName, @"-x[1-8](-tensorrt)?$", "", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             sourcePath = DiscoverUpscalePthModels().FirstOrDefault(path =>
                 ModelBaseName(path).Equals(baseName, StringComparison.OrdinalIgnoreCase)) ?? "";
             if (sourcePath.Length == 0)
             {
-                Console.Error.WriteLine("[错误] Engine 与当前环境不兼容，且未找到同名 PTH 源模型，无法自动重建：" + baseName);
-                Console.Error.WriteLine("[处理建议] 下载对应 PTH 模型后重试，程序会自动编译并缓存。");
+                Console.Error.WriteLine("[错误] TensorRT 任务需要 PTH 源模型；预置 Engine 不再直接使用，且未找到对应 PTH：" + baseName);
+                Console.Error.WriteLine("[处理建议] 下载对应 PTH 模型后重试，程序会按当前设备自动编译并缓存。");
                 return "";
             }
-            Console.WriteLine("[TensorRT] 已找到同名 PTH 源模型，将自动重建本机 Engine：" + sourcePath);
+            Console.WriteLine("[TensorRT] 已忽略预置 Engine，将使用对应 PTH 构建本机 Engine：" + sourcePath);
         }
 
         if (!IsPthModelFile(sourcePath) || !File.Exists(sourcePath))
@@ -3234,7 +3259,7 @@ internal static class Program
         }
 
         Directory.CreateDirectory(TensorRTCacheDir);
-        var cachePath = BuildTensorRtCachePath(sourcePath, runtime!, inputWidth, inputHeight, tileSize);
+        var cachePath = BuildTensorRtCachePath(sourcePath, runtime!, inputWidth, inputHeight, tileSize, outputScale);
         var mutexName = "Local\\VideoEnhancer_TRT_" + Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(cachePath))).Substring(0, 24);
         using var buildMutex = new Mutex(false, mutexName);
@@ -3256,15 +3281,24 @@ internal static class Program
             if (File.Exists(cachePath))
             {
                 Console.WriteLine("[TensorRT] 命中本机尺寸缓存，正在验证…");
-                if (ValidateTensorRTEngine(cachePath, printSuccess: true)) return cachePath;
+                if (ValidateTensorRTEngine(cachePath, printSuccess: true, inputWidth: inputWidth, inputHeight: inputHeight, tileSize: tileSize))
+                {
+                    EmitTensorRtProgress("超分 Engine", 100, "复用已验证缓存");
+                    return cachePath;
+                }
                 Console.Error.WriteLine("[TensorRT] 缓存已失效，将自动重新构建。");
                 try { File.Delete(cachePath); } catch { }
             }
 
             Console.WriteLine("[TensorRT] 未命中可用缓存，开始自动构建 Engine；首次使用可能需要数分钟。");
             Console.WriteLine("[TensorRT] GPU=" + runtime!.GpuName + "，TensorRT=" + runtime.TensorRtVersion +
-                "，输入=" + inputWidth + "x" + inputHeight);
-            var builtPath = RunTensorRtConverter(sourcePath, stopWatcher);
+                "，Torch-TensorRT=" + runtime.TorchTensorRtVersion +
+                "，输入=" + inputWidth + "x" + inputHeight + "，输出倍率=" +
+                (outputScale > 0 ? outputScale.ToString(CultureInfo.InvariantCulture) : "native") +
+                "，分块=" + tileSize);
+            EmitTensorRtProgress("超分 Engine", 0, "准备构建");
+            var builtPath = RunTensorRtConverter(
+                sourcePath, inputWidth, inputHeight, outputScale, tileSize, stopWatcher);
             if (builtPath.Length == 0) return "";
 
             var partialPath = Path.Combine(TensorRTCacheDir,
@@ -3272,7 +3306,7 @@ internal static class Program
             try
             {
                 File.Copy(builtPath, partialPath, overwrite: true);
-                if (!ValidateTensorRTEngine(partialPath, printSuccess: false))
+            if (!ValidateTensorRTEngine(partialPath, printSuccess: false, inputWidth: inputWidth, inputHeight: inputHeight, tileSize: tileSize))
                 {
                     Console.Error.WriteLine("[错误] 自动构建完成，但 Engine 无法在当前 GPU 上反序列化，未写入缓存。");
                     return "";
@@ -3290,6 +3324,7 @@ internal static class Program
                 }
             }
             Console.WriteLine("[TensorRT] Engine 已写入本机缓存：" + cachePath);
+            EmitTensorRtProgress("超分 Engine", 100, "构建完成");
             return cachePath;
         }
         finally
@@ -3304,7 +3339,8 @@ internal static class Program
         runtime = null;
         const string script = "import torch, tensorrt as trt; " +
             "assert torch.cuda.is_available(), 'CUDA is unavailable'; " +
-            "print('TRT_ENV|' + torch.cuda.get_device_name(0).replace('|','/') + '|' + str(trt.__version__))";
+            "import torch_tensorrt; " +
+            "print('TRT_ENV|' + torch.cuda.get_device_name(0).replace('|','/') + '|' + str(trt.__version__) + '|' + str(torch_tensorrt.__version__))";
         var result = RunProcessCapture(PythonExe, new[] { "-c", script }, 60);
         var line = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .LastOrDefault(value => value.StartsWith("TRT_ENV|", StringComparison.Ordinal));
@@ -3314,25 +3350,37 @@ internal static class Program
             return false;
         }
         var parts = line.Split('|');
-        if (parts.Length < 3 || string.IsNullOrWhiteSpace(parts[1]) || string.IsNullOrWhiteSpace(parts[2]))
+        if (parts.Length < 4 || string.IsNullOrWhiteSpace(parts[1]) || string.IsNullOrWhiteSpace(parts[2]) || string.IsNullOrWhiteSpace(parts[3]))
         {
             error = "GPU/TensorRT 信息格式无效：" + line;
             return false;
         }
-        runtime = new TensorRtRuntime(parts[1].Trim(), parts[2].Trim());
+        runtime = new TensorRtRuntime(parts[1].Trim(), parts[2].Trim(), parts[3].Trim());
         error = "";
         return true;
     }
 
-    private static string BuildTensorRtCachePath(string sourcePath, TensorRtRuntime runtime, int width, int height, int tileSize)
+    private const string TensorRtCacheSchema = "2";
+    private const string TensorRtPrecision = "fp16";
+    private const int TensorRtOptimizationLevel = 3;
+    private const int TensorRtTilePad = 10;
+
+    private static string BuildTensorRtCachePath(
+        string sourcePath, TensorRtRuntime runtime, int width, int height, int tileSize, int outputScale)
     {
         using var stream = File.OpenRead(sourcePath);
         var sourceHash = Convert.ToHexString(SHA256.HashData(stream)).Substring(0, 12).ToLowerInvariant();
         var fileName = SafeCacheComponent(ModelBaseName(sourcePath), 72) +
             "__gpu-" + SafeCacheComponent(runtime.GpuName, 64) +
             "__trt-" + SafeCacheComponent(runtime.TensorRtVersion, 32) +
+            "__torchtrt-" + SafeCacheComponent(runtime.TorchTensorRtVersion, 32) +
+            "__precision-" + TensorRtPrecision +
+            "__opt-" + TensorRtOptimizationLevel +
+            "__schema-" + TensorRtCacheSchema +
             "__input-" + width + "x" + height +
             "__tile-" + tileSize +
+            "__tilepad-" + TensorRtTilePad +
+            "__scale-" + outputScale +
             "__src-" + sourceHash + ".engine";
         return Path.Combine(TensorRTCacheDir, fileName);
     }
@@ -3350,8 +3398,17 @@ internal static class Program
         return result.Length <= maxLength ? result : result[..maxLength];
     }
 
+    /// <summary>输出给 3FUI 队列解析的 TensorRT 构建进度事件。</summary>
+    private static void EmitTensorRtProgress(string phase, int percent, string detail)
+    {
+        var safeDetail = (detail ?? "").Replace('|', '/').Replace('\r', ' ').Replace('\n', ' ');
+        Console.WriteLine("VIDEOENHANCER_TRT_PROGRESS|" + phase + "|" +
+            Math.Clamp(percent, 0, 100).ToString(CultureInfo.InvariantCulture) + "|" + safeDetail);
+    }
+
     /// <summary>调用开发包自带转换器，并实时转发构建日志与停止请求。</summary>
-    private static string RunTensorRtConverter(string sourcePath, StopWatcher? stopWatcher)
+    private static string RunTensorRtConverter(
+        string sourcePath, int inputWidth, int inputHeight, int outputScale, int tileSize, StopWatcher? stopWatcher)
     {
         var buildDir = Path.Combine(TensorRTCacheDir, ".build-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(buildDir);
@@ -3372,19 +3429,48 @@ internal static class Program
         start.ArgumentList.Add(sourcePath);
         start.ArgumentList.Add("--output-dir");
         start.ArgumentList.Add(buildDir);
+        start.ArgumentList.Add("--width");
+        start.ArgumentList.Add(inputWidth.ToString(CultureInfo.InvariantCulture));
+        start.ArgumentList.Add("--height");
+        start.ArgumentList.Add(inputHeight.ToString(CultureInfo.InvariantCulture));
+        if (outputScale > 0)
+        {
+            start.ArgumentList.Add("--output-scale");
+            start.ArgumentList.Add(outputScale.ToString(CultureInfo.InvariantCulture));
+        }
+        start.ArgumentList.Add("--tile-size");
+        start.ArgumentList.Add(tileSize.ToString(CultureInfo.InvariantCulture));
+        start.ArgumentList.Add("--tile-pad");
+        start.ArgumentList.Add(TensorRtTilePad.ToString(CultureInfo.InvariantCulture));
+        start.ArgumentList.Add("--precision");
+        start.ArgumentList.Add(TensorRtPrecision);
+        start.ArgumentList.Add("--optimization-level");
+        start.ArgumentList.Add(TensorRtOptimizationLevel.ToString(CultureInfo.InvariantCulture));
 
         using var process = new Process { StartInfo = start };
         var job = CreateKillOnCloseJob();
         var cancelled = false;
         ConsoleCancelEventHandler cancelHandler = (_, e) => { e.Cancel = true; cancelled = true; };
-        process.OutputDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) Console.WriteLine("[TensorRT 构建] " + e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) Console.Error.WriteLine("[TensorRT 构建] " + e.Data); };
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (string.IsNullOrWhiteSpace(e.Data)) return;
+            // 保留机器可读进度协议的行首，3FUI 才能把转换阶段显示到任务进度。
+            if (e.Data.StartsWith("VIDEOENHANCER_TRT_PROGRESS|", StringComparison.Ordinal))
+                Console.WriteLine(e.Data);
+            else
+                Console.WriteLine("[TensorRT 构建] " + e.Data);
+        };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (!string.IsNullOrWhiteSpace(e.Data)) Console.Error.WriteLine("[TensorRT 构建] " + e.Data);
+        };
         Console.CancelKeyPress += cancelHandler;
         try
         {
             if (!process.Start())
             {
                 Console.Error.WriteLine("[错误] 无法启动 TensorRT 自动构建进程。");
+                EmitTensorRtProgress("超分 Engine", 0, "启动转换器失败");
                 return "";
             }
             if (job != IntPtr.Zero) AssignProcessToJobObject(job, process.Handle);
@@ -3396,12 +3482,14 @@ internal static class Program
                 try { process.Kill(entireProcessTree: true); } catch { }
                 process.WaitForExit();
                 Console.WriteLine("[TensorRT] 自动构建已取消。");
+                EmitTensorRtProgress("超分 Engine", 0, "构建已取消");
                 return "";
             }
             process.WaitForExit();
             if (process.ExitCode != 0)
             {
                 Console.Error.WriteLine("[错误] TensorRT 自动构建失败，退出码：" + process.ExitCode);
+                EmitTensorRtProgress("超分 Engine", 0, "构建失败");
                 return "";
             }
             var engine = Directory.EnumerateFiles(buildDir, "*.engine", SearchOption.AllDirectories)
@@ -3409,6 +3497,7 @@ internal static class Program
             if (engine is null)
             {
                 Console.Error.WriteLine("[错误] 转换器已退出，但没有生成 .engine 文件：" + buildDir);
+                EmitTensorRtProgress("超分 Engine", 0, "未生成 Engine");
                 return "";
             }
             return engine;
@@ -3416,6 +3505,7 @@ internal static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine("[错误] TensorRT 自动构建异常：" + ex.Message);
+            EmitTensorRtProgress("超分 Engine", 0, "构建异常");
             return "";
         }
         finally
@@ -3436,15 +3526,22 @@ internal static class Program
         return fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool ValidateTensorRTEngine(string enginePath, bool printSuccess)
+    private static bool ValidateTensorRTEngine(string enginePath, bool printSuccess, int inputWidth = 0, int inputHeight = 0, int tileSize = 0)
     {
         if (!File.Exists(TensorRTValidatorScript))
         {
             Console.Error.WriteLine("[错误] 缺少 TensorRT Engine 验证脚本：" + TensorRTValidatorScript);
             return false;
         }
-        var result = RunProcessCapture(
-            PythonExe, new[] { TensorRTValidatorScript, "--engine", enginePath }, 120);
+        var validatorArgs = new List<string> { TensorRTValidatorScript, "--engine", enginePath };
+        if (inputWidth > 0 && inputHeight > 0)
+        {
+            validatorArgs.Add("--width");
+            validatorArgs.Add((tileSize > 0 ? Math.Min(inputWidth, tileSize + TensorRtTilePad * 2) : inputWidth).ToString(CultureInfo.InvariantCulture));
+            validatorArgs.Add("--height");
+            validatorArgs.Add((tileSize > 0 ? Math.Min(inputHeight, tileSize + TensorRtTilePad * 2) : inputHeight).ToString(CultureInfo.InvariantCulture));
+        }
+        var result = RunProcessCapture(PythonExe, validatorArgs.ToArray(), 120);
         var lines = (result.Output + "\n" + result.Error)
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var line in lines)
@@ -3732,17 +3829,11 @@ internal static class Program
     }
 
     /// <summary>
-    /// TensorRT 下拉框展示 PTH 源模型和非缓存预制 Engine；自动缓存目录不重复展示。
-    /// 同名时优先展示预制 Engine，运行时若不兼容会自动寻找同名 PTH 重建。
+    /// TensorRT 任务只展示 PTH 源模型；Engine 始终按当前任务配置自动构建到本机缓存。
     /// </summary>
     private static List<string> DiscoverTensorRTSelectableModels()
     {
-        var engines = DiscoverTensorRTEngineModels()
-            .Where(path => !IsPathUnder(path, TensorRTCacheDir))
-            .Where(path => !IsInInterpolationDirectory(path));
-        return engines.Concat(DiscoverUpscalePthModels())
-            .GroupBy(path => UpscaleModelDisplayName(path, "tensorrt"), StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First())
+        return DiscoverUpscalePthModels()
             .OrderBy(path => UpscaleModelDisplayName(path, "tensorrt"), StringComparer.CurrentCultureIgnoreCase)
             .ToList();
     }

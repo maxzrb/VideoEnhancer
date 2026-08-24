@@ -23,6 +23,10 @@ Namespace videoenhancer
         Private Shared ReadOnly ProgressRegex As New Regex(
             "FPS:\s*([\d.]+)\s*Current Frame:\s*(\d+)\s*ETA:\s*([\d:]+)", RegexOptions.Compiled Or RegexOptions.IgnoreCase)
 
+        Private Shared ReadOnly TensorRtProgressRegex As New Regex(
+            "VIDEOENHANCER_TRT_PROGRESS\|([^|]+)\|(\d+)\|?(.*)$",
+            RegexOptions.Compiled Or RegexOptions.IgnoreCase)
+
         Private Shared ReadOnly TotalFrames As New Dictionary(Of String, Long)(StringComparer.Ordinal)
         Private Shared ReadOnly LastSizeUpdate As New Dictionary(Of String, DateTime)(StringComparer.Ordinal)
         Private Shared ReadOnly TelemetryLock As New Object()
@@ -111,6 +115,24 @@ Namespace videoenhancer
                         End If
                     End If
                     If String.IsNullOrEmpty(text) Then
+                        Return
+                    End If
+
+                    Dim trtMatch = TensorRtProgressRegex.Match(text.Trim())
+                    If trtMatch.Success Then
+                        Dim trtPercent As Integer
+                        If Integer.TryParse(trtMatch.Groups(2).Value, NumberStyles.Integer, CultureInfo.InvariantCulture, trtPercent) Then
+                            Dim trtTask = FindTask(id)
+                            If trtTask IsNot Nothing AndAlso trtTask.进度 IsNot Nothing Then
+                                trtPercent = Math.Max(0, Math.Min(100, trtPercent))
+                                Dim detail = trtMatch.Groups(3).Value.Trim()
+                                trtTask.进度.百分比 = trtPercent / 100.0
+                                trtTask.进度.进度文本 = "构建 TensorRT Engine " & trtPercent.ToString(CultureInfo.InvariantCulture) & "%"
+                                trtTask.进度.当前阶段 = "TensorRT Engine 构建"
+                                trtTask.进度.效率文本 = If(String.IsNullOrWhiteSpace(detail), "", detail)
+                                trtTask.进度.时间文本 = ""
+                            End If
+                        End If
                         Return
                     End If
 

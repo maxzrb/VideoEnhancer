@@ -228,6 +228,7 @@ Namespace videoenhancer
         Private _downloadOnline As Boolean = True
         Private _archiveCleanupBusy As Boolean = False
         Private _updateCheckBusy As Boolean = False
+        Private _environmentCheckCompleted As Boolean = False
         Private _downloadActiveCount As Integer = 0
         Private _downloadActionsEnabled As Boolean = True
         Private _downloadListConfigured As Boolean = False
@@ -690,6 +691,11 @@ Namespace videoenhancer
                     "（models 目录，.param/.bin 文件夹）")))))
                 ShowStatus($"已从 videoenhancer.exe 读取 {models.Count} 个可用模型 " & modeText, False)
             Else
+                If Not _environmentCheckCompleted Then
+                    _cmbModel.WaterText = "正在读取模型列表…"
+                    ShowStatus("正在检查环境并读取模型列表…", False)
+                    Return
+                End If
                 If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp") AndAlso _config.UpscaleEnabled Then
                     Dim missingExt = If(_config.Backend = "basicvsrpp", "BasicVSR++ .pth 或优化目录", If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "tensorrt", "PTH 或 .engine", If(_config.Backend = "onnx", ".onnx", ".pth"))))
                     _cmbModel.WaterText = "未找到 " & missingExt & " 放大模型"
@@ -724,6 +730,11 @@ Namespace videoenhancer
                     "（NCNN，Frame-Interpolation 下的模型目录）"))
                 ShowStatus($"已读取 {models.Count} 个补帧模型 " & modeText, False)
             Else
+                If Not _environmentCheckCompleted Then
+                    _cmbInterp.WaterText = "正在读取补帧模型…"
+                    ShowStatus("正在检查环境并读取补帧模型…", False)
+                    Return
+                End If
                 If _config.InterpBackend = "cuda" OrElse _config.InterpBackend = "tensorrt" Then
                     _cmbInterp.WaterText = "未找到兼容的补帧模型"
                     ShowStatus("未在 models" & Convert.ToChar(92) & "Frame-Interpolation 找到与 " & If(_config.InterpBackend = "tensorrt", "TensorRT", "CUDA/PyTorch") & " 兼容的补帧模型", _config.InterpEnabled)
@@ -770,19 +781,21 @@ Namespace videoenhancer
             End If
             Dim backend = BackendValue(_cmbBackend.SelectedItem)
             If backend = _config.Backend Then
+                SyncInterpSwitchFromConfig()
                 Return
             End If
             _config.Backend = backend
             If backend = "basicvsrpp" Then
                 _config.InterpEnabled = False
                 _config.InterpModel = ""
-                _switchInterp.Checked = False
             End If
             _config.Save()
+            SyncInterpSwitchFromConfig()
             ' 切换后端后重新读取两个模型列表（CUDA 需要 .pth 模型；活动模式无 .pth 时由 Apply*List 自动回退）
             RefreshUpscaleModels()
             RefreshInterpModels()
-            UpdateInterpSwitchState()
+            UpdateModeStateLabels()
+            UpdateProcessOrderState()
             UpdateAdvancedControlState()
             Dim modeText = If(backend = "basicvsrpp",
                 "BasicVSR++（NVIDIA）：官方 x4 权重或 1x 优化目录，不与补帧/图片模式混用",
@@ -953,6 +966,8 @@ Namespace videoenhancer
         ' ────────────────────────── 环境检查 ──────────────────────────
 
         Private Sub RunEnvironmentCheck(exePath As String)
+            _environmentCheckCompleted = False
+            ShowStatus("正在检查运行环境…", False)
             Task.Run(Sub()
                          Try
                              Dim psi As New ProcessStartInfo With {
@@ -973,26 +988,55 @@ Namespace videoenhancer
                                  End If
                                  Dim stdoutTask = p.StandardOutput.ReadToEndAsync()
                                  Dim stderrTask = p.StandardError.ReadToEndAsync()
-                                 p.WaitForExit(120000)
-                                 Dim stdout = stdoutTask.GetAwaiter().GetResult()
-                                 Dim stderr = stderrTask.GetAwaiter().GetResult()
+                                  Dim exited = p.WaitForExit(120000)
+                                  If Not exited Then
+                                      Try
+                                          p.Kill(entireProcessTree:=True)
+                                          p.WaitForExit()
+                                      Catch
+                                      End Try
+                                      ShowStatus("环境检查耗时较长，模型列表仍在加载…", False)
+                                      Return
+                                  End If
+                                  Dim stdout = stdoutTask.GetAwaiter().GetResult()
+                                  Dim stderr = stderrTask.GetAwaiter().GetResult()
                                  Dim lines = (stdout & Environment.NewLine & stderr).Split(
                                      {Convert.ToChar(13), Convert.ToChar(10)}, StringSplitOptions.RemoveEmptyEntries)
-                                 Dim summary = lines.FirstOrDefault(Function(l) l.Contains("[缺失]"))
-                                 If String.IsNullOrWhiteSpace(summary) Then
-                                     summary = lines.LastOrDefault(Function(l) l.Contains("[环境检查]"))
-                                 End If
-                                 Dim ok = p.ExitCode = 0
-                                 Dim text = If(ok, "环境检测通过：" & If(summary, "ffmpeg / python / 模型库就绪"),
-                                                  "环境检测未通过：" & If(summary, "请查看 videoenhancer.exe --check 输出"))
-                                 Try
-                                     Me.BeginInvoke(New Action(Sub() ShowStatus(text, Not ok)))
-                                 Catch
-                                 End Try
-                             End Using
-                         Catch
-                         End Try
-                     End Sub)
+                                  Dim ok = p.ExitCode = 0
+                                  ' --check 的最终汇总行也会提到“[缺失]”，不能把它本身当作缺失项。
+                                  ' 模型库、补帧库和设备专用 TensorRT Engine 属于可选运行资源，不阻断插件启动。
+                                  Dim missingLines = lines.Where(Function(l) l.TrimStart().StartsWith("[缺失]", StringComparison.Ordinal)).ToList()
+                                  Dim infrastructureMissing = missingLines.FirstOrDefault(
+                                      Function(l)
+                                          Dim normalized = l.Trim().ToLowerInvariant()
+                                          Return Not normalized.Contains("模型库") AndAlso
+                                              Not normalized.Contains("补帧模型库") AndAlso
+                                              Not normalized.Contains("tensorrt engine") AndAlso
+                                              Not normalized.Contains("gpu") AndAlso
+                                              Not normalized.Contains("cuda")
+                                      End Function)
+                                  Dim text As String
+                                  Dim isError As Boolean
+                                  If ok Then
+                                      text = "环境检测通过：基础组件与模型库就绪"
+                                      isError = False
+                                  ElseIf Not String.IsNullOrWhiteSpace(infrastructureMissing) Then
+                                      text = "环境检测未通过：" & infrastructureMissing.Trim()
+                                      isError = True
+                                  Else
+                                      ' 启动时模型目录可能仍由宿主/下载器准备中；这不是基础环境故障。
+                                      text = "基础环境已就绪，模型列表仍在加载…"
+                                      isError = False
+                                  End If
+                                  Try
+                                      Me.BeginInvoke(New Action(Sub() ShowStatus(text, isError)))
+                                  Catch
+                                  End Try
+                              End Using
+                          Catch
+                          End Try
+                          _environmentCheckCompleted = True
+                       End Sub)
         End Sub
 
         ' ────────────────────────── UI ──────────────────────────
@@ -1244,7 +1288,8 @@ Namespace videoenhancer
                 .BackColor = Color.Transparent
             }
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 48.0F))
+            ' 状态栏给按钮保留稳定的下边距，避免矮窗口中按钮白底贴住宿主底边。
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 60.0F))
 
             _tabs.SuspendLayout()
             Try
@@ -1260,7 +1305,7 @@ Namespace videoenhancer
                 .RowCount = 1,
                 .BackColor = Color.Transparent,
                 .Margin = Padding.Empty,
-                .Padding = New Padding(0, 4, 0, 0)
+                .Padding = New Padding(0, 4, 0, 8)
             }
             sectionStatus.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
             sectionStatus.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
@@ -1604,8 +1649,7 @@ Namespace videoenhancer
                 _config.InterpEnabled = False
                 _config.InterpModel = ""
             End If
-            _switchInterp.Checked = _config.InterpEnabled
-            _switchInterp.Enabled = _config.Enabled AndAlso Not String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase)
+            SyncInterpSwitchFromConfig()
             AddHandler _switchInterp.CheckedChanged, AddressOf OnInterpSwitchChanged
             Dim interpHeader = BuildOfficialModeHeader(
                 "运动补帧", "", _switchInterp, _lblSwitchInterp)
@@ -1907,8 +1951,7 @@ Namespace videoenhancer
             _lblSwitchInterp.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleRight
             _switchInterp.Dock = DockStyle.None
             ConfigureDpiSwitch(_switchInterp)
-            _switchInterp.Checked = _config.InterpEnabled
-            _switchInterp.Enabled = _config.Enabled
+            SyncInterpSwitchFromConfig()
             AddHandler _switchInterp.CheckedChanged, AddressOf OnInterpSwitchChanged
 
             Dim interpModelLabel As Label = CreateTextLabel("补帧模型", 8.7F, FontStyle.Regular, UiTextSecondary)
@@ -2261,8 +2304,7 @@ Namespace videoenhancer
             _switchInterp.TrackColorOn = Color.FromArgb(80, 200, 120)
             _switchInterp.TrackColorOff = Color.FromArgb(90, 90, 100)
             _switchInterp.KnobColor = Color.FromArgb(235, 235, 235)
-            _switchInterp.Checked = _config.InterpEnabled
-            _switchInterp.Enabled = _config.Enabled
+            SyncInterpSwitchFromConfig()
             AddHandler _switchInterp.CheckedChanged, AddressOf OnInterpSwitchChanged
             rowInterp.Controls.Add(_switchInterp)
             _cmbInterp.Dock = DockStyle.None
@@ -3019,12 +3061,12 @@ Namespace videoenhancer
             header.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             header.Controls.Add(CreateOfficialSectionHeading(
                 "模型资源库", "从 ModelScope 获取模型与后端组件"), 0, 0)
-            _btnDownloadPluginUpdate.Text = "下载插件更新"
+            _btnDownloadPluginUpdate.Text = "下载全部"
             _btnDownloadPluginUpdate.Dock = DockStyle.Fill
             _btnDownloadPluginUpdate.AutoSize = False
             _btnDownloadPluginUpdate.Margin = New Padding(12, 7, 0, 7)
             ConfigureSecondaryButton(_btnDownloadPluginUpdate)
-            AddHandler _btnDownloadPluginUpdate.Click, AddressOf OnCheckUpdates
+            AddHandler _btnDownloadPluginUpdate.Click, AddressOf OnDownloadAllClick
             header.Controls.Add(_btnDownloadPluginUpdate, 2, 0)
             _btnRefreshDownloads.Text = "刷新资源"
             _btnRefreshDownloads.Dock = DockStyle.Fill
@@ -3548,6 +3590,7 @@ Namespace videoenhancer
             _downloadsLoading = True
             _btnRefreshDownloads.Enabled = False
             _btnCleanArchives.Enabled = False
+            _btnDownloadPluginUpdate.Enabled = False
             _downloadActionsEnabled = False
             _downloadList.BeginUpdate()
             Try
@@ -3636,7 +3679,7 @@ Namespace videoenhancer
                             })
                         Next
                     End Using
-                    Dim categoryOrder = New String() {"Backend", "BasicVSR++", "Bin", "ONNX", "Param-Bin", "FlashVSR", "Frame-Interpolation", "RIFE", "PTH", "TensorRT-Default"}
+                    Dim categoryOrder = New String() {"Plugin", "Backend", "BasicVSR++", "Bin", "ONNX", "Param-Bin", "FlashVSR", "Frame-Interpolation", "RIFE", "PTH", "TensorRT-Default"}
                     For Each group In entries.GroupBy(Function(entry) DownloadCategory(entry.RelativePath)).
                             OrderBy(Function(value)
                                         Dim index = Array.FindIndex(categoryOrder, Function(name) name.Equals(value.Key, StringComparison.OrdinalIgnoreCase))
@@ -3667,6 +3710,7 @@ Namespace videoenhancer
 
         Private Shared Function DownloadCategoryTitle(category As String) As String
             Select Case category.ToUpperInvariant()
+                Case "PLUGIN" : Return "插件文件"
                 Case "ONNX" : Return "ONNX 模型"
                 Case "PARAM-BIN" : Return "Param-Bin 模型"
                 Case "FRAME-INTERPOLATION" : Return "Frame-Interpolation 补帧模型"
@@ -3687,10 +3731,13 @@ Namespace videoenhancer
                 Dim category = normalized.Substring(0, slash)
                 Dim suffix = normalized.Substring(slash + 1).Replace("/"c, Path.DirectorySeparatorChar)
                 Dim coreRoot = ResolveCoreRoot()
-                Dim destinationRoot = If(category.Equals("Backend", StringComparison.OrdinalIgnoreCase),
-                    Path.Combine(coreRoot, "python"),
-                    If(category.Equals("Bin", StringComparison.OrdinalIgnoreCase),
-                        Path.Combine(coreRoot, "bin"), Path.Combine(coreRoot, "models", category)))
+                Dim destinationRoot = If(category.Equals("Plugin", StringComparison.OrdinalIgnoreCase),
+                    Path.GetDirectoryName(If(File.Exists(_config.ExePath), _config.ExePath,
+                        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "videoenhancer.exe"))),
+                    If(category.Equals("Backend", StringComparison.OrdinalIgnoreCase),
+                        Path.Combine(coreRoot, "python"),
+                        If(category.Equals("Bin", StringComparison.OrdinalIgnoreCase),
+                            Path.Combine(coreRoot, "bin"), Path.Combine(coreRoot, "models", category))))
                 Dim downloaded = Path.Combine(destinationRoot, suffix)
                 If File.Exists(downloaded) Then Return True
 
@@ -3807,6 +3854,20 @@ Namespace videoenhancer
             ElseIf row.BatchPaths IsNot Nothing Then
                 Await DownloadGroupItemsAsync(row.Category, row.BatchPaths)
             End If
+        End Sub
+
+        Private Async Sub OnDownloadAllClick(sender As Object, e As EventArgs)
+            If Not _downloadActionsEnabled OrElse Not _downloadOnline OrElse _downloadsLoading OrElse
+                _archiveCleanupBusy OrElse _downloadActiveCount > 0 Then Return
+            ' 当前插件 EXE 由自动更新流程管理；保留在资源列表中供查看/单独下载，避免“下载全部”重复覆盖正在运行的程序。
+            Dim paths = _downloadItemsByPath.Keys.
+                Where(Function(path) Not path.Equals("Plugin/videoenhancer.exe", StringComparison.OrdinalIgnoreCase)).
+                ToList()
+            If paths.Count = 0 Then
+                ShowStatus("请先刷新资源列表。", True)
+                Return
+            End If
+            Await DownloadGroupItemsAsync("全部资源", paths)
         End Sub
 
         Private Async Function DownloadSingleItemAsync(entry As DownloadModelEntry) As Task
@@ -4072,8 +4133,8 @@ Namespace videoenhancer
         Private Sub UpdateDownloadUtilityButtons()
             _btnRefreshDownloads.Enabled = Not _downloadsLoading AndAlso
                 _downloadActiveCount = 0 AndAlso Not _archiveCleanupBusy
-            _btnDownloadPluginUpdate.Enabled = Not _updateCheckBusy AndAlso
-                _downloadActiveCount = 0 AndAlso Not _archiveCleanupBusy
+            _btnDownloadPluginUpdate.Enabled = _downloadsLoaded AndAlso _downloadActionsEnabled AndAlso
+                _downloadOnline AndAlso _downloadActiveCount = 0 AndAlso Not _archiveCleanupBusy
             _btnCleanArchives.Enabled = _downloadActiveCount = 0 AndAlso Not _archiveCleanupBusy
         End Sub
 
@@ -4570,9 +4631,24 @@ Namespace videoenhancer
             _btnPickPth.Enabled = False
             SetConverterStatus("正在离线编译 TensorRT Engine；复杂模型可能需要数分钟，请勿关闭程序…", False)
             Try
-                Dim result = Await Task.Run(Function() RunTensorRtConversion(pythonExe, converter, _convertInputPath, outputDir))
+                Dim progress = Sub(line As String)
+                                   Dim match = Regex.Match(line.Trim(), "^VIDEOENHANCER_TRT_PROGRESS\|[^|]+\|(\d+)\|?(.*)$", RegexOptions.IgnoreCase)
+                                   If Not match.Success Then Return
+                                   Dim percent As Integer
+                                   If Not Integer.TryParse(match.Groups(1).Value, percent) Then Return
+                                   percent = Math.Max(0, Math.Min(100, percent))
+                                   Dim detail = match.Groups(2).Value.Trim()
+                                   Dim statusText = "构建 TensorRT Engine " & percent.ToString() & "%" & If(String.IsNullOrWhiteSpace(detail), "", "：" & detail)
+                                   Try
+                                       If Not IsDisposed AndAlso IsHandleCreated Then
+                                           BeginInvoke(New Action(Sub() SetConverterStatus(statusText, False)))
+                                       End If
+                                   Catch ex As InvalidOperationException
+                                   End Try
+                               End Sub
+                Dim result = Await Task.Run(Function() RunTensorRtConversion(pythonExe, converter, _convertInputPath, outputDir, progress))
                 If result.Item1 = 0 Then
-                    Dim enginePath = LastNonEmptyLine(result.Item2)
+                    Dim enginePath = LastEnginePath(result.Item2)
                     SetConverterStatus("转换完成：" & If(String.IsNullOrWhiteSpace(enginePath), outputDir, enginePath), False)
                     If _config.Backend = "tensorrt" Then RefreshUpscaleModels()
                 Else
@@ -4587,7 +4663,7 @@ Namespace videoenhancer
             End Try
         End Sub
 
-        Private Shared Function RunTensorRtConversion(pythonExe As String, converter As String, inputPath As String, outputDir As String) As Tuple(Of Integer, String)
+        Private Shared Function RunTensorRtConversion(pythonExe As String, converter As String, inputPath As String, outputDir As String, progress As Action(Of String)) As Tuple(Of Integer, String)
             Dim psi As New ProcessStartInfo With {
                 .FileName = pythonExe,
                 .WorkingDirectory = Path.GetDirectoryName(converter),
@@ -4604,11 +4680,30 @@ Namespace videoenhancer
             psi.ArgumentList.Add(outputDir)
             Using child As Diagnostics.Process = Diagnostics.Process.Start(psi)
                 If child Is Nothing Then Return New Tuple(Of Integer, String)(1, "无法启动模型转换进程")
-                Dim stdoutTask = child.StandardOutput.ReadToEndAsync()
-                Dim stderrTask = child.StandardError.ReadToEndAsync()
+                Dim output As New StringBuilder()
+                Dim outputHandler As DataReceivedEventHandler = Sub(sender, e)
+                                                                      If String.IsNullOrWhiteSpace(e.Data) Then Return
+                                                                      SyncLock output
+                                                                          output.AppendLine(e.Data)
+                                                                      End SyncLock
+                                                                      progress?.Invoke(e.Data)
+                                                                  End Sub
+                Dim errorHandler As DataReceivedEventHandler = Sub(sender, e)
+                                                                     If String.IsNullOrWhiteSpace(e.Data) Then Return
+                                                                     SyncLock output
+                                                                         output.AppendLine(e.Data)
+                                                                     End SyncLock
+                                                                 End Sub
+                AddHandler child.OutputDataReceived, outputHandler
+                AddHandler child.ErrorDataReceived, errorHandler
+                child.BeginOutputReadLine()
+                child.BeginErrorReadLine()
                 child.WaitForExit()
-                Task.WaitAll(stdoutTask, stderrTask)
-                Return New Tuple(Of Integer, String)(child.ExitCode, stdoutTask.Result & Environment.NewLine & stderrTask.Result)
+                ' 第二次等待确保异步事件已把尾部输出写入结果。
+                child.WaitForExit()
+                RemoveHandler child.OutputDataReceived, outputHandler
+                RemoveHandler child.ErrorDataReceived, errorHandler
+                Return New Tuple(Of Integer, String)(child.ExitCode, output.ToString())
             End Using
         End Function
 
@@ -4650,6 +4745,19 @@ Namespace videoenhancer
                 If Not String.IsNullOrWhiteSpace(lines(i)) Then Return lines(i).Trim()
             Next
             Return "未返回详细信息"
+        End Function
+
+        Private Shared Function LastEnginePath(text As String) As String
+            If Not String.IsNullOrWhiteSpace(text) Then
+                Dim lines = text.Replace(Convert.ToChar(13), Convert.ToChar(10)).Split(Convert.ToChar(10))
+                For i As Integer = lines.Length - 1 To 0 Step -1
+                    Dim line = lines(i).Trim()
+                    If line.EndsWith(".engine", StringComparison.OrdinalIgnoreCase) AndAlso Not line.Contains("|"c) Then
+                        Return line
+                    End If
+                Next
+            End If
+            Return LastNonEmptyLine(text)
         End Function
 
         ''' <summary>从 CLI 标准错误中提取可直接展示给用户的错误正文。</summary>
@@ -4939,8 +5047,37 @@ Namespace videoenhancer
 
         ''' <summary>后端切换后同步补帧开关的可用状态；只有 BasicVSR++ 不支持组合补帧。</summary>
         Private Sub UpdateInterpSwitchState()
-            _switchInterp.Enabled = _config.Enabled AndAlso
-                Not String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase)
+            SyncInterpSwitchFromConfig()
+        End Sub
+
+        ''' <summary>集中同步补帧配置、开关外观和状态标签，避免后端切换后出现状态分裂。</summary>
+        Private Sub SyncInterpSwitchFromConfig()
+            If _switchInterp Is Nothing OrElse _switchInterp.IsDisposed Then
+                Return
+            End If
+            Dim previousSync = _syncingInterpSwitch
+            _syncingInterpSwitch = True
+            Try
+                ' LakeUI 在 Enabled=False 时会停止动画但保留当前进度；同步后端时必须立即落到目标位置，
+                ' 否则 Checked=False 可能仍绘制成右侧滑块。
+                Dim animationDuration = _switchInterp.AnimationDuration
+                _switchInterp.AnimationDuration = 0
+                Try
+                    _switchInterp.Checked = _config.InterpEnabled
+                    _switchInterp.Enabled = _config.Enabled AndAlso
+                        Not String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase)
+                Finally
+                    _switchInterp.AnimationDuration = animationDuration
+                End Try
+            Finally
+                _syncingInterpSwitch = previousSync
+            End Try
+            ' LakeUI 的开关由自绘渲染器负责外观；仅写 Checked 在后端切换时可能留下旧的 GPU 绘制帧。
+            ' 强制刷新控件，确保视觉状态与配置同步。
+            _switchInterp.Invalidate(True)
+            _switchInterp.Refresh()
+            _switchInterp.Update()
+            UpdateModeStateLabels()
         End Sub
 
         Private Sub UpdateProcessOrderState()
@@ -4984,10 +5121,7 @@ Namespace videoenhancer
                 _config.InterpEnabled = False
                 _config.InterpModel = ""
             End If
-            _syncingInterpSwitch = True
-            _switchInterp.Checked = _config.InterpEnabled
-            _switchInterp.Enabled = _config.Enabled AndAlso Not String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase)
-            _syncingInterpSwitch = False
+            SyncInterpSwitchFromConfig()
             ' 推理方式 / 补帧倍率：仅主开关开启时可操作
             _syncingBackend = True
             SyncBackendCombo()

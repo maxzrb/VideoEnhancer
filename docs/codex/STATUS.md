@@ -1,12 +1,12 @@
 # Project Status
 
-Last updated: 2026-08-24 01:28
+Last updated: 2026-08-24 12:27
 Updated by: Codex
 
 ## Current Snapshot
 
 - Current objective: 在独立版本 1.0.3 基线上补齐 RIFE TensorRT 补帧权重，并保证 ModelScope 模型清单可完整分页读取。
-- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。RIFE TensorRT 接入已提交；5 个官方 RIFE `.pkl` 权重已上传公开数据集 `AerithDream/VideoEnhancer-Models`，远端路径、大小和 SHA-256 全部验证一致。CLI 已修复 ModelScope tree API 默认 100 条分页截断，在线模型页现完整返回 105 项，其中 5 个 RIFE TensorRT 权重可下载、可发现。
+- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。RIFE TensorRT 接入已提交；5 个官方 RIFE `.pkl` 权重已上传公开数据集 `AerithDream/VideoEnhancer-Models`，远端路径、大小和 SHA-256 全部验证一致。CLI 已修复 ModelScope tree API 默认 100 条分页截断，在线模型页现完整返回 105 项，其中 5 个 RIFE TensorRT 权重可下载、可发现。最新 EXE、插件 DLL 和布局已替换到 `C:\Program portable\3FUI\plugin`，三项哈希与工作区构建物一致。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
 - Next recommended step: 在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次 Engine 构建及二次缓存命中；确认后再决定是否升至 1.0.4 并发布。
@@ -820,3 +820,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Limitations/local notes: 本机无 NVIDIA 环境，未执行真实 Engine 编译。终端策略拒绝递归删除两个已验证位于 `%TEMP%` 的隔离目录，残留为 `videoenhancer-rife-download-test-0070ee4c40ad420e8ca182335695a312` 和 `videoenhancer-modelscope-history-40b44d10fcb04d409d1641a6d487d493`；二者不在仓库、模型镜像或 3FUI 安装目录。
 - Version/release: 版本保持 1.0.3；未部署到 3FUI、未创建 GitHub Release、未修改 `version/版本迭代记录.md`。
 - Git status: 分页源码和本次收尾记录待第二个提交；完成后预计工作树 clean。独立主线不合并、不推送原作者 `origin`，推送 `fork` 仍待用户另行要求。
+
+### 2026-08-24 12:27 - Codex
+
+- Objective: 按用户要求把当前分页修复和 RIFE 权重支持版本替换到实际 3FUI 安装目录供测试。
+- Precondition: 检查确认 `FFmpegFreeUI`/`3FUI` 均未运行，未强制结束进程。
+- Deployment: 将工作区 `videoenhancer.exe`（17,453,200 字节）、`videoenhancer.3fui.dll`（5,300,224 字节）和 `videoenhancer-layout.json`（3,434 字节）复制到 `C:\Program portable\3FUI\plugin`。
+- Verification: 三项安装文件均与工作区源文件 SHA-256 一致；EXE `FC6EA682A30023CA69844ADCC326982651D5F42E1A15208F67976C2516D535B7`，DLL `E78952503174C155663DB05C1216169FC20DB77DB719F320EEB08ADB327A1151`，layout `7AF4F4F276CBB893B906F4ACFE38D20283CECFF31CEEBC2C594E013B12BB1212`。
+- User next step: 启动 3FUI，刷新模型列表并确认总数、RIFE TensorRT 权重显示和下载交互；当前机器没有 NVIDIA 环境，不能在本机验证真实 Engine 构建。
+- Git status: 部署只影响 Git 忽略的本地安装目录；仓库源码状态仍以 `git status` 为准，推送 fork 尚未执行。

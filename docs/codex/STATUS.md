@@ -990,3 +990,9 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Release: GitHub latest 为 `v1.0.7`，资产仅 `stable.json` 和 `VideoEnhancer-1.0.7-win-x64.exe`；GitHub/ModelScope stable.json 均为 1.0.7，路径、大小 `17417235`、SHA-256 `877b64f1920eac60732b0aa959eaba5a22779da59ab0566735fbedddf1751cef` 一致；GitHub EXE、ModelScope Releases EXE、模型仓库 EXE 哈希一致。
 - Deployment: `C:\Program portable\3FUI\plugin` 已部署并保留 1.0.6 EXE/DLL，源目标哈希一致，CLI 报告 1.0.6；没有提前覆盖 1.0.7，供用户实测自动升级。
 - Git: 本轮源码和记录待提交；发布门禁要求提交并推送 `fork/main`，不推送原作者 `origin`。
+
+### 2026-08-24 19:45 - Codex
+
+- Git closeout: `release: 1.0.7 exe-only updater` 提交最初为 `9904c41`；首次推送发现用户在 GitHub README 上新增 `6aa1002`、`8272b21`、`afa2410`，未强推。读取确认这些提交为 README 精简、ModelScope 链接和原作者链接后，将本地提交无冲突变基到 `fork/main`，最终提交为 `12a0bf2`。
+- Push verification: `git push fork HEAD:main` 成功，推送范围 `afa2410..12a0bf2`；本地 `HEAD` 与 `fork/main` 均为 `12a0bf27709e853c6f0c26ddd23c1774b23b1568`。`origin` 未推送、未合并。
+- Runtime test state: `C:\Program portable\3FUI\plugin\videoenhancer.exe --version` 仍为 1.0.6；用户可启动 3FUI 测试发现并安装远端 1.0.7。源码工作树在追加本记录前干净。

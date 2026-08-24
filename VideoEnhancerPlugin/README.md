@@ -114,8 +114,8 @@
 
 ### 模型转换器
 
-- 可选择或直接拖入 `.pth` 放大模型，调用后端 `convert_tensorrt.py` 离线编译。
-- 输出目录自动设置为核心目录的 `models\TensorRT-Personalized`，与任务按实际配置生成的 `models\TensorRT-Cache` 分开管理；转换进度会实时显示在页面中。
+- 可选择或直接拖入 `.pth/.pt/.pkl`。页面会读取权重内部结构：普通 `.pth` 放大模型调用 `convert_tensorrt.py`，RIFE 权重调用独立的 flow/encode TensorRT 构建流程，不能互相混用。
+- 放大 Engine 输出到 `models\TensorRT-Personalized`；RIFE Engine 缓存在权重旁，并按分辨率、显卡和 TensorRT 运行时隔离。转换进度会实时显示在页面中。
 - 页面说明 TensorRT 的推理效率优势、离线转换特性，以及 Engine 应在实际使用设备上重新编译。
 
 ### 队列执行流程

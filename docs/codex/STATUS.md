@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-24 19:35
+Last updated: 2026-08-24 21:00
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 将本体发布和自动更新改造成 EXE-only 协议。
-- Current state: 1.0.7 已发布。本体资产只包含版本化 EXE 和 `stable.json`；EXE 内嵌插件 DLL，新 EXE 作为临时更新器等待 3FUI 退出后替换目标 EXE并释放 DLL，布局使用 DLL 内嵌资源。GitHub `v1.0.7`、ModelScope Releases 1.0.7 和模型仓库 `Plugin/videoenhancer.exe` 的 EXE 哈希一致。实际 3FUI 安装目录保持 1.0.6，供用户测试 1.0.6→1.0.7 自动更新。本机无 NVIDIA，真实 TRT 回归仍未执行。
+- Current objective: 完成 FlashVSR/BasicVSR++ 低内存修复，并让 CUDA/TensorRT 补帧按权重内部架构正确支持 `.pth/.pt/.pkl`。
+- Current state: 已选择性部署作者的有限时间窗口/FFmpeg 流式写出实现；CLI 已按权重内容筛选 CUDA/TRT 补帧模型，新增 RIFE flow/encode 专用预构建命令并嵌入两个 Python 辅助脚本；插件模型转换页源码和 DLL 已构建。ModelScope 后端已从用户下午版 3.447 GB 包恢复正确基线、叠加 8 个文件并覆盖上传，远端大小/SHA/revision 回读通过。用户明确要求先提交远端、换 3060 设备实测，不发布 1.0.8 Release。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 用户启动 3FUI，从已安装 1.0.6 点击检查更新，验证下载 1.0.7、退出宿主、替换 EXE、释放 DLL 和自动重启；随后在 NVIDIA 机器实测 TRT Engine 构建与缓存命中。
+- Next recommended step: 提交并推送 `fork/main`；在 3060 设备拉取 Git，并从 ModelScope 下载 `Backend/python_20260824.7z`，实测 RIFE CUDA/TRT 与时序长视频内存。全部通过前不发布 1.0.8。
 
 ## Active TODO
 
@@ -23,6 +23,12 @@ Updated by: Codex
   - Status: 已完成反编译审查、选择性移植、构建、隔离模型布局测试、ModelScope 增量同步与实际安装目录部署。
   - Relevant files: `cli/Program.cs`, `cli/README.md`, `VideoEnhancerPlugin/PluginConfig.vb`, `VideoEnhancerPlugin/PluginPanel.vb`
   - Notes/blockers: 保留旧 `models\RIFE` 兼容读取；新版 CUDA 补帧支持 `.pth/.pt/.pkl`；本轮 TensorRT 改为只收 RIFE 权重并由 RVE 自动构建 Engine；BasicVSR++ 优化目录为 1x，官方单 PTH 为 4x。未合并作者硬编码仓库、删除 `core-path`、旧环境检查和 1.4.2 版本号。GPU 推理仍待 NVIDIA 机器实测。
+
+- [x] Task: 合并时序后端低内存修复并重构 CUDA/TensorRT 补帧能力检测。
+  - Owner: user / Codex
+  - Status: 低内存实现、内容架构检查、RIFE TRT 专用预构建、CLI/UI 分流和 CPU 测试均已完成；真实 GPU 验证待 3060 环境。
+  - Relevant files: 外部 Python 后端的 `rve-basicvsrpp-backend.py`、`rve-flashvsr-backend.py`、`src/temporal_video.py`、`src/basicvsrpp/model.py`、`src/flashvsr/nodes.py`；仓库内 `cli/Program.cs`、`VideoEnhancerPlugin/PluginPanel.vb`。
+  - Notes/blockers: 通用 `convert_tensorrt.py` 仍只用于单帧超分；RIFE `.pth/.pt/.pkl` 使用独立 flow/encode 构建。当前机器无 NVIDIA；全部 3060 实测通过前不发布 1.0.8。
 
 - [ ] Task: 建立独立项目发行与上游同步流程。
   - Owner: user / Codex
@@ -996,3 +1002,33 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Git closeout: `release: 1.0.7 exe-only updater` 提交最初为 `9904c41`；首次推送发现用户在 GitHub README 上新增 `6aa1002`、`8272b21`、`afa2410`，未强推。读取确认这些提交为 README 精简、ModelScope 链接和原作者链接后，将本地提交无冲突变基到 `fork/main`，最终提交为 `12a0bf2`。
 - Push verification: `git push fork HEAD:main` 成功，推送范围 `afa2410..12a0bf2`；本地 `HEAD` 与 `fork/main` 均为 `12a0bf27709e853c6f0c26ddd23c1774b23b1568`。`origin` 未推送、未合并。
 - Runtime test state: `C:\Program portable\3FUI\plugin\videoenhancer.exe --version` 仍为 1.0.6；用户可启动 3FUI 测试发现并安装远端 1.0.7。源码工作树在追加本记录前干净。
+
+### 2026-08-24 19:50 - Codex
+
+- Objective: 下载并审计作者 ModelScope `ARXChem/VideoEnhancer-Models` 最新 Python 后端，核实 FlashVSR/BasicVSR++ 内存修复，并规划 CUDA/TensorRT 补帧。
+- Upstream artifact: `Backend/python_20260824.7z` 下载到本机隔离目录 `D:\read\ARXChem-VideoEnhancer-Models-audit`；大小 `2672713470`，SHA-256 `ebe7c07a41f3b7d62127d327eed57e76580d617086ea50b89255d88ff09729cf`，与作者数据集 tree API 完全一致。未覆盖 3FUI 安装目录。
+- Low-memory finding: 作者新增 `src/temporal_video.py`，FlashVSR 使用 29 帧窗口/4 帧上下文，BasicVSR++ 默认 4 帧窗口/1 帧上下文，均改为窗口解码、窗口推理、立即通过 FFmpeg 写出，不再保存整段输入和输出；FlashVSR 复用 pipeline，BasicVSR++ 增加 CPU feature cache 与优化目录模型加载。
+- Verification: 作者 `test_temporal_low_memory.py` 的 100 帧无重复/无丢帧和短视频测试 2/2 通过；相关 Python 文件 `py_compile` 通过。无 NVIDIA，未运行真实 FlashVSR/BasicVSR++。
+- Interpolation finding: 安装目录五个 RIFE `.pkl` 均通过现有 `ArchDetect`，分别识别为 RIFE46、RIFE47、RIFE425 和 RIFE425_heavy。RVE 的 `torch.load`/RIFE TRT 路径不依赖 `.pth` 扩展名；真正限制 `.pth` 的是插件模型转换页和单帧超分专用 `convert_tensorrt.py`。该转换器使用 `UpscaleModelWrapper` 和单输入 NCHW，不能用于 RIFE，即使把补帧权重改成 `.pth` 也不可靠。
+- Integration risk: 不能整包覆盖作者 Python 包，因为它缺少本地主线后来加入的 RIFE Engine 权重哈希、失效成对清理/重建、构建进度以及超分转换 profile 校验等改动。应选择性移植低内存文件，并为补帧建立独立的架构检查和 Engine 预构建入口。
+- Git/worktree: 本轮仅在仓库外下载和提取审计包；仓库代码未修改。HandShake 记录与中文进度因本次 substantial audit 更新，工作树因此不再干净；`main...origin/main [ahead 31, behind 5]`，未合并原作者分支。
+
+### 2026-08-24 20:30 - Codex
+
+- Objective: 实施作者 FlashVSR/BasicVSR++ 低内存修复，并修复 `.pkl` RIFE 在 CUDA/TensorRT 补帧和模型转换页中的错误分流。
+- Python backend: 在 `C:\Program portable\3FUI\plugin\python\backend` 选择性部署有限窗口、即时 FFmpeg 写出、Flash pipeline 复用、BasicVSR++ 优化目录加载/CPU cache 和测试；未整包覆盖本地主线 TRT 改动。
+- Architecture/capability: 新增并嵌入 `inspect_interpolation_models.py`，通过 `ArchDetect` 读取权重内容。CUDA 列出 RIFE/GMFSS/GIMM，TensorRT 只列 RIFE，不再根据 `.pth/.pkl` 或目录名猜测。安装目录 5 个 RIFE `.pkl` 均识别成功。
+- RIFE TRT: 新增并嵌入 `prepare_rife_tensorrt.py`，直接实例化 RVE `InterpolateRifeTorch` 构建 flow/encode Engine；新增 CLI 检查、预构建、宽高和静态 shape 参数。无 CUDA 时先检查并清晰返回退出码 1，避免进入 Torch-TensorRT 原生崩溃。
+- Plugin: 模型转换页接受 `.pth/.pt/.pkl`，异步读取内部架构；普通超分 `.pth` 继续调用 `convert_tensorrt.py`，RIFE 改走 1080p 专用 flow/encode 预构建，GMFSS/GIMM 明确提示只支持 CUDA。使用当前官方 FFmpegFreeUI/LakeUI 源码构建依赖后，插件真实编译通过。
+- Verification: CLI `dotnet publish` 成功（仅 2 个既有 CA1416）；Python `py_compile` 通过；低内存 unittest 3/3 通过；CUDA/TRT 模型列表和 `--inspect-interp-model` 端到端通过；`git diff --check` 通过。当前机器无 NVIDIA，未声称真实 CUDA/TRT 推理通过。
+- Deployment: 新 EXE 已覆盖便携目录，源/目标 SHA-256 均为 `1294A309F24DF2F2B3EEA3C1A1A03C8F60A1C0B35E21E88C20526FEF204BFC77`；新插件 DLL SHA-256 为 `CA9403729650EABFE5C5F3F8F703FC04C4F620278174B15A0B645DFD2BB56181`，但安装 DLL 被正在运行的 3FUI 锁定。新 EXE 已内嵌新 DLL。
+- Release decision: 用户要求先提交到远端并换 3060 设备继续开发；本轮不得发布 1.0.8 Release，也不更新 GitHub/ModelScope 发布清单。
+- Git: 准备提交并推送 `fork/main`；`origin` 是原作者仓库，不推送、不合并。
+
+### 2026-08-24 21:00 - Codex
+
+- ModelScope base correction: 用户指出必须以其下午已更新后端为基线。已放弃且未上传基于作者 2.67 GB 包生成的错误候选；从 `AerithDream/VideoEnhancer-Models` 原样下载远端 `Backend/python_20260824.7z`，大小 `3447393513`，SHA-256 `dc399b4dc257b64b09d3175ac9afa3ca66bc388bc40e6313c9b85c5559055b17`，与 API 元数据完全一致。
+- Package composition: 在正确基线上只更新 8 个文件：两个时序入口、`src/temporal_video.py`、BasicVSR++ model、FlashVSR nodes、低内存测试、补帧架构检查器和 RIFE TRT 预构建器。8/8 解包哈希与安装后端一致；下午版 `convert_tensorrt.py`、`validate_tensorrt_engines.py`、`InterpolateRIFE.py` 哈希保持不变。
+- Package verification: 新包大小 `3447405317`，SHA-256 `3e55dcc3e773ceb5098d3b6bd90e9d490462b6323a5931d0aaba9e983a61482b`；7-Zip 整包测试通过，包含 6540 个目录、37533 个文件，解压总尺寸 `6410577325`。
+- ModelScope upload: 已覆盖 `AerithDream/VideoEnhancer-Models/Backend/python_20260824.7z`，提交说明为 `backend: low-memory temporal windows and RIFE TRT tooling`。远端回读大小和 SHA 与本地新包一致，revision 为 `c0d5b6c09e08df7a2b25af49ed6f73e586a4bd1c`。
+- Release guard: 本次仅更新模型仓库后端资源并准备 Git 提交；未创建 1.0.8 Release，未修改 stable.json 或 GitHub/ModelScope Releases。

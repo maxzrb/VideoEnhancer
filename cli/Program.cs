@@ -38,6 +38,8 @@ internal static class Program
     private const string EmbeddedAriaResource = "VideoEnhancer.Embedded.aria2-next.exe";
     private const string Embedded7ZipResource = "VideoEnhancer.Embedded.7za.exe";
     private const string EmbeddedOrderedBackendResource = "VideoEnhancer.Embedded.rve-ordered-backend.py";
+    private const string EmbeddedInterpolationInspectorResource = "VideoEnhancer.Embedded.inspect_interpolation_models.py";
+    private const string EmbeddedRifeTensorRTPrepareResource = "VideoEnhancer.Embedded.prepare_rife_tensorrt.py";
     private const string DefaultModelScopeDataset = "AerithDream/VideoEnhancer-Models";
     private static string? ModelScopeToken =>
         Environment.GetEnvironmentVariable("VIDEOENHANCER_MODELSCOPE_TOKEN")?.Trim() is { Length: > 0 } localToken
@@ -70,6 +72,8 @@ internal static class Program
     private static string ImageBackendScript => Path.Combine(CoreRoot, "python", "backend", "rve-image-backend.py");
     private static string TensorRTValidatorScript => Path.Combine(CoreRoot, "python", "backend", "validate_tensorrt_engines.py");
     private static string TensorRTConverterScript => Path.Combine(CoreRoot, "python", "backend", "convert_tensorrt.py");
+    private static string InterpolationInspectorScript => Path.Combine(CoreRoot, "python", "backend", "inspect_interpolation_models.py");
+    private static string RifeTensorRTPrepareScript => Path.Combine(CoreRoot, "python", "backend", "prepare_rife_tensorrt.py");
     private static string FfmpegExe => Path.Combine(CoreRoot, "bin", "ffmpeg", "ffmpeg.exe");
     private static string ModelsDir => Path.Combine(CoreRoot, "models");
     private static string FrameInterpolationDir => Path.Combine(ModelsDir, "Frame-Interpolation");
@@ -398,6 +402,11 @@ internal static class Program
         public bool HasTileSize;
         public bool ListBackends;
         public bool ValidateEngines;
+        public string InspectInterpModel = "";
+        public string PrepareInterpEngine = "";
+        public string PrepareWidth = "1920";
+        public string PrepareHeight = "1080";
+        public bool PrepareStaticShape;
         public bool ListDownloadModels;
         public bool CleanDownloadArchives;
         public string DownloadModel = "";
@@ -576,6 +585,7 @@ internal static class Program
         }
 
         MigrateLegacyFfmpegLayout();
+        EnsureInterpolationSupportScripts();
 
         if (o.CleanDownloadArchives)
         {
@@ -601,6 +611,22 @@ internal static class Program
                 ? Path.GetDirectoryName(archive)!
                 : Path.GetFullPath(o.ExtractOutput);
             return ExtractWith7Zip(archive, output);
+        }
+
+        if (!string.IsNullOrWhiteSpace(o.InspectInterpModel))
+        {
+            return InspectInterpolationModel(o.InspectInterpModel);
+        }
+
+        if (!string.IsNullOrWhiteSpace(o.PrepareInterpEngine))
+        {
+            if (!int.TryParse(o.PrepareWidth, NumberStyles.Integer, CultureInfo.InvariantCulture, out var prepareWidth)
+                || !int.TryParse(o.PrepareHeight, NumberStyles.Integer, CultureInfo.InvariantCulture, out var prepareHeight)
+                || prepareWidth <= 0 || prepareHeight <= 0)
+            {
+                return Fail("--prepare-width 和 --prepare-height 必须是大于 0 的整数");
+            }
+            return PrepareRifeTensorRTEngine(o.PrepareInterpEngine, prepareWidth, prepareHeight, o.PrepareStaticShape);
         }
 
         if (o.ListModels)
@@ -852,6 +878,21 @@ internal static class Program
                     break;
                 case "--validate-engines":
                     o.ValidateEngines = true;
+                    break;
+                case "--inspect-interp-model":
+                    o.InspectInterpModel = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--prepare-interp-engine":
+                    o.PrepareInterpEngine = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--prepare-width":
+                    o.PrepareWidth = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--prepare-height":
+                    o.PrepareHeight = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--prepare-static-shape":
+                    o.PrepareStaticShape = true;
                     break;
                 case "--list-download-models":
                     o.ListDownloadModels = true;
@@ -1702,6 +1743,41 @@ internal static class Program
         return path;
     }
 
+    /// <summary>把与插件版本配套的补帧检查/预构建脚本同步到当前 RVE 后端。</summary>
+    private static void EnsureInterpolationSupportScripts()
+    {
+        var backendDirectory = Path.Combine(CoreRoot, "python", "backend");
+        if (!Directory.Exists(backendDirectory)) return;
+        try
+        {
+            InstallEmbeddedBackendScript(EmbeddedInterpolationInspectorResource, InterpolationInspectorScript);
+            InstallEmbeddedBackendScript(EmbeddedRifeTensorRTPrepareResource, RifeTensorRTPrepareScript);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("[警告] 无法同步补帧辅助脚本：" + ex.Message);
+        }
+    }
+
+    private static void InstallEmbeddedBackendScript(string resourceName, string destinationPath)
+    {
+        using var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException("内置补帧脚本资源不存在：" + resourceName);
+        var needsUpdate = !File.Exists(destinationPath);
+        if (!needsUpdate)
+        {
+            using var existing = new FileStream(destinationPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var resourceHash = SHA256.HashData(resource);
+            var existingHash = SHA256.HashData(existing);
+            needsUpdate = !resourceHash.AsSpan().SequenceEqual(existingHash);
+            resource.Position = 0;
+        }
+        if (!needsUpdate) return;
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+        using var output = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        resource.CopyTo(output);
+    }
+
     private static int DownloadWithAria(string url, string destination, bool printComplete = true)
     {
         try
@@ -2326,7 +2402,10 @@ internal static class Program
         {
             if (backend == "cuda")
             {
-                if (File.Exists(candidate) && IsPthModelFile(candidate))
+                if (File.Exists(candidate) && IsPthModelFile(candidate)
+                    && InspectInterpolationCapabilities(new[] { candidate })
+                        .TryGetValue(Path.GetFullPath(candidate), out var capability)
+                    && string.IsNullOrWhiteSpace(capability.Error) && capability.Cuda)
                 {
                     return candidate;
                 }
@@ -2384,23 +2463,17 @@ internal static class Program
         {
             return new List<string>();
         }
-        if (backend == "cuda")
+        if (backend is "cuda" or "tensorrt")
         {
-            return roots.SelectMany(root => new[] { "*.pth", "*.pt", "*.pkl" }
+            var weights = roots.SelectMany(root => new[] { "*.pth", "*.pt", "*.pkl" }
                     .SelectMany(pattern => Directory.GetFiles(root, pattern, SearchOption.AllDirectories)))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
-        }
-        if (backend == "tensorrt")
-        {
-            // RVE 的补帧 TensorRT 路径以 RIFE PyTorch 权重为入口，并在权重旁按
-            // 分辨率/GPU/TensorRT 版本自动生成缓存。生成的 .engine 不能反过来当模型输入。
-            return roots.SelectMany(root => new[] { "*.pth", "*.pt", "*.pkl" }
-                    .SelectMany(pattern => Directory.GetFiles(root, pattern, SearchOption.AllDirectories)))
-                .Where(IsRifeInterpolationSource)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
+            var capabilities = InspectInterpolationCapabilities(weights);
+            return weights.Where(path => capabilities.TryGetValue(Path.GetFullPath(path), out var capability)
+                    && string.IsNullOrWhiteSpace(capability.Error)
+                    && (backend == "cuda" ? capability.Cuda : capability.TensorRT))
                 .ToList();
         }
         var ncnnFolders = roots.SelectMany(root => Directory.GetDirectories(root, "*", SearchOption.AllDirectories))
@@ -2449,14 +2522,114 @@ internal static class Program
     private static bool IsRifeInterpolationSource(string path)
     {
         if (!File.Exists(path) || !IsPthModelFile(path)) return false;
-        if (IsInLegacyRifeDirectory(path)) return true;
+        var capabilities = InspectInterpolationCapabilities(new[] { path });
+        return capabilities.TryGetValue(Path.GetFullPath(path), out var capability)
+            && string.IsNullOrWhiteSpace(capability.Error)
+            && capability.TensorRT;
+    }
 
-        var rifeRoot = Path.Combine(FrameInterpolationDir, "RIFE");
-        if (IsPathUnder(path, rifeRoot)) return true;
+    private sealed record InterpolationCapability(
+        string Path, string Architecture, string BaseArchitecture, bool Cuda, bool TensorRT, string Error);
 
-        // 兼容用户直接放在 Frame-Interpolation 根目录的第三方 RIFE 权重。
-        return IsPathUnder(path, FrameInterpolationDir)
-            && Path.GetFileNameWithoutExtension(path).Contains("rife", StringComparison.OrdinalIgnoreCase);
+    /// <summary>读取权重内部结构，不再用扩展名或目录名猜测补帧架构。</summary>
+    private static Dictionary<string, InterpolationCapability> InspectInterpolationCapabilities(IEnumerable<string> modelPaths)
+    {
+        var paths = modelPaths.Select(Path.GetFullPath)
+            .Where(File.Exists)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var result = new Dictionary<string, InterpolationCapability>(StringComparer.OrdinalIgnoreCase);
+        if (paths.Count == 0 || !File.Exists(PythonExe) || !File.Exists(InterpolationInspectorScript))
+        {
+            return result;
+        }
+
+        var args = new List<string> { InterpolationInspectorScript };
+        args.AddRange(paths);
+        var inspected = RunProcessCapture(PythonExe, args.ToArray(), 180);
+        var jsonLine = inspected.Output.Replace("\r", "")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .LastOrDefault(line => line.StartsWith("[", StringComparison.Ordinal));
+        if (string.IsNullOrWhiteSpace(jsonLine)) return result;
+
+        try
+        {
+            using var document = JsonDocument.Parse(jsonLine);
+            foreach (var item in document.RootElement.EnumerateArray())
+            {
+                var fullPath = Path.GetFullPath(item.GetProperty("path").GetString() ?? "");
+                result[fullPath] = new InterpolationCapability(
+                    fullPath,
+                    item.GetProperty("architecture").GetString() ?? "",
+                    item.GetProperty("base_architecture").GetString() ?? "",
+                    item.GetProperty("cuda").GetBoolean(),
+                    item.GetProperty("tensorrt").GetBoolean(),
+                    item.GetProperty("error").GetString() ?? "");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("[警告] 补帧模型架构检查输出无效：" + ex.Message);
+        }
+        return result;
+    }
+
+    private static int InspectInterpolationModel(string requested)
+    {
+        var path = File.Exists(requested) ? Path.GetFullPath(requested) : ResolveInterpModel(requested, "cuda");
+        if (string.IsNullOrWhiteSpace(path)) return 2;
+        var capabilities = InspectInterpolationCapabilities(new[] { path });
+        if (!capabilities.TryGetValue(path, out var capability))
+            return Fail("补帧模型检查器不可用，请确认 inspect_interpolation_models.py 已安装");
+        static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value).ToString() + "\"";
+        Console.WriteLine("{" +
+            "\"path\":" + JsonString(capability.Path) + "," +
+            "\"architecture\":" + JsonString(capability.Architecture) + "," +
+            "\"base_architecture\":" + JsonString(capability.BaseArchitecture) + "," +
+            "\"cuda\":" + capability.Cuda.ToString().ToLowerInvariant() + "," +
+            "\"tensorrt\":" + capability.TensorRT.ToString().ToLowerInvariant() + "," +
+            "\"error\":" + JsonString(capability.Error) + "}");
+        return string.IsNullOrWhiteSpace(capability.Error) ? 0 : 2;
+    }
+
+    private static int PrepareRifeTensorRTEngine(string requested, int width, int height, bool staticShape)
+    {
+        if (!File.Exists(PythonExe)) return Fail("找不到便携 Python：" + PythonExe);
+        if (!File.Exists(RifeTensorRTPrepareScript))
+            return Fail("缺少 RIFE TensorRT 预构建脚本：" + RifeTensorRTPrepareScript);
+        var model = File.Exists(requested) ? Path.GetFullPath(requested) : ResolveInterpModel(requested, "tensorrt");
+        if (string.IsNullOrWhiteSpace(model)) return 2;
+
+        var start = new ProcessStartInfo
+        {
+            FileName = PythonExe,
+            WorkingDirectory = Path.GetDirectoryName(RifeTensorRTPrepareScript)!,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+        start.Environment["PYTHONUTF8"] = "1";
+        start.Environment["PYTHONIOENCODING"] = "utf-8";
+        foreach (var arg in new[]
+        {
+            RifeTensorRTPrepareScript, model,
+            "--width", width.ToString(CultureInfo.InvariantCulture),
+            "--height", height.ToString(CultureInfo.InvariantCulture)
+        }) start.ArgumentList.Add(arg);
+        if (staticShape) start.ArgumentList.Add("--static-shape");
+
+        using var process = Process.Start(start);
+        if (process is null) return Fail("无法启动 RIFE TensorRT 预构建进程");
+        process.OutputDataReceived += (_, e) => { if (e.Data is not null) Console.WriteLine(e.Data); };
+        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) Console.Error.WriteLine(e.Data); };
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        process.WaitForExit();
+        process.WaitForExit();
+        return process.ExitCode;
     }
 
     private static int ListInterpModels(bool json, string backend)
@@ -3946,6 +4119,10 @@ internal static class Program
         writer.WriteLine("  --check             仅检测运行环境（ffmpeg / python 库 / 模型库）并退出");
         writer.WriteLine("  --list-backends     列出后端，并逐个在当前 GPU 上反序列化 models 中的 TensorRT Engine");
         writer.WriteLine("  --validate-engines  递归验证全部 .engine；不兼容时提示在当前 GPU 上重新编译");
+        writer.WriteLine("  --inspect-interp-model <权重>  按权重内容识别补帧架构，并输出 CUDA/TensorRT 能力 JSON");
+        writer.WriteLine("  --prepare-interp-engine <RIFE 权重> --prepare-width <宽> --prepare-height <高>");
+        writer.WriteLine("        用 RVE 的 RIFE flow/encode 路径预构建 TensorRT Engine；支持 .pth/.pt/.pkl");
+        writer.WriteLine("        可加 --prepare-static-shape 强制按指定分辨率构建静态 Engine");
         writer.WriteLine("  --list-download-models  从 ModelScope 镜像读取可下载文件；配合 --json 输出给界面");
         writer.WriteLine("        默认仓库：" + DefaultModelScopeDataset);
         writer.WriteLine("        VIDEOENHANCER_MODELSCOPE_DATASET 可覆盖仓库 ID；私有仓库需设置");

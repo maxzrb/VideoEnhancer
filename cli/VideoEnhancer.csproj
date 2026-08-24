@@ -36,6 +36,10 @@
                       LogicalName="VideoEnhancer.Embedded.7za.exe" />
     <EmbeddedResource Include="embedded-tools\rve-ordered-backend.py"
                       LogicalName="VideoEnhancer.Embedded.rve-ordered-backend.py" />
+    <EmbeddedResource Include="embedded-tools\inspect_interpolation_models.py"
+                      LogicalName="VideoEnhancer.Embedded.inspect_interpolation_models.py" />
+    <EmbeddedResource Include="embedded-tools\prepare_rife_tensorrt.py"
+                      LogicalName="VideoEnhancer.Embedded.prepare_rife_tensorrt.py" />
   </ItemGroup>
 
 </Project>

@@ -50,6 +50,8 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
   补帧模型使用 `models\Frame-Interpolation` 下的 `.pth/.pt/.pkl` 文件；超分与补帧可独立使用。
   `tensorrt` 的超分只选择 PTH 源模型，任务启动时按当前 GPU、输入宽高、输出倍率、分块、精度及转换器版本自动生成或复用 `models\TensorRT-Cache` 中的 Engine；不再使用远端预置 `.engine`。补帧只选择 RIFE 权重并自动生成 flow/encode Engine，权重或运行时变化会使用新缓存，加载失败会删除成对缓存后自动重建。NCNN 使用递归发现的 `.param/.bin` 模型文件夹。放大模型列表统一以相对 `models` 的路径显示。
 - `-no-upscale`：不放大（仅补帧模式，需配合 `-interp-model`）。
+- `--inspect-interp-model <权重>`：读取 `.pth/.pt/.pkl` 内部结构并输出架构及 CUDA/TensorRT 能力 JSON，不用文件扩展名或目录名猜测。
+- `--prepare-interp-engine <RIFE 权重> --prepare-width <宽> --prepare-height <高>`：调用 RVE 的真实 RIFE flow/encode 路径预构建 TensorRT Engine；可加 `--prepare-static-shape`。该命令不经过单帧超分转换器。
 - `-ffmpeg-settings`：FFmpeg 编码参数片段，**最后一个参数是输出文件路径**（无 `-o`），末尾 `-y` 表示覆盖。
   - 自动处理：`-map` 流映射会被移除（后端写进程自带映射），`-map_metadata 0` / `-map_chapters 0` 改写为 `1`；
   - 进度行按每秒 1 行节流输出，避免界面闪烁；

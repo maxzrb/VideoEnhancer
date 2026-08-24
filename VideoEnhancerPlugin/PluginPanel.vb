@@ -214,6 +214,8 @@ Namespace videoenhancer
         Private ReadOnly _btnPickPth As New ModernButton()
         Private ReadOnly _btnConvert As New ModernButton()
         Private _convertInputPath As String = ""
+        Private _convertIsInterpolation As Boolean = False
+        Private _convertArchitecture As String = ""
         Private _conversionRunning As Boolean = False
         ' ── 模型下载页 ──
         Private Const DownloadActionColumn As Integer = 3
@@ -4230,7 +4232,7 @@ Namespace videoenhancer
             AddHandler root.DragEnter, AddressOf OnConverterDragEnter
             AddHandler root.DragDrop, AddressOf OnConverterDragDrop
             root.Controls.Add(CreateOfficialSectionHeading(
-                "模型转换", "将 PyTorch PTH 模型离线编译为当前设备专用的 TensorRT Engine"), 0, 0)
+                "模型转换", "超分权重与 RIFE 补帧权重使用各自的 TensorRT 构建流程"), 0, 0)
 
             Dim inputRow As New TableLayoutPanel With {
                 .Dock = DockStyle.Fill,
@@ -4245,12 +4247,12 @@ Namespace videoenhancer
             inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
             inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
             inputRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-            _btnPickPth.Text = "选择或拖入 PTH"
+            _btnPickPth.Text = "选择或拖入权重"
             _btnPickPth.Dock = DockStyle.Fill
             _btnPickPth.Margin = New Padding(0, 8, 0, 8)
             ConfigureSecondaryButton(_btnPickPth)
             AddHandler _btnPickPth.Click, AddressOf OnPickPthClick
-            _lblConvertInput.Text = "<font color=#888888>尚未选择 .pth 文件</font>"
+            _lblConvertInput.Text = "<font color=#888888>支持 .pth / .pt / .pkl</font>"
             _lblConvertInput.AutoSize = False
             _lblConvertInput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             inputRow.Controls.Add(_btnPickPth, 0, 0)
@@ -4291,8 +4293,8 @@ Namespace videoenhancer
                 .AutoSize = False,
                 .LineSpacing = 7,
                 .TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft,
-                .Text = "<font color=#DCDCDC><b>PTH → TensorRT Engine</b></font><br/>" &
-                        "<font color=#888888>输出会归档到 models\TensorRT-Personalized，与预置引擎分开管理。</font><br/>" &
+                .Text = "<font color=#DCDCDC><b>PyTorch 权重 → TensorRT Engine</b></font><br/>" &
+                        "<font color=#888888>超分 .pth 归档到 TensorRT-Personalized；RIFE 按权重结构识别并构建 flow/encode 缓存。</font><br/>" &
                         "<font color=#888888>转换完全在本机进行，不会上传模型；复杂模型可能需要数分钟。</font><br/>" &
                         "<font color=#888888>Engine 与显卡、TensorRT 和 CUDA 版本绑定，换设备后建议重新转换。</font>"
             }
@@ -4566,7 +4568,7 @@ Namespace videoenhancer
             If e.Data IsNot Nothing AndAlso e.Data.GetDataPresent(DataFormats.FileDrop) Then
                 Dim paths = TryCast(e.Data.GetData(DataFormats.FileDrop), String())
                 If paths IsNot Nothing AndAlso paths.Length > 0 AndAlso
-                    String.Equals(Path.GetExtension(paths(0)), ".pth", StringComparison.OrdinalIgnoreCase) Then
+                    IsPyTorchWeightExtension(paths(0)) Then
                     e.Effect = DragDropEffects.Copy
                     Return
                 End If
@@ -4583,8 +4585,8 @@ Namespace videoenhancer
 
         Private Sub OnPickPthClick(sender As Object, e As EventArgs)
             Using dialog As New OpenFileDialog With {
-                .Title = "选择要转换的 PTH 模型",
-                .Filter = "PyTorch 模型 (*.pth)|*.pth",
+                .Title = "选择超分或补帧 PyTorch 权重",
+                .Filter = "PyTorch 权重 (*.pth;*.pt;*.pkl)|*.pth;*.pt;*.pkl|所有文件 (*.*)|*.*",
                 .CheckFileExists = True,
                 .Multiselect = False
             }
@@ -4594,25 +4596,49 @@ Namespace videoenhancer
             End Using
         End Sub
 
-        Private Sub SelectConverterInput(modelPath As String)
-            If Not File.Exists(modelPath) OrElse Not String.Equals(Path.GetExtension(modelPath), ".pth", StringComparison.OrdinalIgnoreCase) Then
-                SetConverterStatus("只支持拖入有效的 .pth 模型文件。", True)
-                Return
-            End If
-            If _switchInterp.Checked AndAlso _config.Backend = "onnx" Then
-                _syncingInterpSwitch = True
-                _switchInterp.Checked = False
-                _syncingInterpSwitch = False
-                ShowStatus("ONNX Runtime 当前用于超分模型；补帧请切换到 NCNN 或 CUDA。", True)
+        Private Async Sub SelectConverterInput(modelPath As String)
+            If Not File.Exists(modelPath) OrElse Not IsPyTorchWeightExtension(modelPath) Then
+                SetConverterStatus("只支持有效的 .pth、.pt 或 .pkl 权重文件。", True)
                 Return
             End If
             _convertInputPath = Path.GetFullPath(modelPath)
-            Dim outputDir = GetPersonalizedTensorRtDirectory()
+            _convertIsInterpolation = False
+            _convertArchitecture = ""
+            _btnConvert.Enabled = False
+            SetConverterStatus("正在读取权重结构并识别模型架构…", False)
+
+            Dim inspection = Await Task.Run(Function() InspectConverterModel(_convertInputPath))
+            If Not String.Equals(_convertInputPath, Path.GetFullPath(modelPath), StringComparison.OrdinalIgnoreCase) Then Return
+            If inspection.Item1 Then
+                _convertIsInterpolation = True
+                _convertArchitecture = inspection.Item2
+            ElseIf Not String.IsNullOrWhiteSpace(inspection.Item3) AndAlso
+                Not String.Equals(Path.GetExtension(_convertInputPath), ".pth", StringComparison.OrdinalIgnoreCase) Then
+                SetConverterStatus(inspection.Item3, True)
+                Return
+            End If
+
+            Dim outputDir = If(_convertIsInterpolation,
+                               Path.GetDirectoryName(_convertInputPath),
+                               GetPersonalizedTensorRtDirectory())
             _lblConvertInput.Text = "<font color=#DCDCDC>" & EscapeHtml(_convertInputPath) & "</font>"
             _lblConvertOutput.Text = "<font color=#DCDCDC>" & EscapeHtml(outputDir) & "</font>"
             _btnConvert.Enabled = Not _conversionRunning
-            SetConverterStatus("模型已就绪，点击「开始离线转换」。", False)
+            If _convertIsInterpolation Then
+                _btnConvert.Text = "预构建 1080p RIFE Engine"
+                SetConverterStatus("已识别 " & _convertArchitecture & "；将使用 RVE flow/encode 专用构建流程。", False)
+            Else
+                _btnConvert.Text = "开始转换  →"
+                SetConverterStatus("超分模型已就绪，点击「开始转换」。", False)
+            End If
         End Sub
+
+        Private Shared Function IsPyTorchWeightExtension(filePath As String) As Boolean
+            Dim extension = Path.GetExtension(filePath)
+            Return String.Equals(extension, ".pth", StringComparison.OrdinalIgnoreCase) OrElse
+                   String.Equals(extension, ".pt", StringComparison.OrdinalIgnoreCase) OrElse
+                   String.Equals(extension, ".pkl", StringComparison.OrdinalIgnoreCase)
+        End Function
 
         Private Async Sub OnConvertModelClick(sender As Object, e As EventArgs)
             If _conversionRunning OrElse Not File.Exists(_convertInputPath) Then Return
@@ -4620,12 +4646,15 @@ Namespace videoenhancer
             Dim pythonExe = Path.Combine(coreRoot, "python", "python", "python.exe")
             Dim converter = Path.Combine(coreRoot, "python", "backend", "convert_tensorrt.py")
             Dim outputDir = GetPersonalizedTensorRtDirectory()
-            If Not File.Exists(pythonExe) OrElse Not File.Exists(converter) Then
-                SetConverterStatus("找不到便携 Python 或 convert_tensorrt.py，请检查 videoenhancer.exe 的 core-path。", True)
+            Dim rifePrepare = Path.Combine(coreRoot, "python", "backend", "prepare_rife_tensorrt.py")
+            If Not File.Exists(pythonExe) OrElse
+               (Not _convertIsInterpolation AndAlso Not File.Exists(converter)) OrElse
+               (_convertIsInterpolation AndAlso Not File.Exists(rifePrepare)) Then
+                SetConverterStatus("找不到便携 Python 或所需的 TensorRT 构建脚本，请检查 videoenhancer.exe 的 core-path。", True)
                 Return
             End If
 
-            Directory.CreateDirectory(outputDir)
+            If Not _convertIsInterpolation Then Directory.CreateDirectory(outputDir)
             _conversionRunning = True
             _btnConvert.Enabled = False
             _btnPickPth.Enabled = False
@@ -4646,11 +4675,22 @@ Namespace videoenhancer
                                    Catch ex As InvalidOperationException
                                    End Try
                                End Sub
-                Dim result = Await Task.Run(Function() RunTensorRtConversion(pythonExe, converter, _convertInputPath, outputDir, progress))
+                Dim result = Await Task.Run(
+                    Function()
+                        If _convertIsInterpolation Then
+                            Return RunRifeTensorRtPrepare(pythonExe, rifePrepare, _convertInputPath, 1920, 1080, progress)
+                        End If
+                        Return RunTensorRtConversion(pythonExe, converter, _convertInputPath, outputDir, progress)
+                    End Function)
                 If result.Item1 = 0 Then
                     Dim enginePath = LastEnginePath(result.Item2)
-                    SetConverterStatus("转换完成：" & If(String.IsNullOrWhiteSpace(enginePath), outputDir, enginePath), False)
-                    If _config.Backend = "tensorrt" Then RefreshUpscaleModels()
+                    If _convertIsInterpolation Then
+                        SetConverterStatus("RIFE Engine 已就绪；实际任务分辨率不同时会自动构建对应缓存。", False)
+                        If _config.InterpBackend = "tensorrt" Then RefreshInterpModels()
+                    Else
+                        SetConverterStatus("转换完成：" & If(String.IsNullOrWhiteSpace(enginePath), outputDir, enginePath), False)
+                        If _config.Backend = "tensorrt" Then RefreshUpscaleModels()
+                    End If
                 Else
                     SetConverterStatus("转换失败：" & LastNonEmptyLine(result.Item2), True)
                 End If
@@ -5049,6 +5089,102 @@ Namespace videoenhancer
         Private Sub UpdateInterpSwitchState()
             SyncInterpSwitchFromConfig()
         End Sub
+
+        Private Function InspectConverterModel(modelPath As String) As Tuple(Of Boolean, String, String)
+            Dim coreRoot = ResolveCoreRoot()
+            Dim pythonExe = Path.Combine(coreRoot, "python", "python", "python.exe")
+            Dim inspector = Path.Combine(coreRoot, "python", "backend", "inspect_interpolation_models.py")
+            If Not File.Exists(pythonExe) OrElse Not File.Exists(inspector) Then
+                Return New Tuple(Of Boolean, String, String)(False, "", "补帧模型架构检查器未安装")
+            End If
+            Dim capture = RunProcessCaptureUtf8(pythonExe, Path.GetDirectoryName(inspector),
+                                                New String() {inspector, modelPath})
+            Dim jsonLine = capture.Item2.Replace(Convert.ToChar(13).ToString(), "").
+                Split(Convert.ToChar(10)).
+                Select(Function(line) line.Trim()).LastOrDefault(Function(line) line.StartsWith("["))
+            If String.IsNullOrWhiteSpace(jsonLine) Then
+                Return New Tuple(Of Boolean, String, String)(False, "", LastNonEmptyLine(capture.Item2))
+            End If
+            Try
+                Using document = JsonDocument.Parse(jsonLine)
+                    Dim item = document.RootElement(0)
+                    Dim architecture = item.GetProperty("architecture").GetString()
+                    Dim canTensorRt = item.GetProperty("tensorrt").GetBoolean()
+                    Dim modelError = item.GetProperty("error").GetString()
+                    If canTensorRt Then Return New Tuple(Of Boolean, String, String)(True, architecture, "")
+                    If Not String.IsNullOrWhiteSpace(architecture) Then
+                        Return New Tuple(Of Boolean, String, String)(False, architecture,
+                            architecture & " 当前只支持 CUDA/PyTorch 补帧，不支持 TensorRT。")
+                    End If
+                    Return New Tuple(Of Boolean, String, String)(False, "", modelError)
+                End Using
+            Catch ex As Exception
+                Return New Tuple(Of Boolean, String, String)(False, "", "模型架构检查失败：" & ex.Message)
+            End Try
+        End Function
+
+        Private Shared Function RunProcessCaptureUtf8(fileName As String, workingDirectory As String,
+                                                       arguments As IEnumerable(Of String)) As Tuple(Of Integer, String)
+            Dim psi As New ProcessStartInfo With {
+                .FileName = fileName, .WorkingDirectory = workingDirectory,
+                .UseShellExecute = False, .CreateNoWindow = True,
+                .RedirectStandardOutput = True, .RedirectStandardError = True,
+                .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
+            }
+            For Each argument In arguments
+                psi.ArgumentList.Add(argument)
+            Next
+            Using child = Diagnostics.Process.Start(psi)
+                If child Is Nothing Then Return New Tuple(Of Integer, String)(1, "无法启动模型检查进程")
+                Dim stdout = child.StandardOutput.ReadToEnd()
+                Dim stderr = child.StandardError.ReadToEnd()
+                child.WaitForExit()
+                Return New Tuple(Of Integer, String)(child.ExitCode, stdout & Environment.NewLine & stderr)
+            End Using
+        End Function
+
+        Private Shared Function RunRifeTensorRtPrepare(pythonExe As String, prepareScript As String,
+                                                       inputPath As String, width As Integer, height As Integer,
+                                                       progress As Action(Of String)) As Tuple(Of Integer, String)
+            Dim psi As New ProcessStartInfo With {
+                .FileName = pythonExe,
+                .WorkingDirectory = Path.GetDirectoryName(prepareScript),
+                .UseShellExecute = False, .CreateNoWindow = True,
+                .RedirectStandardOutput = True, .RedirectStandardError = True,
+                .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
+            }
+            For Each argument In New String() {prepareScript, inputPath, "--width", width.ToString(), "--height", height.ToString()}
+                psi.ArgumentList.Add(argument)
+            Next
+            Using child = Diagnostics.Process.Start(psi)
+                If child Is Nothing Then Return New Tuple(Of Integer, String)(1, "无法启动 RIFE TensorRT 构建进程")
+                Dim output As New StringBuilder()
+                Dim outputHandler As DataReceivedEventHandler =
+                    Sub(sender, e)
+                        If String.IsNullOrWhiteSpace(e.Data) Then Return
+                        SyncLock output
+                            output.AppendLine(e.Data)
+                        End SyncLock
+                        progress?.Invoke(e.Data)
+                    End Sub
+                Dim errorHandler As DataReceivedEventHandler =
+                    Sub(sender, e)
+                        If String.IsNullOrWhiteSpace(e.Data) Then Return
+                        SyncLock output
+                            output.AppendLine(e.Data)
+                        End SyncLock
+                    End Sub
+                AddHandler child.OutputDataReceived, outputHandler
+                AddHandler child.ErrorDataReceived, errorHandler
+                child.BeginOutputReadLine()
+                child.BeginErrorReadLine()
+                child.WaitForExit()
+                child.WaitForExit()
+                RemoveHandler child.OutputDataReceived, outputHandler
+                RemoveHandler child.ErrorDataReceived, errorHandler
+                Return New Tuple(Of Integer, String)(child.ExitCode, output.ToString())
+            End Using
+        End Function
 
         ''' <summary>集中同步补帧配置、开关外观和状态标签，避免后端切换后出现状态分裂。</summary>
         Private Sub SyncInterpSwitchFromConfig()

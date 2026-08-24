@@ -1,12 +1,12 @@
 # Project Status
 
-Last updated: 2026-08-24 12:27
+Last updated: 2026-08-24 12:39
 Updated by: Codex
 
 ## Current Snapshot
 
 - Current objective: 在独立版本 1.0.3 基线上补齐 RIFE TensorRT 补帧权重，并保证 ModelScope 模型清单可完整分页读取。
-- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。RIFE TensorRT 接入已提交；5 个官方 RIFE `.pkl` 权重已上传公开数据集 `AerithDream/VideoEnhancer-Models`，远端路径、大小和 SHA-256 全部验证一致。CLI 已修复 ModelScope tree API 默认 100 条分页截断，在线模型页现完整返回 105 项，其中 5 个 RIFE TensorRT 权重可下载、可发现。最新 EXE、插件 DLL 和布局已替换到 `C:\Program portable\3FUI\plugin`，三项哈希与工作区构建物一致。
+- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。RIFE TensorRT 接入已提交；5 个官方 RIFE `.pkl` 权重已上传公开数据集 `AerithDream/VideoEnhancer-Models`，并已下载到实际 3FUI 的 `models\Frame-Interpolation\RIFE`。安装版 CLI 可发现 5 个 TensorRT RIFE 模型。ModelScope 分页修复使在线模型页完整返回 105 项。最新 EXE、插件 DLL 和布局已替换到 `C:\Program portable\3FUI\plugin`，三项哈希与工作区构建物一致。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
 - Next recommended step: 在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次 Engine 构建及二次缓存命中；确认后再决定是否升至 1.0.4 并发布。
@@ -829,3 +829,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Verification: 三项安装文件均与工作区源文件 SHA-256 一致；EXE `FC6EA682A30023CA69844ADCC326982651D5F42E1A15208F67976C2516D535B7`，DLL `E78952503174C155663DB05C1216169FC20DB77DB719F320EEB08ADB327A1151`，layout `7AF4F4F276CBB893B906F4ACFE38D20283CECFF31CEEBC2C594E013B12BB1212`。
 - User next step: 启动 3FUI，刷新模型列表并确认总数、RIFE TensorRT 权重显示和下载交互；当前机器没有 NVIDIA 环境，不能在本机验证真实 Engine 构建。
 - Git status: 部署只影响 Git 忽略的本地安装目录；仓库源码状态仍以 `git status` 为准，推送 fork 尚未执行。
+
+### 2026-08-24 12:39 - Codex
+
+- User report: 实机截图显示运动补帧开关不可点击，TensorRT 补帧模型下拉为空。
+- Diagnosis: 当前配置选择 `Backend=basicvsrpp`（BasicVSR++ 视频时序超分）；源码会主动禁用补帧开关，并在 CLI 层拒绝 BasicVSR++ 与 RIFE 同时运行。这不是控件失效，测试 RIFE TensorRT 需切换“推理后端”为 `TensorRT (NVIDIA)`、再选择兼容超分模型。
+- Local fix: 使用已安装的 `videoenhancer.exe --download-model` 从公开 ModelScope 下载 5 个 RIFE `.pkl` 到 `C:\Program portable\3FUI\plugin\models\Frame-Interpolation\RIFE`；逐文件 SHA-256 与镜像一致。清理用户配置中错误的 `InterpModel: "[]"`，改为空字符串，避免下拉框保留伪选择。
+- Verification: 安装版 CLI `--list-interp-models --json -interp-backend tensorrt` 返回 `RIFE/rife4.25`、`RIFE/rife4.26.heavy`、`RIFE/rife4.26`、`RIFE/rife4.6`、`RIFE/rife4.7`；本地 RIFE 权重数量为 5。未修改源码或版本号。
+- User next step: 关闭/刷新模型页后把超分后端切到 TensorRT，再打开运动补帧并选择 RIFE 权重；BasicVSR++ 仍不能与补帧组合。真实 Engine 构建仍需 NVIDIA 环境。
+- Git status: 本次只修改 Git 忽略的本地模型目录和用户配置，仓库源码状态未改变。

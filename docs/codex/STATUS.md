@@ -1,12 +1,12 @@
 # Project Status
 
-Last updated: 2026-08-24 13:19
+Last updated: 2026-08-24 13:36
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 维护自有 ModelScope 镜像，清理不再兼容旧版客户端的重复资源。
-- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。补帧开关修复已提交并部署；远端原始树核对确认可直接清理 `Backend/python.7z`（与日期版 Python 重复，约 2.46 GiB）和 `RIFE/RIFE.7z`（与新版 Frame-Interpolation 归档重复，约 48 MiB）。`TensorRT-Default` 预置 Engine 仍是当前 CLI 支持的可选资源，暂列为激进清理项而非兼容旧版项。
+- Current objective: 核对 TensorRT Engine 的设备缓存复用、参数变化隔离和失效重建机制。
+- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。超分 TensorRT 的 CLI 外层缓存会按源模型短 SHA-256、GPU 名称、TensorRT 版本、输入尺寸和分块尺寸隔离，并对已有缓存做反序列化校验后失效重建；但构建脚本当前没有把 CLI 探测到的输入宽高/分块参数传给转换器（转换器默认静态 1920x1080），且未把 Torch-TensorRT 版本纳入外层缓存键。RIFE TensorRT 使用 RVE 内部缓存，名称含权重文件名、profile 尺寸、GPU、TensorRT/Torch-TensorRT 版本等，但仅按文件存在判断，损坏或失效 Engine 不会自动删除重建；同名权重内容替换也不会触发缓存失效。真实 NVIDIA 回归仍未执行。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
 - Next recommended step: 重启 3FUI，确认从 BasicVSR++ 切换到 TensorRT 后补帧开关恢复可点击；随后在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次 Engine 构建及二次缓存命中。
@@ -873,3 +873,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Safe cleanup candidates: `Backend/python.7z` 与 `Backend/python_20260823.7z` 内容重复，保留日期版、删除无日期旧包可释放 2,639,607,910 bytes（约 2.46 GiB）；`RIFE/RIFE.7z` 与新版 `Frame-Interpolation/RIFE.7z` 均含同一套五个 NCNN 模型，保留新版、删除旧路径可释放 50,299,097 bytes（约 48 MiB）。对应根目录 `.gitkeep` 也可一并清理，但不影响容量。
 - Optional aggressive cleanup: `TensorRT-Default/*.engine` 共 15 个、约 188.5 MiB，当前 CLI 仍支持直接发现和下载，删除后会强制用户使用 PTH 自动构建设备专用 Engine；这不是旧版兼容文件，除非决定完全取消预置 Engine，否则建议保留。`Param-Bin/NCNN-20260821.7z`、PTH、ONNX、FlashVSR、BasicVSR++ 和五个 RIFE `.pkl` 都仍对应当前功能，不建议按“旧版兼容”理由删除。
 - Action: 本轮只做远端只读核对，没有执行 ModelScope 删除；等待用户确认清理范围。
+
+### 2026-08-24 13:36 - Codex
+
+- Objective: 回答设备专用 TensorRT Engine 是否支持复用、参数变化隔离和原 Engine 不可用时的自动重建。
+- Super-resolution path: CLI `EnsureTensorRtEngine()` 使用 `models\TensorRT-Cache`；缓存名包含源模型文件名、源模型 SHA-256 前 12 位、GPU 名称、TensorRT 版本、输入宽高和 `tile-size`，使用同名 Windows Mutex 串行构建；命中后调用 `validate_tensorrt_engines.py` 反序列化/创建 execution context，失败会删除缓存并重新构建；源 PTH 变化、GPU/输入尺寸/分块键变化可产生新缓存。
+- Gaps found: `RunTensorRtConverter()` 没有传 `--width`、`--height`、`--output-scale` 或 `--tile-size`，所以转换器实际仍按默认静态 `1920x1080` 构建，外层文件名的尺寸/分块信息与二进制 profile 可能不一致；外层键没有 Torch-TensorRT 版本；验证器只验证反序列化和最优 profile，不验证本次视频尺寸是否在 profile 内。有效但 profile 不匹配的 Engine 可能在实际帧推理时才失败，当前不会回退重建。
+- Prebuilt engine gap: 用户直接选择 `TensorRT-Default/*.engine` 时，若能反序列化即直接使用，不进入外层缓存；若失效，只有文件名含 `__gpu-` 且能剥出同名 PTH 时才可自动重建，远端 `*-x2-tensorrt.engine` 这类预置命名通常无法匹配对应 PTH。
+- RIFE interpolation path: RIFE TensorRT 由 RVE `InterpolateRifeTorch` 内部构建两套 Engine（flow/encode），缓存名包含权重文件名、静态或动态 profile、FP16、scale、GPU、TensorRT、Torch-TensorRT、ensemble 和优化级别，参数/设备/profile 变化会换名复用；但 `check_engine_exists()` 只检查文件存在，加载损坏/不兼容 Engine 时不会自动删除并重建，权重内容替换但文件名不变也不会因 SHA-256 变化而失效。
+- Conclusion: 当前“超分常规 PTH 缓存”具备基本复用和失效重建；“RIFE 补帧缓存”和“预置 Engine 失效重建”尚未达到可靠的自动重建标准，且超分转换尺寸参数传递需要修复。仅做代码核对，未修改实现、未执行真实 GPU 测试。

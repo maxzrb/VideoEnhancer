@@ -20,9 +20,8 @@ VideoEnhancer 是一个面向 Windows 的视频增强工具，作为 3FUI 插件
 ## 下载
 
 - 本体发布：<https://github.com/maxzrb/VideoEnhancer/releases>
-- 本体镜像：`AerithDream/VideoEnhancer-Releases`
-- 模型镜像：`AerithDream/VideoEnhancer-Models`
-- 发布门禁和双源发布操作：[`release/发布流程.md`](release/发布流程.md)
+- 本体镜像：[VideoEnhancer-Releases]<https://www.modelscope.cn/datasets/AerithDream/VideoEnhancer-Releases>
+- 模型镜像：[VideoEnhancer-Models]<https://www.modelscope.cn/datasets/AerithDream/VideoEnhancer-Models>
 
 本体 Release ZIP 包含：
 
@@ -108,58 +107,6 @@ models\Frame-Interpolation\RIFE\rife4.26.heavy.pkl
 .\videoenhancer.exe -h
 ```
 
-视频超分：
-
-```powershell
-.\videoenhancer.exe `
-  -i "D:\videos\input.mp4" `
-  -modelpath AnimeJaNai-V2-2x-Compact-36K `
-  -ffmpeg-settings '-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -c:a copy "D:\videos\output.mp4"'
-```
-
-仅补帧：
-
-```powershell
-.\videoenhancer.exe `
-  -i "D:\videos\input.mp4" `
-  -no-upscale `
-  -interp-model RIFE/rife4.25 `
-  -interp-factor 2 `
-  -ffmpeg-settings '-c:v libx264 -preset medium -crf 18 -c:a copy "D:\videos\output-60fps.mp4"'
-```
-
-超分与补帧组合：
-
-```powershell
-.\videoenhancer.exe `
-  -i "D:\videos\input.mp4" `
-  -backend tensorrt `
-  -modelpath PTH/AnimeJaNai-V2-2x-Compact-36K `
-  -interp-backend tensorrt `
-  -interp-model RIFE/rife4.26 `
-  -process-order upscale-first `
-  -ffmpeg-settings '-c:v libx264 -preset medium -crf 18 -c:a copy "D:\videos\output.mp4"'
-```
-
-常用参数：
-
-- `-backend <ncnn|cuda|tensorrt|onnx|flashvsr>`：选择超分后端。
-- `-modelpath <路径>`：超分模型完整路径、`models` 下相对路径或模型名。
-- `-interp-backend <ncnn|cuda|tensorrt>`：选择补帧后端。
-- `-interp-model <路径>`：补帧模型路径或名称。
-- `-interp-factor <N>`：补帧倍率，默认 `2`。
-- `-process-order <upscale-first|interp-first>`：组合处理顺序。
-- `-tile-size <N>`：输入帧分块边长，`0` 使用后端默认处理。
-- `-scene-threshold <N>`：转场检测阈值，范围 `0-10`。
-- `-dynamic-optical-flow`：启用 CUDA/PyTorch RIFE 动态光流尺度。
-- `-no-upscale`：关闭超分，仅执行补帧。
-- `-ffmpeg-settings`：FFmpeg 参数片段，最后一个参数必须是输出路径。
-- `--image-input`、`--image-folder`：图片单张或文件夹处理。
-- `--list-models`、`--list-interp-models`：列出本地模型。
-- `--list-download-models --json`：列出远端可下载资源。
-- `--download-model <路径>`：下载指定远端资源。
-- `--check`：检查基础环境和后端可用性。
-- `--version`：输出 CLI 版本。
 
 ## HDR 和处理顺序
 

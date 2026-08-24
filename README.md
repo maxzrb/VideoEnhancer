@@ -3,7 +3,7 @@
 VideoEnhancer 是一个面向 Windows 的视频增强工具，作为 3FUI 插件和命令行程序使用。它负责连接 FFmpeg、RVE 后端、推理模型与任务队列，提供视频超分辨率、运动补帧、图片推理和批处理能力。
 原作者：[user-wing](https://github.com/user-Wing/VideoEnhancer)
 
-当前版本：**1.0.5**
+当前版本：**1.0.7**
 
 ## 功能概览
 
@@ -24,27 +24,24 @@ VideoEnhancer 是一个面向 Windows 的视频增强工具，作为 3FUI 插件
 - 本体镜像：[VideoEnhancer-Releases](https://www.modelscope.cn/datasets/AerithDream/VideoEnhancer-Releases)
 - 模型镜像：[VideoEnhancer-Models](https://www.modelscope.cn/datasets/AerithDream/VideoEnhancer-Models)
 
-本体 Release ZIP 包含：
+每个 Release 只发布一个版本化 EXE 和更新清单：
 
 ```text
-videoenhancer.exe
-videoenhancer.3fui.dll
-videoenhancer-layout.json
-package.json
+VideoEnhancer-<version>-win-x64.exe
+stable.json
 ```
 
-模型、Python 运行环境、FFmpeg 和其他大型资源不包含在本体 ZIP 中，需要在模型下载页按需获取。`PotPlayer.7z` 不属于本项目分发内容。
+插件 DLL 已嵌入 EXE，双击安装或自动更新时会释放到 3FUI 的 `plugin` 目录。模型、Python 运行环境、FFmpeg 和其他大型资源不包含在本体 Release 中，需要在模型下载页按需获取。`PotPlayer.7z` 不属于本项目分发内容。
 
 ## 安装
 
 ### 使用 3FUI 插件
 
 1. 安装或准备可运行的 3FUI。
-2. 从 GitHub Release 下载本体 ZIP 并解压到独立目录。
-3. 将 `videoenhancer.exe`、`models`、`python`、`bin` 等核心目录放在同一运行目录中；插件更新要求 EXE 与插件 DLL 位于同一目录。
-4. 将 `videoenhancer.3fui.dll` 和 `videoenhancer-layout.json` 复制到 3FUI 的 `plugin` 目录。
-5. 启动 3FUI，打开 VideoEnhancer 页面并指定 `videoenhancer.exe` 路径。
-6. 在模型下载页刷新远端清单，按当前后端下载需要的模型和运行环境。
+2. 从 GitHub Release 下载 `VideoEnhancer-<version>-win-x64.exe`，放入 3FUI 的 `plugin` 目录并重命名为 `videoenhancer.exe`。
+3. 双击运行 `videoenhancer.exe`，选择 3FUI 主程序；安装器会从 EXE 内释放插件 DLL。
+4. 启动 3FUI，打开 VideoEnhancer 页面并指定 `videoenhancer.exe` 路径。
+5. 在模型下载页刷新远端清单，按当前后端下载需要的模型和运行环境。
 
 插件配置默认保存在：
 
@@ -135,8 +132,8 @@ AerithDream/VideoEnhancer-Models
 1. 优先从 GitHub `maxzrb/VideoEnhancer` 的最新 Release 读取 `stable.json`。
 2. GitHub 检查失败时，从 ModelScope `AerithDream/VideoEnhancer-Releases` 读取 `stable.json`。
 3. 下载更新包时优先使用 GitHub Release 资产，失败后使用 ModelScope 镜像。
-4. 下载完成后校验外层 ZIP 大小、SHA-256 和包内逐文件哈希。
-5. 3FUI 退出后更新 `videoenhancer.exe`、`videoenhancer.3fui.dll` 和 `videoenhancer-layout.json`，失败自动回滚。
+4. 下载完成后校验 EXE 大小和 SHA-256。
+5. 新 EXE 作为临时更新器等待 3FUI 退出，替换 `videoenhancer.exe` 并从自身释放 `videoenhancer.3fui.dll`；任一步失败都会回滚。
 
 可配置环境变量：
 
@@ -144,7 +141,7 @@ AerithDream/VideoEnhancer-Models
 - `VIDEOENHANCER_UPDATE_GITHUB_TOKEN`
 - `VIDEOENHANCER_UPDATE_DATASET=owner/name`
 
-更新不会静默替换运行文件，需要用户确认；更新器会在成功重启后报告结果。
+更新不会静默替换运行文件，需要用户确认；更新器会在成功重启后报告结果。从 `1.0.6` 起采用 EXE-only 更新协议，不兼容旧 ZIP 更新器；旧版本需要手动下载并运行一次 `1.0.6` EXE。
 
 ## 故障排查
 

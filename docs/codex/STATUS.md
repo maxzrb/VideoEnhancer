@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-24 18:55
+Last updated: 2026-08-24 19:35
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 修复下载全部重复插件 EXE，并让自动更新按 GitHub 首选、ModelScope 兜底工作。
-- Current state: 独立版本已发布为 1.0.5。`下载全部` 保留资源列表中的 `Plugin/videoenhancer.exe` 供查看/单独下载，但批量路径明确排除它，避免重复覆盖当前插件。更新检查先请求 GitHub Releases，失败后读取 ModelScope `stable.json`；更新包下载同样 GitHub 首选、ModelScope 兜底，双方均执行大小和 SHA-256 校验。GitHub `v1.0.5` 与 ModelScope Releases 已同步。本机无 NVIDIA，真实 TRT 回归仍未执行。
+- Current objective: 将本体发布和自动更新改造成 EXE-only 协议。
+- Current state: 1.0.7 已发布。本体资产只包含版本化 EXE 和 `stable.json`；EXE 内嵌插件 DLL，新 EXE 作为临时更新器等待 3FUI 退出后替换目标 EXE并释放 DLL，布局使用 DLL 内嵌资源。GitHub `v1.0.7`、ModelScope Releases 1.0.7 和模型仓库 `Plugin/videoenhancer.exe` 的 EXE 哈希一致。实际 3FUI 安装目录保持 1.0.6，供用户测试 1.0.6→1.0.7 自动更新。本机无 NVIDIA，真实 TRT 回归仍未执行。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 按 `release/发布流程.md` 作为后续版本门禁；退出 3FUI 后部署/验证 1.0.5 插件 DLL，并在可访问性受限网络中验证 GitHub 失败时 ModelScope 兜底；随后在 NVIDIA 机器实测 TRT Engine 构建与缓存命中。
+- Next recommended step: 用户启动 3FUI，从已安装 1.0.6 点击检查更新，验证下载 1.0.7、退出宿主、替换 EXE、释放 DLL 和自动重启；随后在 NVIDIA 机器实测 TRT Engine 构建与缓存命中。
 
 ## Active TODO
 
@@ -981,3 +981,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Changes: `release/发布流程.md` 新增“默认提交与推送”，要求发布完成后确认推送目标、提交源码和记录、推送 `fork/main` 并核对远端；明确不得误推原作者 `origin`。
 - Git: 主发布提交 `8e59154 release: 1.0.5` 已推送到 `fork/main`（`https://github.com/maxzrb/VideoEnhancer.git`），推送范围 `32a0888..8e59154`。`origin` 仍为 `user-Wing/VideoEnhancer`，未推送、未合并。
 - Verification: 提交前 `git diff --cached --check` 通过；`git push fork HEAD:main` 成功。完成本条记录后将追加纯记录提交并再次推送，目标是干净工作树。
+
+### 2026-08-24 19:35 - Codex
+
+- Objective: 按用户决定从 1.0.6 直接启用 EXE-only 更新协议，并发布 1.0.7 供真实自动更新测试，不兼容 1.0.5 旧 ZIP 协议。
+- Changes: `cli/Program.cs` 的更新器改为校验/替换单 EXE，并从新 EXE 内嵌资源释放插件 DLL；`PluginUpdater.vb` 以下载的新 EXE作为临时更新器；发布脚本只生成版本化 EXE和 `stable.json`，同时上传 GitHub、ModelScope Releases及模型仓库 `Plugin/videoenhancer.exe`；隔离测试和全部 README/发布流程同步新协议。
+- Verification: CLI/插件构建通过（仅 2 个既有 CA1416）；`release/test-updater.ps1 -Version 1.0.7` 的 success/tamper/invalid-package/rollback 全部通过。首次发布重建因百度网盘短暂锁定 `cli/obj` 失败，关闭 .NET 构建服务器后重试成功，未终止用户同步进程。
+- Release: GitHub latest 为 `v1.0.7`，资产仅 `stable.json` 和 `VideoEnhancer-1.0.7-win-x64.exe`；GitHub/ModelScope stable.json 均为 1.0.7，路径、大小 `17417235`、SHA-256 `877b64f1920eac60732b0aa959eaba5a22779da59ab0566735fbedddf1751cef` 一致；GitHub EXE、ModelScope Releases EXE、模型仓库 EXE 哈希一致。
+- Deployment: `C:\Program portable\3FUI\plugin` 已部署并保留 1.0.6 EXE/DLL，源目标哈希一致，CLI 报告 1.0.6；没有提前覆盖 1.0.7，供用户实测自动升级。
+- Git: 本轮源码和记录待提交；发布门禁要求提交并推送 `fork/main`，不推送原作者 `origin`。

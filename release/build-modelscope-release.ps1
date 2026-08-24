@@ -3,11 +3,12 @@
     [string]$Version = '',
     [string]$UpstreamBase = '1.4.2',
     [string]$HostBin = 'C:\Users\maxzr\AppData\Local\Temp\FFmpegFreeUI.6.1.39.extracted',
-    [string]$Notes = 'GitHub 首选检查与下载，ModelScope 兜底；下载全部不重复下载当前插件 EXE。',
+    [string]$Notes = '更新包改为仅分发内嵌插件 DLL 的 videoenhancer.exe；GitHub 首选检查与下载，ModelScope 兜底。',
     [switch]$PublishGithub,
     [switch]$PublishModelScope,
     [string]$GithubRepo = 'maxzrb/VideoEnhancer',
-    [string]$ModelScopeReleaseDataset = 'AerithDream/VideoEnhancer-Releases'
+    [string]$ModelScopeReleaseDataset = 'AerithDream/VideoEnhancer-Releases',
+    [string]$ModelScopeModelsDataset = 'AerithDream/VideoEnhancer-Models'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,40 +46,15 @@ if (("$cliVersion").Trim() -ne $Version) {
 
 $distRoot = Join-Path $PSScriptRoot 'dist\modelscope'
 $versionRoot = Join-Path $distRoot (Join-Path 'releases' $Version)
-$packageRoot = Join-Path $PSScriptRoot (Join-Path 'dist\package' $Version)
 if (Test-Path -LiteralPath $versionRoot) { Remove-Item -LiteralPath $versionRoot -Recurse -Force }
-if (Test-Path -LiteralPath $packageRoot) { Remove-Item -LiteralPath $packageRoot -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $versionRoot, $packageRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $versionRoot | Out-Null
 
-$runtimeFiles = @('videoenhancer.exe', 'videoenhancer.3fui.dll', 'videoenhancer-layout.json')
-$packageFiles = @()
-foreach ($name in $runtimeFiles) {
-    $source = Join-Path $root $name
-    if (-not (Test-Path -LiteralPath $source)) { throw "缺少发布文件：$source" }
-    Copy-Item -LiteralPath $source -Destination (Join-Path $packageRoot $name) -Force
-    $item = Get-Item -LiteralPath $source
-    $packageFiles += [ordered]@{
-        path = $name
-        size = $item.Length
-        sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash.ToLowerInvariant()
-    }
-}
-
-$packageManifest = [ordered]@{
-    schemaVersion = 1
-    version = $Version
-    files = $packageFiles
-}
-$packageManifestPath = Join-Path $packageRoot 'package.json'
-[System.IO.File]::WriteAllText(
-    $packageManifestPath,
-    ($packageManifest | ConvertTo-Json -Depth 5),
-    $utf8NoBom)
-
-$zipName = "VideoEnhancer-$Version-win-x64.zip"
-$zipPath = Join-Path $versionRoot $zipName
-Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zipPath -CompressionLevel Optimal
-$zipItem = Get-Item -LiteralPath $zipPath
+$exeSource = Join-Path $root 'videoenhancer.exe'
+if (-not (Test-Path -LiteralPath $exeSource)) { throw "缺少发布文件：$exeSource" }
+$packageName = "VideoEnhancer-$Version-win-x64.exe"
+$packagePath = Join-Path $versionRoot $packageName
+Copy-Item -LiteralPath $exeSource -Destination $packagePath -Force
+$packageItem = Get-Item -LiteralPath $packagePath
 $stable = [ordered]@{
     schemaVersion = 1
     channel = 'stable'
@@ -86,9 +62,9 @@ $stable = [ordered]@{
     upstreamBase = $UpstreamBase
     publishedAt = [DateTimeOffset]::Now.ToString('o')
     package = [ordered]@{
-        path = "releases/$Version/$zipName"
-        size = $zipItem.Length
-        sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
+        path = "releases/$Version/$packageName"
+        size = $packageItem.Length
+        sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $packagePath).Hash.ToLowerInvariant()
     }
     notes = $Notes
 }
@@ -99,7 +75,7 @@ $stablePath = Join-Path $distRoot 'stable.json'
     $utf8NoBom)
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'modelscope-README.md') -Destination (Join-Path $distRoot 'README.md') -Force
 
-Write-Host "OK: $zipPath"
+Write-Host "OK: $packagePath"
 Write-Host "OK: $stablePath"
 
 # 原生命令在 EAP=Stop 下写 stderr 会被当成终止错误，发布前临时放宽。
@@ -119,7 +95,7 @@ if ($PublishGithub) {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
         throw '未找到 gh CLI；请安装 GitHub CLI 并 gh auth login 后重试'
     }
-    $code = Invoke-Native { gh release create "v$Version" $zipPath $stablePath --repo $GithubRepo --title "VideoEnhancer $Version" --notes $Notes }
+    $code = Invoke-Native { gh release create "v$Version" $packagePath $stablePath --repo $GithubRepo --title "VideoEnhancer $Version" --notes $Notes }
     if ($code -ne 0) { throw "gh release create v$Version 失败（$GithubRepo）" }
     Write-Host "OK: GitHub Release v$Version 已创建（$GithubRepo）"
 }
@@ -131,11 +107,15 @@ if ($PublishModelScope) {
     $code = Invoke-Native { modelscope upload $ModelScopeReleaseDataset $distRoot --repo_type dataset }
     if ($code -ne 0) { throw "modelscope upload 失败（$ModelScopeReleaseDataset）" }
     Write-Host "OK: ModelScope 已同步（$ModelScopeReleaseDataset）"
+    $code = Invoke-Native { modelscope upload $ModelScopeModelsDataset $packagePath 'Plugin/videoenhancer.exe' --repo_type dataset --no-cache }
+    if ($code -ne 0) { throw "ModelScope 插件 EXE 兜底上传失败（$ModelScopeModelsDataset）" }
+    Write-Host "OK: ModelScope 模型页插件 EXE 已同步（$ModelScopeModelsDataset/Plugin/videoenhancer.exe）"
 }
 
 if (-not $PublishGithub -and -not $PublishModelScope) {
     Write-Host "ModelScope 上传目录：$distRoot"
     Write-Host '手动发布命令：'
-    Write-Host "  gh release create v$Version `"$zipPath`" `"$stablePath`" --repo $GithubRepo --title `"VideoEnhancer $Version`" --notes `"$Notes`""
+    Write-Host "  gh release create v$Version `"$packagePath`" `"$stablePath`" --repo $GithubRepo --title `"VideoEnhancer $Version`" --notes `"$Notes`""
     Write-Host "  modelscope upload $ModelScopeReleaseDataset `"$distRoot`" --repo_type dataset"
+    Write-Host "  modelscope upload $ModelScopeModelsDataset `"$packagePath`" Plugin/videoenhancer.exe --repo_type dataset --no-cache"
 }

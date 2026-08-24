@@ -198,7 +198,7 @@ Namespace videoenhancer
             End Try
         End Function
 
-        Public Shared Sub StartUpdate(packagePath As String, installedExe As String,
+        Public Shared Sub StartUpdate(packagePath As String,
                                       targetDirectory As String, waitPid As Integer,
                                       restartExe As String)
             Dim updaterDirectory = Path.Combine(
@@ -206,7 +206,8 @@ Namespace videoenhancer
                 "FFmpegFreeUI", "VideoEnhancer", "updater", Guid.NewGuid().ToString("N"))
             Directory.CreateDirectory(updaterDirectory)
             Dim updaterExe = Path.Combine(updaterDirectory, "videoenhancer-updater.exe")
-            File.Copy(installedExe, updaterExe, True)
+            ' 新 EXE 本身包含最新插件 DLL；用它作为临时更新器，宿主退出后再释放 DLL 并替换本体。
+            File.Copy(packagePath, updaterExe, True)
             Dim resultPath = GetResultPath()
             Try
                 If File.Exists(resultPath) Then File.Delete(resultPath)

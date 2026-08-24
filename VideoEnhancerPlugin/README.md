@@ -153,9 +153,9 @@
 
 插件页面加载后会在后台向 GitHub `maxzrb/VideoEnhancer` 的 `releases/latest` 检查更新（GitHub 是版本唯一标准），底部也可手动点击“检查更新”。远端独立 SemVer 高于当前版本时才提示，用户确认后下载并校验更新包；不会静默覆盖运行文件。
 
-模型下载页右上方另有“下载插件更新”入口，使用相同的 Release 数据集、版本比较、校验和更新事务，作为底部按钮不可用或不便查找时的兜底；插件 ZIP 不混入模型仓库清单，也不会进入模型解压目录。
+模型下载页会显示 `Plugin/videoenhancer.exe` 资源，但“下载全部”会排除当前插件 EXE；正式升级使用底部“检查更新”入口。插件本体不混入模型解压目录。
 
-更新时临时 CLI 会等待 3FUI 完全退出，只允许替换 EXE、插件 DLL 和布局 JSON，替换前备份，失败自动回滚，成功后重启 3FUI。更新包下载首选 GitHub Release 资产，失败回退 ModelScope 镜像（`VIDEOENHANCER_UPDATE_DATASET=owner/name` 可覆盖）；GitHub 检查或下载不可达时均使用 ModelScope 兜底，检查仓库可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖；配置中的 `AutoCheckUpdates` 可关闭启动后台检查。
+从 1.0.6 起，Release 只分发内嵌插件 DLL 的 EXE。新 EXE 作为临时更新器等待 3FUI 完全退出，备份并替换目标 EXE，再从自身释放 DLL；失败自动回滚，成功后重启 3FUI。布局 JSON 使用 DLL 内嵌资源，不再单独更新。下载首选 GitHub Release 资产，失败回退 ModelScope 镜像（`VIDEOENHANCER_UPDATE_DATASET=owner/name` 可覆盖）；GitHub 检查或下载不可达时均使用 ModelScope 兜底，检查仓库可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖；配置中的 `AutoCheckUpdates` 可关闭启动后台检查。
 
 ## 构建
 

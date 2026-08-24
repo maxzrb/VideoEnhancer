@@ -106,7 +106,7 @@ PowerShell 示例：
 
 插件以 GitHub Release 为唯一版本标准：优先读取 `maxzrb/VideoEnhancer` 的 `releases/latest` 及其 `stable.json` 清单资产；GitHub 不可达时读取 ModelScope `stable.json` 兜底。可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖检查仓库，`VIDEOENHANCER_UPDATE_GITHUB_TOKEN` 供私有仓库或提高 API 限频使用。更新包下载同样首选 GitHub Release 资产，失败时回退 ModelScope 数据集 `AerithDream/VideoEnhancer-Releases`（可用 `VIDEOENHANCER_UPDATE_DATASET=owner/name` 切换）；两源都校验清单中的大小与 SHA-256。发现更高 SemVer 后必须由用户确认。
 
-更新包只允许包含 `videoenhancer.exe`、`videoenhancer.3fui.dll`、`videoenhancer-layout.json` 和包内校验清单。插件将当前 CLI 复制为临时更新器，等待 3FUI 退出后备份并替换三个运行文件；任一替换失败会回滚，成功后自动重启 3FUI。`--apply-update` 及相关参数是插件内部更新协议，不作为普通处理命令使用。
+从 1.0.6 起，更新资产是单个版本化 `videoenhancer.exe`。插件校验下载文件后，将新 EXE 复制为临时更新器；它等待 3FUI 退出，备份并替换目标 EXE，再从自身内嵌资源释放 `videoenhancer.3fui.dll`。任一步失败都会回滚，成功后自动重启 3FUI。布局 JSON 已嵌入 DLL，不再作为更新资产。`--apply-update` 及相关参数是插件内部更新协议，不作为普通处理命令使用。
 
 ## 目录结构
 

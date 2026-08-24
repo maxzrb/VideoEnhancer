@@ -370,7 +370,7 @@ Namespace videoenhancer
                 Dim packagePath = Await PluginUpdater.DownloadPackageAsync(manifest,
                     Sub(percent) ShowStatus("正在下载更新：" & percent & "%", False))
                 ShowStatus("更新包校验通过，正在准备重启 3FUI…", False)
-                PluginUpdater.StartUpdate(packagePath, installedExe, targetDirectory,
+                PluginUpdater.StartUpdate(packagePath, targetDirectory,
                     Environment.ProcessId, hostExe)
                 Application.Exit()
             Catch ex As Exception

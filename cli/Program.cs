@@ -1029,10 +1029,7 @@ internal static class Program
         return (arg, null);
     }
 
-    private sealed record UpdatePackageManifest(string Version, List<UpdatePackageFile> Files);
-    private sealed record UpdatePackageFile(string Path, long Size, string Sha256);
-
-    /// <summary>在 3FUI 退出后应用已校验的三文件更新包；任一替换失败都会恢复原文件。</summary>
+    /// <summary>在 3FUI 退出后替换 EXE，并从新 EXE 内嵌资源释放插件 DLL；任一替换失败都会恢复原文件。</summary>
     private static int ApplyUpdate(Options o)
     {
         if (string.IsNullOrWhiteSpace(o.UpdatePackage) || string.IsNullOrWhiteSpace(o.UpdateTarget))
@@ -1054,13 +1051,7 @@ internal static class Program
         if (!File.Exists(packagePath)) return Fail("更新包不存在：" + packagePath, 1);
         if (!Directory.Exists(targetDirectory)) return Fail("更新目标目录不存在：" + targetDirectory, 1);
 
-        var updateFiles = new[]
-        {
-            "videoenhancer.exe",
-            "videoenhancer.3fui.dll",
-            "videoenhancer-layout.json"
-        };
-        var allowedFiles = new HashSet<string>(updateFiles, StringComparer.OrdinalIgnoreCase);
+        var updateFiles = new[] { "videoenhancer.exe", "videoenhancer.3fui.dll" };
         var workRoot = Path.Combine(Path.GetTempPath(), "VideoEnhancerUpdate", Guid.NewGuid().ToString("N"));
         var stagingDirectory = Path.Combine(workRoot, "staging");
         var backupDirectory = Path.Combine(workRoot, "backup");
@@ -1069,68 +1060,23 @@ internal static class Program
 
         try
         {
-            UpdatePackageManifest manifest;
-            using (var archive = ZipFile.OpenRead(packagePath))
+            var updaterPath = Path.GetFullPath(Environment.ProcessPath
+                ?? throw new InvalidOperationException("无法确定临时更新器路径"));
+            using (var packageStream = File.OpenRead(packagePath))
+            using (var updaterStream = File.OpenRead(updaterPath))
             {
-                var entries = new Dictionary<string, ZipArchiveEntry>(StringComparer.OrdinalIgnoreCase);
-                foreach (var entry in archive.Entries)
-                {
-                    var name = entry.FullName.Replace('\\', '/');
-                    if (entry.Name.Length == 0 || name.Contains('/') ||
-                        (!name.Equals("package.json", StringComparison.OrdinalIgnoreCase) && !allowedFiles.Contains(name)))
-                    {
-                        throw new InvalidDataException("更新包包含未授权路径：" + entry.FullName);
-                    }
-                    if (!entries.TryAdd(name, entry))
-                    {
-                        throw new InvalidDataException("更新包包含重复文件：" + entry.FullName);
-                    }
-                }
-
-                if (!entries.TryGetValue("package.json", out var manifestEntry) || manifestEntry.Length > 1024 * 1024)
-                {
-                    throw new InvalidDataException("更新包缺少有效的 package.json");
-                }
-                using (var reader = new StreamReader(manifestEntry.Open(), Encoding.UTF8, true))
-                {
-                    manifest = ParseUpdatePackageManifest(reader.ReadToEnd());
-                }
-                if (manifest.Files.Count != updateFiles.Length)
-                {
-                    throw new InvalidDataException("更新包必须且只能声明三个运行文件");
-                }
-
-                var declared = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var file in manifest.Files)
-                {
-                    var name = file.Path.Replace('\\', '/');
-                    if (!allowedFiles.Contains(name) || name.Contains('/') || !declared.Add(name))
-                    {
-                        throw new InvalidDataException("package.json 包含未授权或重复路径：" + file.Path);
-                    }
-                    if (!entries.TryGetValue(name, out var entry))
-                    {
-                        throw new InvalidDataException("更新包缺少文件：" + name);
-                    }
-                    if (file.Size < 0 || entry.Length != file.Size)
-                    {
-                        throw new InvalidDataException("更新文件大小不匹配：" + name);
-                    }
-
-                    var stagedPath = Path.Combine(stagingDirectory, name);
-                    using (var source = entry.Open())
-                    using (var destination = new FileStream(stagedPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                    {
-                        source.CopyTo(destination);
-                    }
-                    using var staged = File.OpenRead(stagedPath);
-                    var actualHash = Convert.ToHexString(SHA256.HashData(staged));
-                    if (file.Sha256.Length != 64 || !actualHash.Equals(file.Sha256, StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw new InvalidDataException("更新文件 SHA-256 不匹配：" + name);
-                    }
-                }
+                var packageHash = Convert.ToHexString(SHA256.HashData(packageStream));
+                var updaterHash = Convert.ToHexString(SHA256.HashData(updaterStream));
+                if (!packageHash.Equals(updaterHash, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("更新 EXE 与临时更新器不一致");
             }
+
+            var stagedExe = Path.Combine(stagingDirectory, "videoenhancer.exe");
+            var stagedPlugin = Path.Combine(stagingDirectory, "videoenhancer.3fui.dll");
+            File.Copy(packagePath, stagedExe, true);
+            ExtractEmbeddedPlugin(stagedPlugin);
+            if (new FileInfo(stagedPlugin).Length <= 0)
+                throw new InvalidDataException("新 EXE 内嵌的插件 DLL 无效");
 
             if (waitPid > 0)
             {
@@ -1185,8 +1131,8 @@ internal static class Program
                 throw;
             }
 
-            Console.WriteLine("UPDATE_COMPLETE|" + manifest.Version);
-            WriteUpdateResult(o.UpdateResult, "OK|" + manifest.Version);
+            Console.WriteLine("UPDATE_COMPLETE|" + ToolVersion);
+            WriteUpdateResult(o.UpdateResult, "OK|" + ToolVersion);
             if (!string.IsNullOrWhiteSpace(o.RestartExe))
             {
                 var restartExe = Path.GetFullPath(o.RestartExe);
@@ -1210,27 +1156,6 @@ internal static class Program
         {
             try { Directory.Delete(workRoot, true); } catch { }
         }
-    }
-
-    private static UpdatePackageManifest ParseUpdatePackageManifest(string json)
-    {
-        using var document = JsonDocument.Parse(json);
-        var root = document.RootElement;
-        if (root.GetProperty("schemaVersion").GetInt32() != 1)
-        {
-            throw new InvalidDataException("不支持的更新包清单版本");
-        }
-        var version = root.GetProperty("version").GetString()?.Trim() ?? "";
-        if (version.Length == 0) throw new InvalidDataException("package.json 缺少版本号");
-        var files = new List<UpdatePackageFile>();
-        foreach (var file in root.GetProperty("files").EnumerateArray())
-        {
-            files.Add(new UpdatePackageFile(
-                file.GetProperty("path").GetString()?.Trim() ?? "",
-                file.GetProperty("size").GetInt64(),
-                file.GetProperty("sha256").GetString()?.Trim() ?? ""));
-        }
-        return new UpdatePackageManifest(version, files);
     }
 
     private static void WriteUpdateResult(string resultPath, string value)

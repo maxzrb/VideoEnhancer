@@ -1422,6 +1422,10 @@ internal static class Program
                     && !model.Path.Equals(preferredPythonArchive.Path, StringComparison.OrdinalIgnoreCase)));
         }
 
+        // 新版补帧包已迁移到 Frame-Interpolation；旧 RIFE/RIFE.7z 与其内容重复，
+        // 但远端文件仍保留给旧客户端使用，因此只从当前下载列表隐藏旧路径。
+        result.RemoveAll(model => model.Path.Equals("RIFE/RIFE.7z", StringComparison.OrdinalIgnoreCase));
+
         return result.OrderBy(m => m.Path, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
@@ -2452,9 +2456,20 @@ internal static class Program
                 .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
         }
-        return roots.SelectMany(root => Directory.GetDirectories(root, "*", SearchOption.AllDirectories))
+        var ncnnFolders = roots.SelectMany(root => Directory.GetDirectories(root, "*", SearchOption.AllDirectories))
             .Where(IsNcnnModelFolder)
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var preferredNames = ncnnFolders
+            .Where(path => IsPathUnder(path, FrameInterpolationDir))
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // 新目录和旧 models\RIFE 可能同时存在同一套 NCNN 模型。优先新目录，
+        // 只有新目录没有对应模型名时才显示旧兼容目录，避免 UI 出现重复项。
+        return ncnnFolders
+            .Where(path => IsPathUnder(path, FrameInterpolationDir)
+                || !preferredNames.Contains(Path.GetFileName(path)))
             .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
     }

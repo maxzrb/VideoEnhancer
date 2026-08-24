@@ -1,12 +1,12 @@
 # Project Status
 
-Last updated: 2026-08-24 12:39
+Last updated: 2026-08-24 12:57
 Updated by: Codex
 
 ## Current Snapshot
 
 - Current objective: 在独立版本 1.0.3 基线上补齐 RIFE TensorRT 补帧权重，并保证 ModelScope 模型清单可完整分页读取。
-- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。RIFE TensorRT 接入已提交；5 个官方 RIFE `.pkl` 权重已上传公开数据集 `AerithDream/VideoEnhancer-Models`，并已下载到实际 3FUI 的 `models\Frame-Interpolation\RIFE`。安装版 CLI 可发现 5 个 TensorRT RIFE 模型。ModelScope 分页修复使在线模型页完整返回 105 项。最新 EXE、插件 DLL 和布局已替换到 `C:\Program portable\3FUI\plugin`，三项哈希与工作区构建物一致。
+- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。RIFE TensorRT 接入已提交；5 个官方 RIFE `.pkl` 权重已上传公开数据集并下载到实际 3FUI。已修复本地 NCNN 补帧扫描重复，以及远端下载列表同时展示新版 `Frame-Interpolation/RIFE.7z` 和旧 `RIFE/RIFE.7z` 的重复归档；旧远端文件保留给历史客户端，新 CLI 只显示新版归档和 5 个 `.pkl` 权重。ModelScope 分页修复后的在线模型页现返回 104 个可下载项。新版单文件 CLI 已替换到安装目录并通过远端清单复核。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
 - Next recommended step: 在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次 Engine 构建及二次缓存命中；确认后再决定是否升至 1.0.4 并发布。
@@ -16,7 +16,7 @@ Updated by: Codex
 - [x] Task: 评估并接入自有 ModelScope 模型镜像。
   - Owner: user / Codex
   - Status: `AerithDream/VideoEnhancer-Models` 已接入 CLI，排除 `PotPlayer.7z`；用户为测试暂时转为公开，后续仓库可见性由用户自行处理。2026-08-23 增量同步 `Frame-Interpolation/GIMM-VFI.7z`、`GMFSS.7z`、`RIFE.7z`，并补交旧 `RIFE/RIFE.7z` 兼容包。
-  - Notes/blockers: CLI 默认仓库、可配置仓库 ID、显式私库令牌、认证错误码和插件提示均已实现；公开模式分页读取后当前清单对界面返回 105 项（旧 Python 包已隐藏），含 5 个新增 RIFE `.pkl`。真实 CLI 下载 `rife4.6.pkl` 并通过 SHA-256；仍需用户在真实 3FUI 界面验证交互。上游仓库仍没有逐文件 LICENSE/NOTICE/COPYING。
+  - Notes/blockers: CLI 默认仓库、可配置仓库 ID、显式私库令牌、认证错误码和插件提示均已实现；公开模式分页读取后当前清单对界面返回 104 项（旧 Python 包、旧重复 RIFE 归档均隐藏），含 5 个新增 RIFE `.pkl`。真实 CLI 下载 `rife4.6.pkl` 并通过 SHA-256；仍需用户在真实 3FUI 界面刷新模型页确认交互。上游仓库仍没有逐文件 LICENSE/NOTICE/COPYING。
 
 - [x] Task: 审查作者 v1.4.2 测试版并选择性合并。
   - Owner: Codex
@@ -838,3 +838,21 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Verification: 安装版 CLI `--list-interp-models --json -interp-backend tensorrt` 返回 `RIFE/rife4.25`、`RIFE/rife4.26.heavy`、`RIFE/rife4.26`、`RIFE/rife4.6`、`RIFE/rife4.7`；本地 RIFE 权重数量为 5。未修改源码或版本号。
 - User next step: 关闭/刷新模型页后把超分后端切到 TensorRT，再打开运动补帧并选择 RIFE 权重；BasicVSR++ 仍不能与补帧组合。真实 Engine 构建仍需 NVIDIA 环境。
 - Git status: 本次只修改 Git 忽略的本地模型目录和用户配置，仓库源码状态未改变。
+
+### 2026-08-24 12:52 - Codex
+
+- User report: NCNN 补帧下拉框同时出现 `RIFE/rife-v4.*` 与 `rife-v4.*` 两组同名模型。
+- Root cause: 本地同时存在新目录 `models\Frame-Interpolation\RIFE\rife-v4.*` 和旧兼容目录 `models\RIFE\rife-v4.*`；CLI 的 NCNN 发现逻辑递归扫描两个根目录，导致同一套 `.param/.bin` 重复显示。
+- Fix: `cli/Program.cs` 的 NCNN 发现改为按目录名去重，优先新 `Frame-Interpolation` 路径；只有新路径没有对应名称时才显示旧 `models\RIFE` 兼容模型。CUDA/TensorRT 权重筛选不变。
+- Verification: CLI 构建成功（0 错误、2 个既有 CA1416）；顺序后端测试 6/6；安装版 EXE 替换成功，源/目标长度均 17,453,523 字节，SHA-256 `A66170AABD9ABD0840FC43498BE351B29B41832E3A9774926F9C2B8E765EEEB1`；安装版 `--list-interp-models --json -interp-backend ncnn` 返回 5 项，TensorRT 返回 5 项。
+- User next step: 在 3FUI 模型下拉框刷新；如仍保留旧列表则重启 3FUI。BasicVSR++ 仍不能和补帧组合。
+- Git status: 源码和记录待提交；本地模型与安装目录属于 Git 忽略/外部路径。
+
+### 2026-08-24 12:57 - Codex
+
+- Objective: 处理用户指出的远端重复 RIFE 资源，避免新客户端在模型下载页显示两个同名归档。
+- Finding: ModelScope 实际清单同时包含 `Frame-Interpolation/RIFE.7z`（50,802,746 bytes）和 `RIFE/RIFE.7z`（50,299,097 bytes）；两者内部均为同一套五个 NCNN RIFE 模型目录，只是压缩包重新打包，后者是旧兼容路径。五个 `Frame-Interpolation/RIFE/*.pkl` 权重不是重复资源，继续保留。
+- Fix: `cli/Program.cs` 在 `FetchRemoteModels()` 中仅过滤 `RIFE/RIFE.7z` 的当前列表项，不删除或修改 ModelScope 远端文件；旧客户端仍可访问旧路径，新客户端显示新版归档、5 个权重和其他补帧资源。
+- Verification: `dotnet build cli/VideoEnhancer.csproj -c Release --no-restore` 成功（0 错误、2 个既有 CA1416）；单文件发布成功，版本 `1.0.3`；发布版及安装版 `--list-download-models --json` 均返回 104 项，RIFE 区域无 `RIFE/RIFE.7z`、保留 `Frame-Interpolation/RIFE.7z` 和 5 个 `.pkl`；安装版 EXE 与发布版 SHA-256 均为 `78C1A4DE4D1EA84085C580B0612A3CE9E58B68D71C49DD894E9691E1A7A6B8F9`。
+- Changed files: `cli/Program.cs`、`docs/codex/STATUS.md`、`version/工作进度.md`；版本未变化，未修改 `version/版本迭代记录.md`。
+- Git status: 上述源码和记录待提交；本地模型及 `C:\Program portable\3FUI\plugin` 安装目录不在仓库跟踪范围内。独立主线仍不合并、不推送原作者 `origin`。

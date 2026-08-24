@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-24 18:20
+Last updated: 2026-08-24 18:55
 Updated by: Codex
 
 ## Current Snapshot
@@ -974,3 +974,10 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Changes: 根目录 `README.md` 改为功能、安装、后端、模型目录、CLI、HDR/处理顺序、ModelScope 下载、自动更新、故障排查、源码构建、许可证边界和反馈信息；删除“独立维护版”“独立版本”和上游基线表述，只保留当前版本 `1.0.5`。
 - Verification: README 全文检索无 `独立维护版`、`独立维护`、`独立版本`、`上游` 残留；`git diff --check` 通过。
 - Git: `main...origin/main [ahead 24, behind 5]`，README、发布流程和此前累计源码/记录修改均未提交。
+
+### 2026-08-24 18:55 - Codex
+
+- Objective: 按用户要求提交当前累计修改并推送 GitHub，同时将“发布后默认提交与推送”加入门禁。
+- Changes: `release/发布流程.md` 新增“默认提交与推送”，要求发布完成后确认推送目标、提交源码和记录、推送 `fork/main` 并核对远端；明确不得误推原作者 `origin`。
+- Git: 主发布提交 `8e59154 release: 1.0.5` 已推送到 `fork/main`（`https://github.com/maxzrb/VideoEnhancer.git`），推送范围 `32a0888..8e59154`。`origin` 仍为 `user-Wing/VideoEnhancer`，未推送、未合并。
+- Verification: 提交前 `git diff --cached --check` 通过；`git push fork HEAD:main` 成功。完成本条记录后将追加纯记录提交并再次推送，目标是干净工作树。

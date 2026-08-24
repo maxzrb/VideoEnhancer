@@ -864,4 +864,4 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Fix: `VideoEnhancerPlugin/PluginPanel.vb` 新增 `UpdateInterpSwitchState()`，在后端切换后同步 `_switchInterp.Enabled`；只有 BasicVSR++ 继续禁用组合补帧，NCNN/CUDA/TensorRT/ONNX/FlashVSR 均可操作。
 - Verification: `VideoEnhancerPlugin/build.ps1 -HostBin C:\Users\maxzr\AppData\Local\Temp\FFmpegFreeUI.6.1.39.extracted -SkipInstall` 成功；生成插件 DLL SHA-256 `680697451D037710702E1CE5CD885C170DCC1B592032E614C4C01109D54D222E`，已复制到 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll` 并逐字节哈希一致。未修改 CLI 或版本号。
 - User next step: 重启 3FUI 后重新从 BasicVSR++ 切换到 TensorRT，确认运动补帧开关变为可点击；若仍灰色，再检查是否宿主加载了其他插件目录的旧 DLL。
-- Git status: `VideoEnhancerPlugin/PluginPanel.vb`、`docs/codex/STATUS.md`、`version/工作进度.md` 待提交；安装目录属于仓库外部路径。建议测试确认后提交。
+- Git status: 修复已提交为 `1e2c054 fix: re-enable interpolation after backend switch`；工作树干净，安装目录属于仓库外部路径。

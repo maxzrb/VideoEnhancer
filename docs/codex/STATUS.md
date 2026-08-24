@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-24 21:00
+Last updated: 2026-08-24 21:15
 Updated by: Codex
 
 ## Current Snapshot
@@ -1032,3 +1032,9 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Package verification: 新包大小 `3447405317`，SHA-256 `3e55dcc3e773ceb5098d3b6bd90e9d490462b6323a5931d0aaba9e983a61482b`；7-Zip 整包测试通过，包含 6540 个目录、37533 个文件，解压总尺寸 `6410577325`。
 - ModelScope upload: 已覆盖 `AerithDream/VideoEnhancer-Models/Backend/python_20260824.7z`，提交说明为 `backend: low-memory temporal windows and RIFE TRT tooling`。远端回读大小和 SHA 与本地新包一致，revision 为 `c0d5b6c09e08df7a2b25af49ed6f73e586a4bd1c`。
 - Release guard: 本次仅更新模型仓库后端资源并准备 Git 提交；未创建 1.0.8 Release，未修改 stable.json 或 GitHub/ModelScope Releases。
+
+### 2026-08-24 21:15 - Codex
+
+- Git publication: 功能提交 `753a3a4 feat: add RIFE TensorRT tooling and temporal low-memory support` 已推送到 `https://github.com/maxzrb/VideoEnhancer.git` 的 `main`；本地 `HEAD` 与 `fork/main` 均为 `753a3a447dc2c16a79c607389a2daeec561fb087`。原作者 `origin` 未推送、未合并。
+- Handoff: 3060 设备应先拉取 `fork/main`，再从 `AerithDream/VideoEnhancer-Models` 下载远端 revision `c0d5b6c09e08df7a2b25af49ed6f73e586a4bd1c` 的 `Backend/python_20260824.7z`。优先验证 RIFE CUDA、RIFE TensorRT 首次构建/缓存命中，以及 FlashVSR/BasicVSR++ 长视频内存。
+- Release guard: 项目版本保持 1.0.7；用户本地验证无误前不得发布 1.0.8。

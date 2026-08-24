@@ -1,12 +1,12 @@
 # Project Status
 
-Last updated: 2026-08-24 13:06
+Last updated: 2026-08-24 13:19
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 修复实际 3FUI 中切换到 TensorRT 后补帧开关仍不可点击的问题。
-- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。确认 UI 初始若为 BasicVSR++ 会禁用补帧开关，但切换到 TensorRT/CUDA/NCNN 后原代码没有重新同步 `Enabled` 状态，导致截图中的 TensorRT + NCNN 组合仍灰色。已在 `OnBackendSelected` 后补充开关状态同步，并构建、替换实际 3FUI 插件 DLL；ModelScope 清单和 CLI 保持上一轮 104 项状态。
+- Current objective: 维护自有 ModelScope 镜像，清理不再兼容旧版客户端的重复资源。
+- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。补帧开关修复已提交并部署；远端原始树核对确认可直接清理 `Backend/python.7z`（与日期版 Python 重复，约 2.46 GiB）和 `RIFE/RIFE.7z`（与新版 Frame-Interpolation 归档重复，约 48 MiB）。`TensorRT-Default` 预置 Engine 仍是当前 CLI 支持的可选资源，暂列为激进清理项而非兼容旧版项。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
 - Next recommended step: 重启 3FUI，确认从 BasicVSR++ 切换到 TensorRT 后补帧开关恢复可点击；随后在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次 Engine 构建及二次缓存命中。
@@ -865,3 +865,11 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Verification: `VideoEnhancerPlugin/build.ps1 -HostBin C:\Users\maxzr\AppData\Local\Temp\FFmpegFreeUI.6.1.39.extracted -SkipInstall` 成功；生成插件 DLL SHA-256 `680697451D037710702E1CE5CD885C170DCC1B592032E614C4C01109D54D222E`，已复制到 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll` 并逐字节哈希一致。未修改 CLI 或版本号。
 - User next step: 重启 3FUI 后重新从 BasicVSR++ 切换到 TensorRT，确认运动补帧开关变为可点击；若仍灰色，再检查是否宿主加载了其他插件目录的旧 DLL。
 - Git status: 修复已提交为 `1e2c054 fix: re-enable interpolation after backend switch`；工作树干净，安装目录属于仓库外部路径。
+
+### 2026-08-24 13:19 - Codex
+
+- Objective: 按用户“不兼容旧版、旧版应升级”的决定，核对 ModelScope 远端哪些资源可以清理。
+- Remote tree: 原始 API 返回 127 个条目（含目录和 `.gitkeep`）。当前可下载清单过滤后为 104 项；原始树仍存在 `Backend/python.7z`、`Backend/python_20260823.7z`、`RIFE/RIFE.7z`、`Frame-Interpolation/RIFE.7z`。
+- Safe cleanup candidates: `Backend/python.7z` 与 `Backend/python_20260823.7z` 内容重复，保留日期版、删除无日期旧包可释放 2,639,607,910 bytes（约 2.46 GiB）；`RIFE/RIFE.7z` 与新版 `Frame-Interpolation/RIFE.7z` 均含同一套五个 NCNN 模型，保留新版、删除旧路径可释放 50,299,097 bytes（约 48 MiB）。对应根目录 `.gitkeep` 也可一并清理，但不影响容量。
+- Optional aggressive cleanup: `TensorRT-Default/*.engine` 共 15 个、约 188.5 MiB，当前 CLI 仍支持直接发现和下载，删除后会强制用户使用 PTH 自动构建设备专用 Engine；这不是旧版兼容文件，除非决定完全取消预置 Engine，否则建议保留。`Param-Bin/NCNN-20260821.7z`、PTH、ONNX、FlashVSR、BasicVSR++ 和五个 RIFE `.pkl` 都仍对应当前功能，不建议按“旧版兼容”理由删除。
+- Action: 本轮只做远端只读核对，没有执行 ModelScope 删除；等待用户确认清理范围。

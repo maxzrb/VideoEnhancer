@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-24 12:57
+Last updated: 2026-08-24 13:06
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 在独立版本 1.0.3 基线上补齐 RIFE TensorRT 补帧权重，并保证 ModelScope 模型清单可完整分页读取。
-- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。RIFE TensorRT 接入已提交；5 个官方 RIFE `.pkl` 权重已上传公开数据集并下载到实际 3FUI。已修复本地 NCNN 补帧扫描重复，以及远端下载列表同时展示新版 `Frame-Interpolation/RIFE.7z` 和旧 `RIFE/RIFE.7z` 的重复归档；旧远端文件保留给历史客户端，新 CLI 只显示新版归档和 5 个 `.pkl` 权重。ModelScope 分页修复后的在线模型页现返回 104 个可下载项。新版单文件 CLI 已替换到安装目录并通过远端清单复核。
+- Current objective: 修复实际 3FUI 中切换到 TensorRT 后补帧开关仍不可点击的问题。
+- Current state: 当前独立版本仍为 1.0.3，本轮未发布新版本。确认 UI 初始若为 BasicVSR++ 会禁用补帧开关，但切换到 TensorRT/CUDA/NCNN 后原代码没有重新同步 `Enabled` 状态，导致截图中的 TensorRT + NCNN 组合仍灰色。已在 `OnBackendSelected` 后补充开关状态同步，并构建、替换实际 3FUI 插件 DLL；ModelScope 清单和 CLI 保持上一轮 104 项状态。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次 Engine 构建及二次缓存命中；确认后再决定是否升至 1.0.4 并发布。
+- Next recommended step: 重启 3FUI，确认从 BasicVSR++ 切换到 TensorRT 后补帧开关恢复可点击；随后在 NVIDIA 机器分别实测仅补帧、先超后补和先补后超的首次 Engine 构建及二次缓存命中。
 
 ## Active TODO
 
@@ -856,3 +856,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Verification: `dotnet build cli/VideoEnhancer.csproj -c Release --no-restore` 成功（0 错误、2 个既有 CA1416）；单文件发布成功，版本 `1.0.3`；发布版及安装版 `--list-download-models --json` 均返回 104 项，RIFE 区域无 `RIFE/RIFE.7z`、保留 `Frame-Interpolation/RIFE.7z` 和 5 个 `.pkl`；安装版 EXE 与发布版 SHA-256 均为 `78C1A4DE4D1EA84085C580B0612A3CE9E58B68D71C49DD894E9691E1A7A6B8F9`。
 - Changed files: `cli/Program.cs`、`docs/codex/STATUS.md`、`version/工作进度.md`；版本未变化，未修改 `version/版本迭代记录.md`。
 - Git status: 上述源码和记录待提交；本地模型及 `C:\Program portable\3FUI\plugin` 安装目录不在仓库跟踪范围内。独立主线仍不合并、不推送原作者 `origin`。
+
+### 2026-08-24 13:06 - Codex
+
+- User report: 即使选择 `TensorRT (NVIDIA)` 超分、`NCNN (Vulkan)` 补帧和 `RIFE/rife-v4.25`，运动补帧开关仍不可点击。
+- Root cause: 页面构造时若之前的 `Backend` 是 `basicvsrpp`，会把 `_switchInterp.Enabled` 设为 `False`；`OnBackendSelected` 切换到其他后端后只刷新模型和高级控件，没有重新赋值开关状态，因此保留灰色状态。用户配置实测为 `Enabled=true`、`Backend=tensorrt`、`InterpBackend=ncnn`，与该路径一致。
+- Fix: `VideoEnhancerPlugin/PluginPanel.vb` 新增 `UpdateInterpSwitchState()`，在后端切换后同步 `_switchInterp.Enabled`；只有 BasicVSR++ 继续禁用组合补帧，NCNN/CUDA/TensorRT/ONNX/FlashVSR 均可操作。
+- Verification: `VideoEnhancerPlugin/build.ps1 -HostBin C:\Users\maxzr\AppData\Local\Temp\FFmpegFreeUI.6.1.39.extracted -SkipInstall` 成功；生成插件 DLL SHA-256 `680697451D037710702E1CE5CD885C170DCC1B592032E614C4C01109D54D222E`，已复制到 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll` 并逐字节哈希一致。未修改 CLI 或版本号。
+- User next step: 重启 3FUI 后重新从 BasicVSR++ 切换到 TensorRT，确认运动补帧开关变为可点击；若仍灰色，再检查是否宿主加载了其他插件目录的旧 DLL。
+- Git status: `VideoEnhancerPlugin/PluginPanel.vb`、`docs/codex/STATUS.md`、`version/工作进度.md` 待提交；安装目录属于仓库外部路径。建议测试确认后提交。

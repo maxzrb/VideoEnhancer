@@ -782,6 +782,7 @@ Namespace videoenhancer
             ' 切换后端后重新读取两个模型列表（CUDA 需要 .pth 模型；活动模式无 .pth 时由 Apply*List 自动回退）
             RefreshUpscaleModels()
             RefreshInterpModels()
+            UpdateInterpSwitchState()
             UpdateAdvancedControlState()
             Dim modeText = If(backend = "basicvsrpp",
                 "BasicVSR++（NVIDIA）：官方 x4 权重或 1x 优化目录，不与补帧/图片模式混用",
@@ -4934,6 +4935,12 @@ Namespace videoenhancer
             _lblSwitchInterp.Text = If(_config.InterpEnabled,
                 "<font color=#3FCD87><b>已开启</b></font>",
                 "<font color=#888888>关闭</font>")
+        End Sub
+
+        ''' <summary>后端切换后同步补帧开关的可用状态；只有 BasicVSR++ 不支持组合补帧。</summary>
+        Private Sub UpdateInterpSwitchState()
+            _switchInterp.Enabled = _config.Enabled AndAlso
+                Not String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase)
         End Sub
 
         Private Sub UpdateProcessOrderState()

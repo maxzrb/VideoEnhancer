@@ -3833,8 +3833,9 @@ Namespace videoenhancer
                 Case "current"
                     entry.Installed = True
                     entry.Name &= " " & status.LatestVersion
-                    entry.StatusText = "已是最新版本"
-                    entry.ActionText = "已是最新"
+                    ' 状态列较窄，长文本会被列表控件按两行高度布局而显得上浮。
+                    entry.StatusText = "已是最新"
+                    entry.ActionText = "无需操作"
                 Case "update-available", "legacy-update-available"
                     entry.Installed = False
                     entry.Name &= " " & status.InstalledVersion & " → " & status.LatestVersion

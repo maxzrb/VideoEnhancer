@@ -198,6 +198,40 @@ dotnet build .\cli\VideoEnhancer.csproj -c Release --no-restore
 - 开发进度：[`version/工作进度.md`](version/工作进度.md)
 - AI/协作状态：[`docs/codex/STATUS.md`](docs/codex/STATUS.md)
 
+## 模型来源与致谢
+
+VideoEnhancer **不声称拥有下列模型或训练成果**。项目只负责模型发现、下载、格式适配和调用；模型名称中的 PTH、ONNX、NCNN、TensorRT 等格式可能是原作者文件，也可能是社区转换文件。相同模型的格式转换不会改变其原作者与原始授权条件。
+
+下表覆盖当前模型镜像中可被程序选择的全部模型家族。带“待核实”的条目表示目前只能追溯到 RVE 的公开模型仓库或社区发布记录，尚未找到可确认的原作者正式发布页；这不是对模型所有权或再分发授权的主张。若作者、链接或授权信息有误，欢迎提交 Issue，本项目会及时更正或下架。
+
+| 当前模型家族（包含的格式/变体） | 原作者或项目 | 原始出处 / 可追溯来源 | 授权备注 |
+| --- | --- | --- | --- |
+| AnimeJaNai V2、V3、V3.1、SD V1 beta（PTH / ONNX / NCNN） | The Database | [mpv-AnimeJaNai](https://github.com/the-database/mpv-AnimeJaNai) | 以原项目和具体模型发布页为准 |
+| Ani4K（PTH） | Sirosky | [Upscale-Hub · Ani4K](https://github.com/Sirosky/Upscale-Hub/releases/tag/Ani4K) | 模型发布记录标注 CC-BY-NC-4.0 |
+| AniScale2：DITN、ESRGAN、ESRGAN-Lite、Omni、Refiner、SwinIR（PTH） | Sirosky | [Upscale-Hub · AniScale2](https://github.com/Sirosky/Upscale-Hub/releases/tag/AniScale2) | 模型发布记录标注 CC-BY-NC-4.0 |
+| AniSD：AC / DC / DB / PS / G6i1 / G6i1b，Compact、SPAN、SwinIR、CRAFT、DAT2、RealPLKSR（PTH / ONNX / NCNN） | Sirosky | [Upscale-Hub · AniSD](https://github.com/Sirosky/Upscale-Hub/releases/tag/AniSD)、[AniSD-RealPLKSR](https://github.com/Sirosky/Upscale-Hub/releases/tag/AniSD-RealPLKSR) | 模型发布记录标注 CC-BY-NC-4.0 |
+| AniToon：RPLKSR、RPLKSR-L、RPLKSR-S（PTH） | Sirosky | [Upscale-Hub · AniToon](https://github.com/Sirosky/Upscale-Hub/releases/tag/AniToon) | 以模型发布页为准 |
+| OpenProteus Compact（PTH / NCNN） | Sirosky | [Upscale-Hub · OpenProteus](https://github.com/Sirosky/Upscale-Hub/releases/tag/OpenProteus) | 以模型发布页为准 |
+| AnimeSR V2（PTH） | Tencent ARC Lab | [AnimeSR](https://github.com/TencentARC/AnimeSR) | 代码与权重条件分别以原项目为准 |
+| APISR：DAT、GRL、RRDB，2x / 4x（PTH） | Kiteretsu77 等 APISR 作者 | [APISR](https://github.com/Kiteretsu77/APISR) | 代码与权重条件分别以原项目为准 |
+| Real-ESRGAN：AnimeVideoV3、General x4v3、x4plus Anime、JP Illustration（PTH / ONNX / NCNN） | Xintao Wang 等 Real-ESRGAN 作者及社区转换者 | [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)、[RVE 模型仓库](https://github.com/TNTwise/real-video-enhancer-models) | JP Illustration 与格式转换文件的原始发布页待进一步核实 |
+| Real-CUGAN Conservative（NCNN） | bilibili / nihui 的 NCNN 实现 | [realcugan-ncnn-vulkan](https://github.com/nihui/realcugan-ncnn-vulkan) | 以原项目模型说明为准 |
+| Waifu2x：通用、Photo、Noise0–3（NCNN） | nagadomi / nihui 的 NCNN 实现 | [waifu2x](https://github.com/nagadomi/waifu2x)、[waifu2x-ncnn-vulkan](https://github.com/nihui/waifu2x-ncnn-vulkan) | 以各原项目说明为准 |
+| DnCNN ColorBlind（NCNN） | Kai Zhang 等 | [DnCNN](https://github.com/cszn/DnCNN) | 当前 NCNN 转换文件来源见 RVE 模型仓库 |
+| DenoiseH264 SuperUltraCompact（NCNN） | helaman | [RVE 模型仓库](https://github.com/TNTwise/real-video-enhancer-models) | 原始模型发布页待核实 |
+| Nomos8k span OTF：weak、medium、strong（PTH / NCNN） | helaman | [OpenModelDB](https://openmodeldb.info/)、[RVE 模型仓库](https://github.com/TNTwise/real-video-enhancer-models) | OpenModelDB 记录为 CC-BY-4.0；转换文件条件仍以原模型为准 |
+| ModernSpanimation V2 / V3（PTH / NCNN） | TNTwise | [REAL-Video-Enhancer](https://github.com/TNTwise/REAL-Video-Enhancer)、[RVE 模型仓库](https://github.com/TNTwise/real-video-enhancer-models) | 以原发布记录为准 |
+| BHI SpanPlusDynamic Light（PTH） | 原作者待核实 | [RVE 模型仓库](https://github.com/TNTwise/real-video-enhancer-models) | 当前仅确认社区转换来源，原始发布页待核实 |
+| Sudo Shuffle SPAN（PTH） | sudo | [OpenModelDB](https://openmodeldb.info/)、[RVE 模型仓库](https://github.com/TNTwise/real-video-enhancer-models) | 原始 SPAN 变体发布页待核实 |
+| RealHatGAN：JP Illustration 1x / 2x / 4x、Universal Illustration 2x（ONNX） | 原作者待核实 | [RVE 模型仓库](https://github.com/TNTwise/real-video-enhancer-models) | 当前仅确认 ONNX 转换来源，原始发布页待核实 |
+| FlashVSR（时序超分） | OpenImagingLab | [FlashVSR](https://github.com/OpenImagingLab/FlashVSR) | 原项目代码为 Apache-2.0；权重以原项目说明为准 |
+| BasicVSR++ REDS4（时序超分） | OpenMMLab | [MMagic / BasicVSR++](https://github.com/open-mmlab/mmagic) | 原项目代码为 Apache-2.0；权重以模型卡为准 |
+| RIFE 4.6、4.7、4.25、4.26、4.26 heavy（NCNN / PyTorch；TensorRT 由本机转换） | Hzwer | [Practical-RIFE](https://github.com/hzwer/Practical-RIFE)、[RVE 模型发布](https://github.com/TNTwise/real-video-enhancer-models/releases/tag/models) | 本机 TensorRT Engine 继承源权重条件，不单独主张授权 |
+| GIMM-VFI：F、F-LPIPS、R、R-LPIPS（PyTorch） | GSeanCDAT 等 | [GIMM-VFI](https://github.com/GSeanCDAT/GIMM-VFI) | 代码与权重条件分别以原项目为准 |
+| GMFSS Fortuna：Base、Union、Union-AnimeRun（PyTorch） | 98mxr | [GMFSS_Fortuna](https://github.com/98mxr/GMFSS_Fortuna) | 代码与权重条件分别以原项目为准 |
+
+完整镜像与文件级来源仍在持续审计。模型作者不等于模型架构论文作者；表内致谢不会取代原项目的论文引用要求。研究或公开发布结果时，请继续引用原项目 README 中列出的论文。
+
 ## 许可证和第三方资源
 
 本项目代码、3FUI 宿主、RVE 后端、预训练权重、FFmpeg、Python 依赖和其他运行资源可能具有不同的许可证和再分发条件。使用或再分发前，请分别查看对应项目和资源的许可证、NOTICE 或来源说明；项目版本号或仓库标签不代表第三方模型权重获得了统一授权。

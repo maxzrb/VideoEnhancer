@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-25 10:56
+Last updated: 2026-08-25 11:04
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 发布 1.0.8 本体到 GitHub 与 ModelScope；按用户明确要求暂缓 Backend 完整包、增量包和 channel 上传。
-- Current state: 1.0.8 源码与本体产物已完成发布前验证。真实后端审计确认 2026.08.24.1→2026.08.25.1 仅替换 7 个脚本、无新增/删除，运行时 `backend/cache` 已排除；暂缓模式只在本地生成 14,699 字节补丁，不生成或上传 channel。CLI/插件构建通过，顺序包装器 6/6、后端更新 6/6、发布门禁 5/5、EXE 更新器隔离测试均通过；`stable.json` 不再包含 `upstreamBase`。尚未创建提交、标签或远端 Release。
+- Current objective: 1.0.8 本体发布已完成；等待用户验证本体升级，再决定何时制作并发布 Backend 2026.08.25.1 完整包、增量包和 channel。
+- Current state: GitHub `v1.0.8`、ModelScope Releases 和模型页 `Plugin/videoenhancer.exe` 已发布并回读一致。三处 EXE 均为 17,471,664 字节、SHA-256 `fd249941331cbaa139cb52d770b1e60ec7d2454c7c65eb00fb9495a78345d820`；GitHub/ModelScope `stable.json` 均为 1.0.8 且无 `upstreamBase`。Release 正文严格为逐行分类模板，GitHub 资产仅 EXE 与清单。Backend 完整包、增量包及 channel 明确未上传、未激活。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 提交并推送 1.0.8 源码，创建 `v1.0.8` 标签；仅发布 EXE 与 `stable.json` 到 GitHub/ModelScope，并回读核对。Backend 通道留待用户验证升级能力后另行发布。
+- Next recommended step: 用户从 1.0.7 实测自动升级到 1.0.8。Backend 真实升级暂不可用；确认本体更新正常后，再准备候选完整后端包并按完整包→补丁→channel 顺序单独激活后端通道。
 
 ## Active TODO
 
@@ -1169,3 +1169,10 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Version/metadata: `PluginVersion.Current`、CLI csproj 和 README 更新为 1.0.8；删除 `PluginVersion.UpstreamBase`、更新清单的 `upstreamBase` 属性和 `stable.json` 生成字段。Release Notes 已按每行单项的固定模板准备。
 - Verification: CLI 与插件 Release 构建成功（0 错误、2 个既有 Windows CA1416）；顺序包装器 unittest 6/6、Python `py_compile`、后端事务测试 6/6、发布门禁 5/5、EXE 更新器 success/tamper/invalid-package/rollback 均通过。产物版本 1.0.8，大小 17,471,662，SHA-256 `ee510e5599029e6637fdd072f8b64a78dacab07b21d3a6f28c54a8c401afd46e`；清单哈希一致且无 `upstreamBase`。
 - Release/Git: 此记录时尚未提交、推送、创建标签或上传本体。下一步提交源码并仅发布本体双源；Backend 继续暂缓。
+
+### 2026-08-25 11:04 - Codex
+
+- Release: 提交 `2ed6c2e release: 1.0.8 backend incremental updater` 已推送到 `fork/main`，注释标签 `v1.0.8` 已推送；GitHub Release `https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.0.8` 创建成功。
+- Dual-source upload: ModelScope `AerithDream/VideoEnhancer-Releases` 已同步 1.0.8 版本目录、`stable.json`、说明文件和 README；`AerithDream/VideoEnhancer-Models/Plugin/videoenhancer.exe` 已同步。发布脚本在上传前明确进入 `-DeferBackendPublish` 分支，没有上传 Backend 完整包、补丁或 channel。
+- Remote verification: GitHub Release 非草稿、非预发布，正文与 `release/release-notes.txt` 逐行一致，资产严格为 EXE 和 `stable.json` 两项。GitHub EXE、ModelScope Releases EXE、模型页 EXE 均为 17,471,664 字节，SHA-256 `fd249941331cbaa139cb52d770b1e60ec7d2454c7c65eb00fb9495a78345d820`；GitHub/ModelScope 清单版本、路径、大小和哈希一致，均不含 `upstreamBase`。
+- Remaining: Backend 2026.08.25.1 通道尚未发布，用户目前只能验证 1.0.7→1.0.8 本体升级。发布记录更新后需再提交并推送，保持工作树干净。

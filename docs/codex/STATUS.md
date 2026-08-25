@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-25 14:01
+Last updated: 2026-08-25 14:09
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 按用户授权提交并发布 1.0.11，为 Backend 增量补丁冲突提供用户确认的完整修复入口。
-- Current state: 版本源、README、Release Notes 和版本记录已更新为 1.0.11；Backend 2026.08.25.1 基线与候选逐文件审计为 0 add/replace/delete。CLI/插件构建、单文件 publish、顺序处理 6/6、自更新六类场景、Backend 事务 6/6、发布门禁 5/5 与 `git diff --check` 通过。完整修复按“新包暂存验证→旧后端整目录移入事务备份→新目录切换→成功清理/失败恢复”执行，确认框已与实际逻辑一致。尚未提交、推送或发布。
+- Current objective: 1.0.11 已发布，为 Backend 增量补丁冲突提供用户确认的完整修复入口，并完成双源资产复核。
+- Current state: 源码提交 `d859f7b`、`main`、标签 `v1.0.11` 和 GitHub Release 已发布；GitHub 与 ModelScope 两个数据集的 EXE 均为 17,473,820 字节、SHA-256 `cdfb7f38688778e332da15566e88a98680ebc662624d49d52e0b1f19fbb4027f`，两端 `stable.json` 均为 539 字节、SHA-256 `e9372cc5a9440a95268fa9fa6b76ae485f7d9bb1981d23b0596b6fd22df9a93c`。Backend 2026.08.25.1 审计为 0 add/replace/delete，未重复上传完整包、补丁或 channel。完整修复按“新包暂存验证→旧后端整目录移入事务备份→新目录切换→成功清理/失败恢复”执行。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 提交并推送 `release/1.0.11`，快进合并到 `fork/main`，随后执行正式双源发布并回读 GitHub/ModelScope 文件与哈希。
+- Next recommended step: 在另一台电脑先更新到 1.0.11；增量补丁若再次报告 SHA-256 不匹配，使用新增的“下载完整修复包”并确认事务式整体替换。
 
 ## Active TODO
 
@@ -1231,3 +1231,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Plugin/UI: Backend 条目保存完整包大小和强制完整修复状态。增量失败且收到结构化信号后，大小列切换为完整包大小，状态为“增量补丁不适用”，操作为“下载完整修复包”；点击时显示完整包大小、替换范围与回滚说明，默认选择“否”，只有用户确认才传入强制完整修复参数。
 - Tests/docs: `release/test-backend-updater.ps1` 增加 `fullSize`、冲突修复信号以及“状态存在补丁但用户强制完整包”的端到端断言；原 6 场景全部通过。CLI Release 构建、插件构建、单文件 publish、帮助文本与 `git diff --check` 通过，仅有 2 个既有 CA1416 警告。更新 `cli/README.md` 和发布流程测试覆盖说明。
 - Git/release: 修改 `cli/Program.cs`、`VideoEnhancerPlugin/PluginPanel.vb`、`release/test-backend-updater.ps1`、`cli/README.md`、`release/发布流程.md` 及两份 HandShake 记录。当前版本仍为 1.0.10，未提交、未推送、未发布；建议作为 1.0.11 发布。Backend 文件本身没有改动，不应制作新后端版本或重复上传 2.79 GB 包。
+
+### 2026-08-25 14:09 - Codex
+
+- Objective: 按用户授权提交并正式发布 1.0.11，提供 Backend 增量冲突后的完整修复入口。
+- Git/release: 功能提交 `d859f7b` 已由 `release/1.0.11` 快进合并并推送到 `fork/main`；标签 `v1.0.11` 与远端 main 均指向该提交。GitHub Release `https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.0.11` 已创建，正文严格使用逐行 `[新增]`、`[更改]` 模板。
+- Assets: GitHub、ModelScope Releases 和 ModelScope Models 的 EXE 均为 17,473,820 字节，SHA-256 `cdfb7f38688778e332da15566e88a98680ebc662624d49d52e0b1f19fbb4027f`；GitHub/ModelScope `stable.json` 均为 539 字节，SHA-256 `e9372cc5a9440a95268fa9fa6b76ae485f7d9bb1981d23b0596b6fd22df9a93c`。
+- Backend: 2026.08.25.1 发布基线与当前候选审计为 0 add/replace/delete，因此未制作或上传新完整包、补丁和 channel。完整修复会先验证并暂存新包，再将旧 `python` 后端整目录移入事务备份，切换成功后清理备份，失败或中断则恢复；不会在旧目录上覆盖遗留脚本。
+- Verification: CLI/插件构建、单文件 publish、顺序处理 6/6、自更新六类场景、Backend 事务 6/6、发布门禁 5/5 通过；正式发布资产已从 GitHub 和 ModelScope SDK 回读核对。下一步仅需用户在发生冲突的另一台电脑更新至 1.0.11 后验证“下载完整修复包”交互。
+- Git status: 发布记录将在本条之后单独提交并推送；除记录提交外应保持工作树干净。

@@ -88,6 +88,7 @@ try {
     Assert-True ($status.state -eq 'legacy-update-available') '应通过哨兵识别旧版基线'
     Assert-True ($status.mode -eq 'patch') '应选择增量补丁'
     Assert-True ($status.downloadSize -eq $patchItem.Length) '应报告补丁实际下载大小'
+    Assert-True ($status.fullSize -eq 999) '状态应同时报告完整修复包大小'
     $exitCode = Invoke-VideoEnhancer @('--update-backend', '--backend-channel', $channelPath)
     Assert-True ($exitCode -eq 0) '增量更新应成功'
     Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $successPython 'backend\rve-backend.py')) -eq 'new') '替换文件内容错误'
@@ -102,8 +103,11 @@ try {
     $conflictPython = Join-Path $conflictCore 'python'
     New-BackendTree $conflictPython 'locally-modified' -WithDeletedFile
     Set-CorePath $conflictCore
-    $exitCode = Invoke-VideoEnhancer @('--apply-backend-patch', $successPatch)
+    $conflictOutput = & (Join-Path $appRoot 'videoenhancer.exe') --apply-backend-patch $successPatch 2>&1
+    $exitCode = $LASTEXITCODE
+    $conflictOutput | Out-Host
     Assert-True ($exitCode -ne 0) 'SHA 冲突必须失败'
+    Assert-True (("$($conflictOutput -join "`n")").Contains('BACKEND_FULL_REQUIRED|')) '补丁冲突应提示可改用完整修复包'
     Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $conflictPython 'backend\rve-backend.py')) -eq 'locally-modified') 'SHA 冲突后文件被错误覆盖'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $conflictPython '.videoenhancer-backend.json'))) '失败更新不应写版本标记'
 
@@ -152,12 +156,13 @@ try {
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $recoveryPython 'backend\added-during-update.py'))) '启动恢复未删除事务新增文件'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $stateRoot 'pending.json'))) '启动恢复未清除 pending 日志'
 
-    # 场景 5：无法识别的旧后端走完整包，先在暂存区探测，再整体切换目录。
+    # 场景 5：即使存在可用补丁，用户也能明确选择完整包修复。
     $full = Join-Path $testRoot 'full'
     $fullCore = Join-Path $full 'core'
     $fullPython = Join-Path $fullCore 'python'
     New-BackendTree $fullPython 'unknown-old'
     Write-TestText (Join-Path $fullPython 'backend\obsolete.py') 'obsolete'
+    Write-TestText (Join-Path $fullPython '.videoenhancer-backend.json') '{"version":"full-old"}'
     $fullPackageRoot = Join-Path $full 'package\python'
     Write-TestText (Join-Path $fullPackageRoot 'backend\rve-backend.py') 'fresh'
     $probeExe = (Get-Command python -ErrorAction Stop).Source
@@ -171,17 +176,27 @@ try {
     & $SevenZip a -t7z -mx=1 $fullArchive (Join-Path $full 'package\*') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw '完整包测试归档创建失败' }
     $fullItem = Get-Item -LiteralPath $fullArchive
+    $unusedPatch = Join-Path $full 'unused-patch.7z'
+    Copy-Item -LiteralPath $successPatch -Destination $unusedPatch
+    $unusedPatchItem = Get-Item -LiteralPath $unusedPatch
     $fullChannel = [ordered]@{
         schemaVersion = 1
         latestVersion = 'full-2'
         full = [ordered]@{ path = 'full.7z'; size = [long]$fullItem.Length; sha256 = Get-Sha256 $fullArchive }
-        patches = @()
+        patches = @([ordered]@{
+            baseVersion = 'full-old'; targetVersion = 'full-2'; path = 'unused-patch.7z'
+            size = [long]$unusedPatchItem.Length; sha256 = Get-Sha256 $unusedPatch
+        })
         legacyBaselines = @()
     }
     $fullChannelPath = Join-Path $full 'channel.json'
     Write-TestText $fullChannelPath ($fullChannel | ConvertTo-Json -Depth 5)
     Set-CorePath $fullCore
-    $exitCode = Invoke-VideoEnhancer @('--update-backend', '--backend-channel', $fullChannelPath)
+    $fullStatusOutput = & (Join-Path $appRoot 'videoenhancer.exe') --backend-status --backend-channel $fullChannelPath --json
+    Assert-True ($LASTEXITCODE -eq 0) '完整修复场景状态检查应成功'
+    $fullStatus = $fullStatusOutput | Select-Object -Last 1 | ConvertFrom-Json
+    Assert-True ($fullStatus.mode -eq 'patch') '测试前置条件必须先选择增量补丁'
+    $exitCode = Invoke-VideoEnhancer @('--update-backend', '--force-backend-full', '--backend-channel', $fullChannelPath)
     Assert-True ($exitCode -eq 0) '完整后端修复应成功'
     Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $fullPython 'backend\rve-backend.py')) -eq 'fresh') '完整后端未切换到新目录'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $fullPython 'backend\obsolete.py'))) '完整后端切换后仍残留旧脚本'

@@ -424,6 +424,7 @@ internal static class Program
         public string DownloadModel = "";
         public bool BackendStatus;
         public bool UpdateBackend;
+        public bool ForceBackendFull;
         public string ApplyBackendPatch = "";
         public string BackendChannel = "";
         public string DownloadUrl = "";
@@ -609,7 +610,7 @@ internal static class Program
 
         if (o.UpdateBackend)
         {
-            return RunBackendUpdate(o.BackendChannel);
+            return RunBackendUpdate(o.BackendChannel, o.ForceBackendFull);
         }
 
         if (!string.IsNullOrWhiteSpace(o.ApplyBackendPatch))
@@ -937,6 +938,9 @@ internal static class Program
                     break;
                 case "--update-backend":
                     o.UpdateBackend = true;
+                    break;
+                case "--force-backend-full":
+                    o.ForceBackendFull = true;
                     break;
                 case "--apply-backend-patch":
                     o.ApplyBackendPatch = TakeValue(args, ref i, name, inlineValue);
@@ -1459,6 +1463,7 @@ internal static class Program
                     writer.WriteString("latestVersion", status.LatestVersion);
                     writer.WriteString("mode", status.Mode);
                     writer.WriteNumber("downloadSize", status.DownloadSize);
+                    writer.WriteNumber("fullSize", status.Full.Size);
                     writer.WriteNumber("patchCount", status.PatchRoute.Count);
                     writer.WriteEndObject();
                 }
@@ -1477,18 +1482,18 @@ internal static class Program
         }
     }
 
-    private static int RunBackendUpdate(string configuredSource)
+    private static int RunBackendUpdate(string configuredSource, bool forceFull)
     {
         try
         {
             var channel = LoadBackendChannel(configuredSource, out var source);
             var status = BackendUpdateManager.GetStatus(CoreRoot, channel);
-            if (status.State == "current")
+            if (status.State == "current" && !forceFull)
             {
                 Console.WriteLine("BACKEND_CURRENT|" + status.LatestVersion);
                 return 0;
             }
-            if (status.Mode == "full")
+            if (forceFull || status.Mode == "full")
             {
                 Console.WriteLine($"BACKEND_FULL_START|{status.LatestVersion}|{status.Full.Size}");
                 var archive = AcquireBackendArtifact(source, status.Full.Path, status.Full.Size, status.Full.Sha256);
@@ -1593,6 +1598,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
+            Console.Error.WriteLine("BACKEND_FULL_REQUIRED|增量补丁不适用于当前本地文件，可改用完整修复包");
             Console.Error.WriteLine("[错误] 应用后端补丁失败：" + ex.Message);
             return 1;
         }
@@ -4886,6 +4892,7 @@ internal static class Program
         writer.WriteLine("  --download-model <路径>  用内置 aria2-next 下载镜像文件；压缩包自动用内置 7-Zip-zstd 解压");
         writer.WriteLine("  --backend-status [--json]  检查后端版本、可用增量补丁和预计下载大小");
         writer.WriteLine("  --update-backend  按最小补丁链事务更新后端；失败或中断时自动回滚");
+        writer.WriteLine("  --force-backend-full  配合 --update-backend，跳过增量补丁并下载完整修复包");
         writer.WriteLine("  --apply-backend-patch <文件>  离线应用后端增量补丁");
         writer.WriteLine("  --backend-channel <URL或文件>  指定更新通道；也可设置 VIDEOENHANCER_BACKEND_CHANNEL");
         writer.WriteLine("  --download-url <链接> --download-output <文件>  使用内置 aria2-next 下载任意直链");

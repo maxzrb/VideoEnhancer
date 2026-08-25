@@ -249,6 +249,8 @@ Namespace videoenhancer
             Public Property StatusText As String = ""
             Public Property ActionText As String = ""
             Public Property IsBackend As Boolean
+            Public Property ForceBackendFull As Boolean
+            Public Property BackendFullSize As Long
         End Class
         Private NotInheritable Class BackendDownloadStatus
             Public Property State As String = ""
@@ -256,6 +258,7 @@ Namespace videoenhancer
             Public Property LatestVersion As String = ""
             Public Property Mode As String = ""
             Public Property DownloadSize As Long
+            Public Property FullSize As Long
         End Class
         Private NotInheritable Class DownloadListRowTag
             Public Property Entry As DownloadModelEntry
@@ -3776,7 +3779,8 @@ Namespace videoenhancer
                                 .InstalledVersion = root.GetProperty("installedVersion").GetString(),
                                 .LatestVersion = root.GetProperty("latestVersion").GetString(),
                                 .Mode = root.GetProperty("mode").GetString(),
-                                .DownloadSize = root.GetProperty("downloadSize").GetInt64()
+                                .DownloadSize = root.GetProperty("downloadSize").GetInt64(),
+                                .FullSize = root.GetProperty("fullSize").GetInt64()
                             }
                         End Using
                     End If
@@ -3825,6 +3829,8 @@ Namespace videoenhancer
                 Return
             End If
             entry.Size = status.DownloadSize
+            entry.BackendFullSize = status.FullSize
+            entry.ForceBackendFull = status.Mode.Equals("full", StringComparison.OrdinalIgnoreCase)
             Select Case status.State
                 Case "current"
                     entry.Installed = True
@@ -4030,6 +4036,15 @@ Namespace videoenhancer
             End If
             Dim exePath = DownloadExecutablePath()
             If String.IsNullOrWhiteSpace(exePath) Then Return
+            If entry.IsBackend AndAlso entry.ForceBackendFull Then
+                Dim sizeText = If(entry.BackendFullSize > 0, FormatDownloadSize(entry.BackendFullSize), "未知大小")
+                Dim message = "完整修复包约 " & sizeText & "，将用干净后端整体替换现有 Backend。" &
+                    Environment.NewLine & "旧后端会先移入事务备份；成功后清理，失败时自动恢复。" &
+                    Environment.NewLine & Environment.NewLine & "现在下载完整修复包吗？"
+                If MessageBox.Show(Me, message, "完整修复 Backend",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                        MessageBoxDefaultButton.Button2) <> DialogResult.Yes Then Return
+            End If
             Dim relativePath = entry.RelativePath
             If Not TryBeginDownload(relativePath) Then
                 ShowStatus("该资源正在下载，请等待当前任务完成。", True)
@@ -4042,7 +4057,7 @@ Namespace videoenhancer
                         BeginInvoke(New Action(Sub() SetDownloadRowState(relativePath, "下载中", text, UiAccent, UiAccent)))
                     Catch
                     End Try
-                End Sub)
+                End Sub, entry.ForceBackendFull)
             If result.ExitCode = 0 Then
                 entry.Installed = True
                 SetDownloadRowState(relativePath, If(entry.IsBackend, "已更新", "本地已安装"), "已完成", UiSuccess, UiTextMuted)
@@ -4055,6 +4070,11 @@ Namespace videoenhancer
             ElseIf result.Errors.Contains("AUTH_REQUIRED|") Then
                 SetDownloadRowState(relativePath, "需要认证", "重试", UiDanger, UiAccent)
                 ShowStatus("私有模型仓库需要有效令牌，请设置 VIDEOENHANCER_MODELSCOPE_TOKEN 或 MODELSCOPE_API_TOKEN 后重启 3FUI。", True)
+            ElseIf entry.IsBackend AndAlso result.Errors.Contains("BACKEND_FULL_REQUIRED|") Then
+                entry.ForceBackendFull = True
+                entry.Size = entry.BackendFullSize
+                SetBackendFullRepairState(relativePath, entry.BackendFullSize)
+                ShowStatus("增量补丁与本地后端文件不一致，已安全回滚。请点击““下载完整修复包””。", True)
             Else
                 SetDownloadRowState(relativePath, "下载失败", "重试", UiDanger, UiAccent)
                 ShowStatus(CliErrorMessage(result.Errors, "模型下载失败"), True)
@@ -4150,15 +4170,17 @@ Namespace videoenhancer
         End Function
 
         Private Async Function ExecuteDownloadAsync(exePath As String, relativePath As String,
-                                                     progress As Action(Of String)) As Task(Of DownloadExecutionResult)
+                                                     progress As Action(Of String),
+                                                     Optional forceBackendFull As Boolean = False) As Task(Of DownloadExecutionResult)
             Try
-                Return Await Task.Run(Function() ExecuteModelDownload(exePath, relativePath, progress))
+                Return Await Task.Run(Function() ExecuteModelDownload(exePath, relativePath, progress, forceBackendFull))
             Finally
                 EndDownload(relativePath)
             End Try
         End Function
 
-        Private Function ExecuteModelDownload(exePath As String, relativePath As String, progress As Action(Of String)) As DownloadExecutionResult
+        Private Function ExecuteModelDownload(exePath As String, relativePath As String, progress As Action(Of String),
+                                              Optional forceBackendFull As Boolean = False) As DownloadExecutionResult
             Dim result As New DownloadExecutionResult()
             Dim errors As New StringBuilder()
             Try
@@ -4176,6 +4198,7 @@ Namespace videoenhancer
                 }
                 If isBackendUpdate Then
                     psi.ArgumentList.Add("--update-backend")
+                    If forceBackendFull Then psi.ArgumentList.Add("--force-backend-full")
                 Else
                     psi.ArgumentList.Add("--download-model")
                     psi.ArgumentList.Add(relativePath)
@@ -4222,6 +4245,17 @@ Namespace videoenhancer
             item.SubItems(2).ForeColor = statusColor
             item.SubItems(DownloadActionColumn).Text = action
             item.SubItems(DownloadActionColumn).ForeColor = actionColor
+            _downloadList.RefreshItems()
+        End Sub
+
+        Private Sub SetBackendFullRepairState(relativePath As String, fullSize As Long)
+            Dim item As UltraDetailListView.ListItem = Nothing
+            If Not _downloadItemsByPath.TryGetValue(relativePath, item) Then Return
+            item.SubItems(1).Text = If(fullSize > 0, FormatDownloadSize(fullSize), "-")
+            item.SubItems(2).Text = "增量补丁不适用"
+            item.SubItems(2).ForeColor = UiDanger
+            item.SubItems(DownloadActionColumn).Text = "下载完整修复包"
+            item.SubItems(DownloadActionColumn).ForeColor = UiAccent
             _downloadList.RefreshItems()
         End Sub
 

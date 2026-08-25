@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-25 13:12
+Last updated: 2026-08-25 14:01
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 1.0.10 已完成提交、双源发布和远端回读；等待用户从 1.0.9 实测升级及随后 Backend 14,698 字节增量更新。
-- Current state: 发布提交 `a7220fb`、`fork/main` 和标签 `v1.0.10` 一致；GitHub 正式 Release、ModelScope Releases 和模型页 EXE 均为 17,473,022 字节、SHA-256 `8f890047b20344fac530a98f8bc01adfc8c80624787b57a67da77dd5618ce37c`。两端 `stable.json` 均为 555 字节、SHA-256 `d54d5564e3ea78bc5fb7b0fd17fc12284f43713f101ecd4c1ac957384ebc5272`。Backend 严格审计为 0 add/replace/delete，版本保持 2026.08.25.1，未重复上传后端包。
+- Current objective: 按用户授权提交并发布 1.0.11，为 Backend 增量补丁冲突提供用户确认的完整修复入口。
+- Current state: 版本源、README、Release Notes 和版本记录已更新为 1.0.11；Backend 2026.08.25.1 基线与候选逐文件审计为 0 add/replace/delete。CLI/插件构建、单文件 publish、顺序处理 6/6、自更新六类场景、Backend 事务 6/6、发布门禁 5/5 与 `git diff --check` 通过。完整修复按“新包暂存验证→旧后端整目录移入事务备份→新目录切换→成功清理/失败恢复”执行，确认框已与实际逻辑一致。尚未提交、推送或发布。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 用户从 1.0.9 更新到 1.0.10；若旧版启动自检尚未结束，先等待其退出再执行首次本体更新。重启进入 1.0.10 后，在模型下载页重试 Backend 2026.08.24.1→2026.08.25.1 增量更新。
+- Next recommended step: 提交并推送 `release/1.0.11`，快进合并到 `fork/main`，随后执行正式双源发布并回读 GitHub/ModelScope 文件与哈希。
 
 ## Active TODO
 
@@ -1223,3 +1223,11 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Verification: CLI/插件构建通过（0 错误、2 个既有 CA1416）；顺序包装器 6/6、自更新器 success/transient-lock/tamper/invalid-package/rollback/restart-on-failure、Backend 事务 6/6、发布门禁 5/5 均通过。自更新测试脚本会继承故意失败样例的 native 退出码 1，但最终 PASS 哨兵完整输出，其余脚本退出 0。
 - Remote readback: GitHub、ModelScope Releases `releases/1.0.10/VideoEnhancer-1.0.10-win-x64.exe` 和 ModelScope Models `Plugin/videoenhancer.exe` 均为 17,473,022 字节、SHA-256 `8f890047b20344fac530a98f8bc01adfc8c80624787b57a67da77dd5618ce37c`；GitHub/ModelScope `stable.json` 均为 555 字节、SHA-256 `d54d5564e3ea78bc5fb7b0fd17fc12284f43713f101ecd4c1ac957384ebc5272`。
 - Migration/local: 1.0.9 尚无更新前取消自检逻辑，首次升级 1.0.10 时若旧自检仍运行，应等待其退出再点更新；进入 1.0.10 后由新生命周期管理解决。临时完整基线保留于 `%TEMP%\videoenhancer-backend-base-20260825-release-1010`（约 6.26 GB），测试 EXE 保留于 `C:\Program portable\3FUI\3FUI\Plugin\videoenhancer-check-test.exe`，当前执行策略拒绝删除，需手动清理。
+
+### 2026-08-25 13:47 - Codex
+
+- Objective/correction: 用户在另一台电脑应用 Backend 补丁时报告 `GMFSS.py` 旧文件 SHA-256 不匹配，并指出 UI 没有完整包下载按钮。此前对当前本机 GMFSS 文件所做的哈希比较不能解释另一台电脑的状态，已明确排除为故障结论；可确认的是远端电脑文件不符合补丁声明的旧哈希，事务拒绝覆盖和回滚正确，但 1.0.10 缺少用户可选的全量恢复路径。
+- CLI/protocol: 新增 `--update-backend --force-backend-full`，即使状态原本选择增量也会跳过补丁并下载/校验/事务安装 channel 完整包；`--backend-status --json` 新增 `fullSize`。补丁解压后发生旧哈希冲突或健康检查失败时输出结构化 `BACKEND_FULL_REQUIRED|`，同时保留原始错误详情。
+- Plugin/UI: Backend 条目保存完整包大小和强制完整修复状态。增量失败且收到结构化信号后，大小列切换为完整包大小，状态为“增量补丁不适用”，操作为“下载完整修复包”；点击时显示完整包大小、替换范围与回滚说明，默认选择“否”，只有用户确认才传入强制完整修复参数。
+- Tests/docs: `release/test-backend-updater.ps1` 增加 `fullSize`、冲突修复信号以及“状态存在补丁但用户强制完整包”的端到端断言；原 6 场景全部通过。CLI Release 构建、插件构建、单文件 publish、帮助文本与 `git diff --check` 通过，仅有 2 个既有 CA1416 警告。更新 `cli/README.md` 和发布流程测试覆盖说明。
+- Git/release: 修改 `cli/Program.cs`、`VideoEnhancerPlugin/PluginPanel.vb`、`release/test-backend-updater.ps1`、`cli/README.md`、`release/发布流程.md` 及两份 HandShake 记录。当前版本仍为 1.0.10，未提交、未推送、未发布；建议作为 1.0.11 发布。Backend 文件本身没有改动，不应制作新后端版本或重复上传 2.79 GB 包。

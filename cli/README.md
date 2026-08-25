@@ -104,6 +104,10 @@ PowerShell 示例：
 
 私有仓库需要设置 `VIDEOENHANCER_MODELSCOPE_TOKEN` 或 ModelScope SDK 通用的 `MODELSCOPE_API_TOKEN`。CLI 不会把令牌写入配置文件，也不会读取 `modelscope login` 生成的 Python pickle Cookie；下载私有文件时使用进程内 HTTP 客户端，避免令牌出现在 aria2 命令行参数中。
 
+## Backend 更新与完整修复
+
+`--update-backend` 默认选择下载量最小的增量补丁链。本地受管理文件与补丁基线 SHA-256 不一致时，更新会安全回滚并输出 `BACKEND_FULL_REQUIRED|`。界面随后显示“下载完整修复包”，经用户确认后使用 `--update-backend --force-backend-full` 跳过增量补丁并事务安装通道中的完整 Backend；不会在未确认时自动下载数 GB 完整包。
+
 ## 插件自动更新
 
 插件以 GitHub Release 为唯一版本标准：优先读取 `maxzrb/VideoEnhancer` 的 `releases/latest` 及其 `stable.json` 清单资产；GitHub 不可达时读取 ModelScope `stable.json` 兜底。可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖检查仓库，`VIDEOENHANCER_UPDATE_GITHUB_TOKEN` 供私有仓库或提高 API 限频使用。更新包下载同样首选 GitHub Release 资产，失败时回退 ModelScope 数据集 `AerithDream/VideoEnhancer-Releases`（可用 `VIDEOENHANCER_UPDATE_DATASET=owner/name` 切换）；两源都校验清单中的大小与 SHA-256。发现更高 SemVer 后必须由用户确认。

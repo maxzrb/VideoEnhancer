@@ -4491,15 +4491,8 @@ internal static class Program
                 backendVersion.Ok ? "rve-backend v" + backendVersion.Output.Trim() : backendVersion.Error.Trim());
             ok &= backendVersion.Ok;
 
-            var checkTensorRtEngines = string.Equals(backend, "tensorrt", StringComparison.OrdinalIgnoreCase);
-            var engineCount = checkTensorRtEngines ? DiscoverTensorRTEngineModels().Count : 0;
-            if (engineCount > 0)
-            {
-                var engineStatus = ValidateAllTensorRTEngines();
-                Report(engineStatus == 0, "TensorRT Engine 当前 GPU 反序列化", ModelsDir,
-                    engineStatus == 0 ? engineCount + " 个 Engine 均可加载" : "存在不兼容 Engine；需要在当前 GPU 上重新编译");
-                ok &= engineStatus == 0;
-            }
+            // 启动环境检查只验证基础组件，避免逐个加载大尺寸 TensorRT Engine。
+            // Engine 兼容性仍由 --validate-engines、后端列表和实际推理路径按需检查。
         }
 
         Console.WriteLine("[环境检查] " + (ok ? "全部通过。" : "存在缺失项，请检查上方 [缺失] 标记。"));

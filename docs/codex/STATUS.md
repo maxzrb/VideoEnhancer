@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-25 11:58
+Last updated: 2026-08-25 12:57
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 1.0.9 本体与 Backend 2026.08.25.1 已完成发布；等待用户从本机 1.0.7 实测自更新、自动重启和随后 15 KB Backend 增量升级。
-- Current state: GitHub v1.0.9、ModelScope Releases、模型页 EXE 及 Backend 完整包/补丁/channel 均已发布并回读。三处 EXE 均为 17,471,986 字节、SHA-256 `ceee62ae201e57efde39955f219d95e565899f8c307955495088c2553a682ddb`；完整后端包 2,790,829,396 字节、SHA-256 `8c598d90e594a4e3957b48421f780c491cd06c73fb1914600b69950b0a44ab2d`，增量包 14,698 字节、SHA-256 `57ac66c15f88f8de90044b26f40a9ab9462018ed0d79efbd332f186f870ccf60`。真实安装目录查询远端 channel 正确选择单补丁而非全量包。
+- Current objective: 按用户授权提交并发布 1.0.10，修复启动环境自检占用 Backend、阻止增量更新的问题。
+- Current state: 1.0.10 版本元数据、三行 Release Notes 和本地产物已完成；EXE 为 17,473,013 字节、SHA-256 `7522e4e94685f9e7e896df52ebbb0cfd707282a2531185cbfc0a454e2e987cc0`。顺序处理 6/6、自更新 6 类、Backend 事务 6/6、发布门禁 5/5 均通过；公开 Backend 2026.08.25.1 完整包重新解压后与候选目录逐文件审计为 0 add/replace/delete，因此不制作或上传新后端包。尚未提交、推送或创建 Release。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 用户手动重新打开当前 1.0.7 的 3FUI，检查更新到 1.0.9并确认自动重启；进入模型下载页执行 Backend 更新，预期显示 2026.08.24.1→2026.08.25.1、增量模式、下载 14,698 字节。
+- Next recommended step: 提交 1.0.10 发布分支，合并并推送 `fork/main`，随后运行双源正式发布并回读 GitHub/ModelScope 文件、清单与哈希。
 
 ## Active TODO
 
@@ -1208,3 +1208,10 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - App verification: GitHub Release、ModelScope Releases 和 `VideoEnhancer-Models/Plugin/videoenhancer.exe` 三处 EXE 均为 17,471,986 字节、SHA-256 `ceee62ae201e57efde39955f219d95e565899f8c307955495088c2553a682ddb`。GitHub/ModelScope stable 版本、路径、大小、哈希和 Notes 完全一致，均无旧上游字段。
 - Client/channel verification: 用正式 1.0.9 客户端对当前真实 3FUI Backend 目录读取公开 channel，识别安装版本 2026.08.24.1、最新 2026.08.25.1、模式 `patch`、补丁数 1、下载量 14,698 字节，没有误选 2.79 GB 全量包。正式安装 EXE 仍保留 1.0.7，供用户真实验证升级和自动重启。
 - Remaining/local: 新后端完整包保留在 `C:\Program portable\3FUI\3FUI\Plugin\python_20260825.7z` 作为已发布资产来源；最小化生产补丁测试目录位于 `%TEMP%\videoenhancer-backend-production-test-20bf217bd6e74cdba05f6be664851fc7`，仅含少量测试文件。发布记录更新后需提交推送并确认工作树干净。
+
+### 2026-08-25 12:27 - Codex
+
+- Objective/root cause: 用户在 1.0.9 模型下载页应用 14,698 字节 Backend 补丁时收到“后端仍在运行”。进程证据显示宿主启动的 `videoenhancer.exe --check -backend tensorrt` 正在通过子 Python 执行 `validate_tensorrt_engines.py`，并加载 3840x2160 RIFE Engine；不是下载或补丁校验失败。该自检子进程也可能是 1.0.7 更新时 EXE 共享冲突的诱因之一。
+- Fix: `RunCheck(verbose)` 只保留 FFmpeg、Python、后端脚本、库导入、模型目录和后端版本等轻量检查，不再隐式执行全部 TensorRT Engine 反序列化；显式 `--validate-engines` 和实际推理时按需校验保持不变。插件新增自检取消令牌与任务跟踪，在本体自更新、Backend 更新、插件停用和控件销毁前终止自检进程树并等待退出；CLI 对真实视频任务的后端占用门禁没有放宽。
+- Verification: CLI Release 构建成功（0 错误、2 个既有 CA1416 警告）；插件构建成功；后端事务测试 6/6；`git diff --check` 通过。将候选 EXE 临时放入真实 Plugin 根目录执行 `--check -backend tensorrt`，36 个 TensorRT 模型可发现，基础检查退出码 0、耗时约 1.27 秒，输出不含 Engine 反序列化；显式 `--validate-engines` 代码入口仍存在。
+- Files/Git: 修改 `cli/Program.cs`、`VideoEnhancerPlugin/PluginPanel.vb`、`docs/codex/STATUS.md`、`version/工作进度.md`。版本仍为 1.0.9，未提交、未推送、未发布；建议审核后作为 1.0.10 提交。测试副本 `C:\Program portable\3FUI\3FUI\Plugin\videoenhancer-check-test.exe` 已退出且不参与运行，但当前执行策略拒绝删除该二进制，需后续手动清理。

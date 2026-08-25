@@ -231,6 +231,9 @@ Namespace videoenhancer
         Private _archiveCleanupBusy As Boolean = False
         Private _updateCheckBusy As Boolean = False
         Private _environmentCheckCompleted As Boolean = False
+        Private ReadOnly _environmentCheckSync As New Object()
+        Private _environmentCheckCancellation As System.Threading.CancellationTokenSource
+        Private _environmentCheckTask As Task
         Private _downloadActiveCount As Integer = 0
         Private _downloadActionsEnabled As Boolean = True
         Private _downloadListConfigured As Boolean = False
@@ -382,6 +385,9 @@ Namespace videoenhancer
                 Dim packagePath = Await PluginUpdater.DownloadPackageAsync(manifest,
                     Sub(percent) ShowStatus("正在下载更新：" & percent & "%", False))
                 ShowStatus("更新包校验通过，正在准备重启 3FUI…", False)
+                If Not StopEnvironmentCheck(10000) Then
+                    Throw New InvalidOperationException("启动环境检查未能及时停止，请稍后重试")
+                End If
                 PluginUpdater.StartUpdate(packagePath, targetDirectory,
                     Environment.ProcessId, hostExe)
                 Application.Exit()
@@ -424,6 +430,7 @@ Namespace videoenhancer
         End Function
 
         Public Sub Disable()
+            StopEnvironmentCheck(2000)
             Try
                 QueueHook.Uninstall()
                 设置_v6.实例对象.替代进程文件名 = ""
@@ -978,10 +985,16 @@ Namespace videoenhancer
         ' ────────────────────────── 环境检查 ──────────────────────────
 
         Private Sub RunEnvironmentCheck(exePath As String)
+            StopEnvironmentCheck(0)
             _environmentCheckCompleted = False
             ShowStatus("正在检查运行环境…", False)
-            Task.Run(Sub()
+            Dim cancellation As New System.Threading.CancellationTokenSource()
+            SyncLock _environmentCheckSync
+                _environmentCheckCancellation = cancellation
+            End SyncLock
+            Dim checkTask = Task.Run(Sub()
                          Try
+                             cancellation.Token.ThrowIfCancellationRequested()
                              Dim psi As New ProcessStartInfo With {
                                  .FileName = exePath,
                                  .UseShellExecute = False,
@@ -998,58 +1011,105 @@ Namespace videoenhancer
                                  If p Is Nothing Then
                                      Return
                                  End If
-                                 Dim stdoutTask = p.StandardOutput.ReadToEndAsync()
-                                 Dim stderrTask = p.StandardError.ReadToEndAsync()
-                                  Dim exited = p.WaitForExit(120000)
-                                  If Not exited Then
-                                      Try
-                                          p.Kill(entireProcessTree:=True)
-                                          p.WaitForExit()
-                                      Catch
-                                      End Try
-                                      ShowStatus("环境检查耗时较长，模型列表仍在加载…", False)
-                                      Return
-                                  End If
-                                  Dim stdout = stdoutTask.GetAwaiter().GetResult()
-                                  Dim stderr = stderrTask.GetAwaiter().GetResult()
-                                 Dim lines = (stdout & Environment.NewLine & stderr).Split(
-                                     {Convert.ToChar(13), Convert.ToChar(10)}, StringSplitOptions.RemoveEmptyEntries)
-                                  Dim ok = p.ExitCode = 0
-                                  ' --check 的最终汇总行也会提到“[缺失]”，不能把它本身当作缺失项。
-                                  ' 模型库、补帧库和设备专用 TensorRT Engine 属于可选运行资源，不阻断插件启动。
-                                  Dim missingLines = lines.Where(Function(l) l.TrimStart().StartsWith("[缺失]", StringComparison.Ordinal)).ToList()
-                                  Dim infrastructureMissing = missingLines.FirstOrDefault(
-                                      Function(l)
-                                          Dim normalized = l.Trim().ToLowerInvariant()
-                                          Return Not normalized.Contains("模型库") AndAlso
-                                              Not normalized.Contains("补帧模型库") AndAlso
-                                              Not normalized.Contains("tensorrt engine") AndAlso
-                                              Not normalized.Contains("gpu") AndAlso
-                                              Not normalized.Contains("cuda")
-                                      End Function)
-                                  Dim text As String
-                                  Dim isError As Boolean
-                                  If ok Then
-                                      text = "环境检测通过：基础组件与模型库就绪"
-                                      isError = False
-                                  ElseIf Not String.IsNullOrWhiteSpace(infrastructureMissing) Then
-                                      text = "环境检测未通过：" & infrastructureMissing.Trim()
-                                      isError = True
-                                  Else
-                                      ' 启动时模型目录可能仍由宿主/下载器准备中；这不是基础环境故障。
-                                      text = "基础环境已就绪，模型列表仍在加载…"
-                                      isError = False
-                                  End If
-                                  Try
-                                      Me.BeginInvoke(New Action(Sub() ShowStatus(text, isError)))
-                                  Catch
-                                  End Try
+                                 Using cancellation.Token.Register(
+                                     Sub()
+                                         Try
+                                             If Not p.HasExited Then p.Kill(entireProcessTree:=True)
+                                         Catch
+                                         End Try
+                                     End Sub)
+                                     Dim stdoutTask = p.StandardOutput.ReadToEndAsync()
+                                     Dim stderrTask = p.StandardError.ReadToEndAsync()
+                                     Dim exited = p.WaitForExit(120000)
+                                     If Not exited Then
+                                         Try
+                                             p.Kill(entireProcessTree:=True)
+                                             p.WaitForExit()
+                                         Catch
+                                         End Try
+                                         cancellation.Token.ThrowIfCancellationRequested()
+                                         ShowStatus("环境检查耗时较长，模型列表仍在加载…", False)
+                                         Return
+                                     End If
+                                     cancellation.Token.ThrowIfCancellationRequested()
+                                     Dim stdout = stdoutTask.GetAwaiter().GetResult()
+                                     Dim stderr = stderrTask.GetAwaiter().GetResult()
+                                     Dim lines = (stdout & Environment.NewLine & stderr).Split(
+                                         {Convert.ToChar(13), Convert.ToChar(10)}, StringSplitOptions.RemoveEmptyEntries)
+                                     Dim ok = p.ExitCode = 0
+                                     ' --check 的最终汇总行也会提到“[缺失]”，不能把它本身当作缺失项。
+                                     ' 模型库、补帧库和设备专用 TensorRT Engine 属于可选运行资源，不阻断插件启动。
+                                     Dim missingLines = lines.Where(Function(l) l.TrimStart().StartsWith("[缺失]", StringComparison.Ordinal)).ToList()
+                                     Dim infrastructureMissing = missingLines.FirstOrDefault(
+                                         Function(l)
+                                             Dim normalized = l.Trim().ToLowerInvariant()
+                                             Return Not normalized.Contains("模型库") AndAlso
+                                                 Not normalized.Contains("补帧模型库") AndAlso
+                                                 Not normalized.Contains("tensorrt engine") AndAlso
+                                                 Not normalized.Contains("gpu") AndAlso
+                                                 Not normalized.Contains("cuda")
+                                         End Function)
+                                     Dim text As String
+                                     Dim isError As Boolean
+                                     If ok Then
+                                         text = "环境检测通过：基础组件与模型库就绪"
+                                         isError = False
+                                     ElseIf Not String.IsNullOrWhiteSpace(infrastructureMissing) Then
+                                         text = "环境检测未通过：" & infrastructureMissing.Trim()
+                                         isError = True
+                                     Else
+                                         ' 启动时模型目录可能仍由宿主/下载器准备中；这不是基础环境故障。
+                                         text = "基础环境已就绪，模型列表仍在加载…"
+                                         isError = False
+                                     End If
+                                     Try
+                                         Me.BeginInvoke(New Action(Sub() ShowStatus(text, isError)))
+                                     Catch
+                                     End Try
+                                 End Using
                               End Using
+                          Catch ex As OperationCanceledException
                           Catch
                           End Try
-                          _environmentCheckCompleted = True
+                          SyncLock _environmentCheckSync
+                              If Object.ReferenceEquals(_environmentCheckCancellation, cancellation) Then
+                                  _environmentCheckCancellation = Nothing
+                                  _environmentCheckTask = Nothing
+                                  _environmentCheckCompleted = True
+                              End If
+                          End SyncLock
+                          cancellation.Dispose()
                        End Sub)
+            SyncLock _environmentCheckSync
+                If Object.ReferenceEquals(_environmentCheckCancellation, cancellation) Then
+                    _environmentCheckTask = checkTask
+                End If
+            End SyncLock
         End Sub
+
+        ''' <summary>只停止插件自身的启动自检；真实视频任务仍由后端更新器单独拦截。</summary>
+        Private Function StopEnvironmentCheck(timeoutMilliseconds As Integer) As Boolean
+            Dim cancellation As System.Threading.CancellationTokenSource
+            Dim checkTask As Task
+            SyncLock _environmentCheckSync
+                cancellation = _environmentCheckCancellation
+                checkTask = _environmentCheckTask
+            End SyncLock
+            If cancellation Is Nothing Then Return True
+
+            Try
+                cancellation.Cancel()
+            Catch ex As ObjectDisposedException
+                Return True
+            End Try
+            If checkTask Is Nothing OrElse checkTask.IsCompleted Then Return True
+            If timeoutMilliseconds <= 0 Then Return False
+            Try
+                Return checkTask.Wait(timeoutMilliseconds)
+            Catch ex As AggregateException
+                Return ex.InnerExceptions.All(Function(inner) TypeOf inner Is OperationCanceledException)
+            End Try
+        End Function
 
         ' ────────────────────────── UI ──────────────────────────
 
@@ -4102,13 +4162,19 @@ Namespace videoenhancer
             Dim result As New DownloadExecutionResult()
             Dim errors As New StringBuilder()
             Try
+                Dim isBackendUpdate = DownloadCategory(relativePath).Equals("Backend", StringComparison.OrdinalIgnoreCase)
+                If isBackendUpdate AndAlso Not StopEnvironmentCheck(10000) Then
+                    errors.AppendLine("启动环境检查未能及时停止，请稍后重试")
+                    result.Errors = errors.ToString()
+                    Return result
+                End If
                 Dim psi As New ProcessStartInfo With {
                     .FileName = exePath, .WorkingDirectory = Path.GetDirectoryName(exePath),
                     .UseShellExecute = False, .RedirectStandardOutput = True,
                     .RedirectStandardError = True, .CreateNoWindow = True,
                     .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
                 }
-                If DownloadCategory(relativePath).Equals("Backend", StringComparison.OrdinalIgnoreCase) Then
+                If isBackendUpdate Then
                     psi.ArgumentList.Add("--update-backend")
                 Else
                     psi.ArgumentList.Add("--download-model")
@@ -5127,6 +5193,7 @@ Namespace videoenhancer
 
         Protected Overrides Sub Dispose(disposing As Boolean)
             If disposing Then
+                StopEnvironmentCheck(5000)
                 ' LakeUI 3.22.0 在 TabControl 隐藏时会重新显示当前绑定页。
                 ' 先解除绑定，避免父窗体销毁期间访问已经 Dispose 的 ModernPanel。
                 Try

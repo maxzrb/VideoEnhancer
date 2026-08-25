@@ -1,21 +1,21 @@
 # Project Status
 
-Last updated: 2026-08-25 17:28
+Last updated: 2026-08-25 18:34
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 完成 1.1.0 发布收口：将 EXE、Backend、模型和工具迁入 `Plugin\videoenhancer`，保留插件 DLL 于 `Plugin` 根目录，并发布已通过实机矩阵的候选。
-- Current state: 1.1.0 正式候选已构建并部署到真实 3FUI。迁移前后 47,676 个受管文件、24,989,634,005 字节的 SHA-256 清单完全一致（0 missing/extra/changed）；3FUI 插件页、嵌套 EXE 路径、环境检查和自动重启均通过。GPU 矩阵 679 项取得终态：677 PASS、2 `SKIP_OOM`、0 失败；倍率解析修复的 3 个模型和 `fix1/fix2` 两个防回归模型均用最终候选复测通过。Backend 2026.08.25.1 审计为 unchanged，不制作空补丁或重复上传全量包。尚未提交、推送或创建 v1.1.0 Release。
+- Current objective: 维护已发布的 1.1.0；下一步按实际用户反馈继续验证固定子目录更新与模型来源清单。
+- Current state: 用户明确授权在不升版本号的前提下覆盖刚发布的 1.1.0。模型下载页 Backend 最新状态上浮已修复，README 已补充全部当前模型家族的作者、原始出处/可追溯来源和授权边界。覆盖后的 `v1.1.0` 功能提交为 `46d7a02`，`main` 在其上追加发布记录；GitHub、ModelScope Releases、ModelScope Models 三处 EXE 回读均为 17,549,975 字节、SHA-256 `6420df26aac81dd10285e5e79c7d561928ec15d9a259c7a67f97d842d943d3c0`。Backend 2026.08.25.1 审计 unchanged，未上传后端资产。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 提交并推送 1.1.0 发布候选，发布 GitHub 与 ModelScope 本体，完成双源版本、正文、大小和 SHA-256 回读；Backend 保持 2026.08.25.1 不重复上传。
+- Next recommended step: 让用户在其他设备从三源任一入口重新下载或检查更新，确认命中覆盖后的 1.1.0；后续发布避免再次覆盖同一版本。
 
 ## Active TODO
 
 - [ ] Task: 发布独立子目录布局版本 1.1.0。
   - Owner: Codex
-  - Status: 代码、实机迁移、正式候选和全部发布前门禁已完成；待提交、推送、发布与远端回读。
+  - Status: 已发布并按用户授权覆盖一次；功能提交、标签、三源资产和稳定清单均已回读一致。
   - Relevant files: `cli/ApplicationLayoutManager.cs`, `cli/Program.cs`, `VideoEnhancerPlugin/PluginConfig.vb`, `VideoEnhancerPlugin/PluginUpdater.vb`, `release/test-installer.ps1`, `release/test-updater.ps1`, `cli/tests/gpu_matrix_runner.py`
   - Notes/blockers: 679 项矩阵为 677 PASS、2 SKIP_OOM、0 失败；两条 OOM 均为 FlashVSR+GIMM 在 6GB RTX 3060 上的双流程，按用户要求不再重测。Backend 无发布内容变化。
 
@@ -1255,3 +1255,11 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Verification: 正式构建两次完成 Backend `UNCHANGED` 审计；安装器场景全过（fresh/migration/transient lock/injected rollback/permanent lock），本体更新器场景全过（migration/transient/tamper/invalid/rollback/interruption/restart），Backend 事务 6/6、RVE 有序管线 6/6、发布门禁 5/5、Python 语法和 `git diff --check` 通过。最终实机 EXE 与正式资产哈希一致，`--version` 为 1.1.0，`--check` 全部通过。
 - Backend decision: 实机目录相对 2026.08.25.1 干净基线仅多运行时 `.pyc`、Triton 缓存、本地状态和完整包，不属于发布内容；Backend 源码/依赖不变，因此版本保持 2026.08.25.1，不生成空补丁、不重复上传约 2.79GB 全量包。
 - Files/Git: 修改安装布局、插件路径解析、发布脚本/门禁、GPU runner、README、发布说明与版本记录；新增 `cli/ApplicationLayoutManager.cs`、`release/test-installer.ps1`。当前 `main` 基于 `f3e5566`，工作树只有本次预期改动，尚未提交/推送/发布；下一步创建发布提交并发布 v1.1.0。
+
+### 2026-08-25 18:34 - Codex
+
+- Authorization/release: 用户明确授权在不升版本号的前提下覆盖刚发布的 1.1.0。功能提交 `46d7a02` 已推送，远端 `main` 与强制移动后的 `v1.1.0` 均指向该提交；GitHub Release 保持正式版且仍只有 EXE、`stable.json` 两个资产，正文为 7 条逐行 `[新增]` / `[更改]` 模板。
+- UI fix: `PluginPanel.vb` 将 Backend 当前状态缩短为“已是最新”，操作列改为“无需操作”，避免窄状态列触发双行项高而产生视觉上浮。正式更新器部署到真实 `C:\Program portable\3FUI\3FUI\Plugin` 后，EXE/DLL 哈希与候选一致；真实 3FUI 模型下载页截图确认两段文字垂直居中。
+- Attribution: 根 README 新增模型来源与致谢表，覆盖当前 129 个超分与 22 个补帧可选条目所属的全部模型家族，列出原作者、原项目/可追溯来源和授权边界；无法确认原始正式发布页的 BHI、RealHatGAN 等条目明确标为待核实。README 中 27 个外部链接全部返回 HTTP 200。
+- Verification: Backend 2026.08.25.1 干净基线与真实安装目录审计为 0 add/replace/delete；插件/CLI 正式构建通过，安装器五类场景和更新器七类场景全部通过，实机 `--check` 全通过。覆盖后 GitHub、ModelScope Releases、ModelScope Models 三处 EXE 均为 17,549,975 字节、SHA-256 `6420df26aac81dd10285e5e79c7d561928ec15d9a259c7a67f97d842d943d3c0`；GitHub/ModelScope `stable.json` 均为 962 字节、SHA-256 `ee32dd5492f1851076c351c2a21375385e0d74fdf40a107c31ea5597991260ae`。未制作或上传 Backend 包、补丁或 channel。
+- Git status: 发布记录将在本条后单独提交并推送；完成后应保持工作树干净。后续正式发布不应再次覆盖同一版本，除非用户再次明确授权。

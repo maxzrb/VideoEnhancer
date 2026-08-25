@@ -13,6 +13,7 @@
     [string]$BackendFullRemotePath = '',
     [string]$BackendPatchRemotePath = '',
     [string]$BackendChannelUrl = '',
+    [string]$BackendOutputRoot = (Join-Path $PSScriptRoot 'dist\backend-update'),
     [switch]$DeferBackendPublish,
     [switch]$ValidateOnly,
     [switch]$PublishGithub,
@@ -68,7 +69,7 @@ foreach ($requiredValue in ([ordered]@{
     }
 }
 
-$backendOutputRoot = Join-Path $PSScriptRoot 'dist\backend-update'
+$backendOutputRoot = [System.IO.Path]::GetFullPath($BackendOutputRoot)
 & (Join-Path $PSScriptRoot 'prepare-backend-update.ps1') `
     -BaseRoot $BackendBaseRoot -TargetRoot $BackendTargetRoot `
     -BaseVersion $BackendBaseVersion -TargetVersion $BackendTargetVersion `

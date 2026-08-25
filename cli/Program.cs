@@ -1139,9 +1139,29 @@ internal static class Program
         var backupDirectory = Path.Combine(workRoot, "backup");
         Directory.CreateDirectory(stagingDirectory);
         Directory.CreateDirectory(backupDirectory);
+        var hostExitConfirmed = waitPid == 0;
 
         try
         {
+            if (waitPid > 0)
+            {
+                try
+                {
+                    using var process = Process.GetProcessById(waitPid);
+                    Console.WriteLine("等待 3FUI 退出（PID " + waitPid + "）...");
+                    if (!process.WaitForExit(5 * 60 * 1000))
+                    {
+                        throw new TimeoutException("等待 3FUI 退出超时，未修改任何文件");
+                    }
+                    hostExitConfirmed = true;
+                }
+                catch (ArgumentException)
+                {
+                    // 宿主已退出，可以继续替换。
+                    hostExitConfirmed = true;
+                }
+            }
+
             var updaterPath = Path.GetFullPath(Environment.ProcessPath
                 ?? throw new InvalidOperationException("无法确定临时更新器路径"));
             using (var packageStream = File.OpenRead(packagePath))
@@ -1160,23 +1180,6 @@ internal static class Program
             if (new FileInfo(stagedPlugin).Length <= 0)
                 throw new InvalidDataException("新 EXE 内嵌的插件 DLL 无效");
 
-            if (waitPid > 0)
-            {
-                try
-                {
-                    using var process = Process.GetProcessById(waitPid);
-                    Console.WriteLine("等待 3FUI 退出（PID " + waitPid + "）...");
-                    if (!process.WaitForExit(5 * 60 * 1000))
-                    {
-                        throw new TimeoutException("等待 3FUI 退出超时，未修改任何文件");
-                    }
-                }
-                catch (ArgumentException)
-                {
-                    // 宿主已退出，可以继续替换。
-                }
-            }
-
             var hadOriginal = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             foreach (var name in updateFiles)
             {
@@ -1190,7 +1193,10 @@ internal static class Program
             {
                 foreach (var name in updateFiles)
                 {
-                    File.Copy(Path.Combine(stagingDirectory, name), Path.Combine(targetDirectory, name), true);
+                    CopyUpdateFileWithSharingRetry(
+                        Path.Combine(stagingDirectory, name),
+                        Path.Combine(targetDirectory, name),
+                        TimeSpan.FromSeconds(10));
                 }
             }
             catch
@@ -1215,18 +1221,6 @@ internal static class Program
 
             Console.WriteLine("UPDATE_COMPLETE|" + ToolVersion);
             WriteUpdateResult(o.UpdateResult, "OK|" + ToolVersion);
-            if (!string.IsNullOrWhiteSpace(o.RestartExe))
-            {
-                var restartExe = Path.GetFullPath(o.RestartExe);
-                if (File.Exists(restartExe))
-                {
-                    Process.Start(new ProcessStartInfo(restartExe) { UseShellExecute = true });
-                }
-                else
-                {
-                    Console.Error.WriteLine("[警告] 更新已完成，但找不到要重启的 3FUI：" + restartExe);
-                }
-            }
             return 0;
         }
         catch (Exception ex)
@@ -1237,6 +1231,51 @@ internal static class Program
         finally
         {
             try { Directory.Delete(workRoot, true); } catch { }
+            if (hostExitConfirmed) TryRestartHost(o.RestartExe);
+        }
+    }
+
+    /// <summary>短暂文件占用常见于宿主退出后的子进程或安全扫描，先重试再判定更新失败。</summary>
+    private static void CopyUpdateFileWithSharingRetry(string source, string target, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (true)
+        {
+            try
+            {
+                File.Copy(source, target, true);
+                return;
+            }
+            catch (IOException ex) when (IsSharingViolation(ex) && DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(250);
+            }
+        }
+    }
+
+    private static bool IsSharingViolation(IOException ex)
+    {
+        var errorCode = ex.HResult & 0xFFFF;
+        return errorCode is 32 or 33;
+    }
+
+    /// <summary>宿主已经退出后，无论更新成败都尝试恢复 3FUI，错误详情由结果文件在下次启动时显示。</summary>
+    private static void TryRestartHost(string restartPath)
+    {
+        if (string.IsNullOrWhiteSpace(restartPath)) return;
+        try
+        {
+            var restartExe = Path.GetFullPath(restartPath);
+            if (!File.Exists(restartExe))
+            {
+                Console.Error.WriteLine("[警告] 找不到要重启的 3FUI：" + restartExe);
+                return;
+            }
+            Process.Start(new ProcessStartInfo(restartExe) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("[警告] 无法重启 3FUI：" + ex.Message);
         }
     }
 

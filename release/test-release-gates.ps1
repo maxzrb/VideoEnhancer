@@ -21,8 +21,10 @@ try {
     Write-TestText (Join-Path $unchangedBase 'backend\stable.py') 'same'
     Write-TestText (Join-Path $unchangedTarget 'backend\stable.py') 'same'
     $validNotes = "[更改]修复旧脚本`n[新增]加入增量更新`n[移除]移除覆盖入口"
+    $isolatedReleaseOutput = Join-Path $testRoot 'release-output'
     $validOutput = & pwsh -NoProfile -File $releaseScript -ValidateOnly `
         -Notes $validNotes `
+        -BackendOutputRoot $isolatedReleaseOutput `
         -BackendBaseRoot $unchangedBase -BackendTargetRoot $unchangedTarget `
         -BackendBaseVersion 'same-1' -BackendTargetVersion 'same-1' 2>&1
     Assert-True ($LASTEXITCODE -eq 0) '合法逐行 Release Notes 和未变化后端应通过'
@@ -30,6 +32,7 @@ try {
 
     $invalidOutput = & pwsh -NoProfile -File $releaseScript -ValidateOnly `
         -Notes '修复旧脚本；新增增量更新' `
+        -BackendOutputRoot $isolatedReleaseOutput `
         -BackendBaseRoot $unchangedBase -BackendTargetRoot $unchangedTarget `
         -BackendBaseVersion 'same-1' -BackendTargetVersion 'same-1' 2>&1
     Assert-True ($LASTEXITCODE -ne 0) '自由文本 Release Notes 必须被拒绝'
@@ -86,6 +89,7 @@ try {
     Assert-True (($badOutput -join "`n").Contains('完整后端包')) '完整包拒绝原因不明确'
 
     Write-Output 'RELEASE_GATE_TESTS_PASS|5'
+    $global:LASTEXITCODE = 0
 }
 finally {
     $resolvedTestRoot = [System.IO.Path]::GetFullPath($testRoot)

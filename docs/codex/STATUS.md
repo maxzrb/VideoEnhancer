@@ -1,17 +1,23 @@
 # Project Status
 
-Last updated: 2026-08-25 11:04
+Last updated: 2026-08-25 11:38
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 1.0.8 本体发布已完成；等待用户验证本体升级，再决定何时制作并发布 Backend 2026.08.25.1 完整包、增量包和 channel。
-- Current state: GitHub `v1.0.8`、ModelScope Releases 和模型页 `Plugin/videoenhancer.exe` 已发布并回读一致。三处 EXE 均为 17,471,664 字节、SHA-256 `fd249941331cbaa139cb52d770b1e60ec7d2454c7c65eb00fb9495a78345d820`；GitHub/ModelScope `stable.json` 均为 1.0.8 且无 `upstreamBase`。Release 正文严格为逐行分类模板，GitHub 资产仅 EXE 与清单。Backend 完整包、增量包及 channel 明确未上传、未激活。
+- Current objective: 发布 1.0.9 自更新修正版，并正式发布 Backend 2026.08.25.1 完整包、增量包和 channel。
+- Current state: 1.0.9 本体和生产后端资产已完成发布前验证，尚未上传。完整包 2,790,829,396 字节、SHA-256 `8c598d90e594a4e3957b48421f780c491cd06c73fb1914600b69950b0a44ab2d`，排除了旧归档及运行缓存；审计为 0 add、7 replace、0 delete。生产补丁在真实旧文件最小基线上升级成功，版本 2026.08.25.1、channel 状态 `current`。全部自动测试通过，GitHub 尚无 v1.0.9。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 用户从 1.0.7 实测自动升级到 1.0.8。Backend 真实升级暂不可用；确认本体更新正常后，再准备候选完整后端包并按完整包→补丁→channel 顺序单独激活后端通道。
+- Next recommended step: 提交并推送 1.0.9 源码、创建标签；重新生成正式 Backend 审计产物，按完整包→增量包→channel 上传回读后，再发布 GitHub/ModelScope 本体并做三源核对。
 
 ## Active TODO
+
+- [ ] Task: 发布自更新重启修正版 1.0.9。
+  - Owner: user / Codex
+  - Status: 用户已授权；版本、说明、构建和隔离测试完成，等待提交与远端上传；远端 1.0.8 保持不变。
+  - Relevant files: `cli/Program.cs`, `release/test-updater.ps1`
+  - Notes/blockers: 本机 1.0.7→1.0.8 失败由目标 EXE 共享冲突触发；旧更新器失败后不重启。1.0.9 的下载 EXE 本身会作为临时更新器执行，因此 1.0.7 可直接使用新逻辑升级到 1.0.9。
 
 - [x] Task: 实现后端增量更新机制。
   - Owner: Codex
@@ -21,7 +27,7 @@ Updated by: Codex
 
 - [ ] Task: 准备并验证首个生产后端增量通道。
   - Owner: user / Codex
-  - Status: pending；代码已就绪，发布仍暂停。
+  - Status: 完整包、生产补丁、channel 和真实旧文件升级测试均已通过，等待按安全顺序上传并激活。
   - Relevant files: ModelScope `Backend/python_YYYYMMDD.7z`, `Backend/patches/*.7z`, `Backend/channel.json`
   - Notes/blockers: 需要取得已公开完整包对应的基线目录与目标目录，选择不会被旧 CLI 自修补的稳定哨兵。发布脚本现已强制审计并自动制包；上传顺序固定为完整包、补丁、最后 channel，回读核对前不会创建 GitHub Release。未获恢复发布指令前不上传。
 
@@ -1177,3 +1183,20 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Remote verification: GitHub Release 非草稿、非预发布，正文与 `release/release-notes.txt` 逐行一致，资产严格为 EXE 和 `stable.json` 两项。GitHub EXE、ModelScope Releases EXE、模型页 EXE 均为 17,471,664 字节，SHA-256 `fd249941331cbaa139cb52d770b1e60ec7d2454c7c65eb00fb9495a78345d820`；GitHub/ModelScope 清单版本、路径、大小和哈希一致，均不含 `upstreamBase`。
 - Remaining: Backend 2026.08.25.1 通道尚未发布，用户目前只能验证 1.0.7→1.0.8 本体升级。发布记录更新后需再提交并推送，保持工作树干净。
 - Local cleanup: 远端回读副本和公开后端基线解压目录均已校验位于 `%TEMP%`，但递归删除命令被当前执行策略拒绝，未强行绕过。仍保留 `videoenhancer-1.0.8-remote-verify`、`videoenhancer-backend-base-20260824-0e85c2f0237b43a0af0fb15c8a2c1139` 及路径记录文件，可在不再需要复核时手动删除；原始公开后端归档未触碰。
+
+### 2026-08-25 11:18 - Codex
+
+- Objective: 调查用户报告的 1.0.7→1.0.8 自动更新在关闭 3FUI 后没有重启的问题，并实现本地修复；未修改远端 Release。
+- Evidence/root cause: `%LocalAppData%\FFmpegFreeUI\VideoEnhancer\update-result.txt` 明确记录 `ERROR|IO_SharingViolation_File, ...\Plugin\videoenhancer.exe`；正式插件目录 EXE 仍报告 1.0.7。旧逻辑在宿主退出后只尝试一次覆盖，遇到短暂共享冲突即失败；重启调用只位于成功分支，因此失败后 3FUI 保持关闭。
+- Fix: `ApplyUpdate` 将等待宿主退出前移并记录退出确认；覆盖 EXE/DLL 时只针对 Windows sharing/lock violation 每 250ms 重试，最长 10 秒。宿主已确认退出后，重启调用移到 `finally`，更新成功、校验失败、共享冲突超时或回滚后都会尝试恢复 3FUI；宿主退出超时则不重复启动实例。
+- Tests: `release/test-updater.ps1` 新增短暂占用后成功替换，以及真实 wait PID 退出后更新失败仍执行重启脚本两项。插件构建、单文件 CLI publish 成功（0 错误、2 个既有 CA1416）；更新器 success/transient-lock/tamper/invalid-package/rollback/restart-on-failure 六场景全部通过，`git diff --check` 通过。
+- Release/Git: 远端 1.0.8、标签和清单均未修改；源码版本仍为 1.0.8。当前只有 `cli/Program.cs`、`release/test-updater.ps1` 及两份 HandShake 记录待提交。修复应作为 1.0.9 发布，不能覆盖 1.0.8。
+
+### 2026-08-25 11:38 - Codex
+
+- Objective: 按用户明确授权发布 1.0.9 及相应 Backend 更新；使用 HandShake/GitHub 发布流程，GitHub 与 ModelScope 凭据均有效。
+- Version/assets: 版本源、README、Release Notes 和版本记录已更新到 1.0.9。新后端完整包 `python_20260825.7z` 从实际候选目录生成，排除旧 `python_*.7z`、本地版本标记、`backend/cache`、`__pycache__`、`.pyc/.pyo`；包内 29,707 文件，解压 6,261,268,671 字节，压缩 2,790,829,396 字节，SHA-256 `8c598d90e594a4e3957b48421f780c491cd06c73fb1914600b69950b0a44ab2d`。
+- Backend verification: 完整包两次解压并与候选目录逐文件核对通过；2026.08.24.1→2026.08.25.1 审计始终为 0 add、7 replace、0 delete。生产补丁在包含真实旧脚本和可运行 Python 的最小基线中离线应用成功，7 个新哈希与候选一致，版本标记为 2026.08.25.1，使用本地 channel 查询状态为 `current`。
+- Release tooling fix: 发现 `test-release-gates.ps1` 的 `-ValidateOnly` 会覆盖 `release/dist/backend-update` 正式审计输出。发布脚本新增 `-BackendOutputRoot`，测试改用独立临时目录，并显式清零成功后的 native 退出码；5/5 复验通过且正式审计文件哈希保持不变。
+- Verification: 插件与单文件 CLI 构建成功（0 错误、2 个既有 CA1416）；EXE 报告 1.0.9，预发布产物 17,471,989 字节、SHA-256 `03c4738e21bb767db3681f6421dd69a4ab73e893e5f7b22a2e00181b162f4385`，stable 内容一致且无旧上游字段。自更新 6/6、后端事务 6/6、发布门禁 5/5、顺序包装器 6/6、Python 语法和 `git diff --check` 全部通过。
+- Git/release: GitHub 尚无 v1.0.9。本轮期间用户另行将 `release/发布流程.md` 的一键发布前置条件补充为先提交到 GitHub，已识别为相关改动并保留；当前等待统一提交推送后发布。

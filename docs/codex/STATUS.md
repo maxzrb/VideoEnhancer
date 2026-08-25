@@ -1,21 +1,21 @@
 # Project Status
 
-Last updated: 2026-08-25 11:38
+Last updated: 2026-08-25 11:58
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 发布 1.0.9 自更新修正版，并正式发布 Backend 2026.08.25.1 完整包、增量包和 channel。
-- Current state: 1.0.9 本体和生产后端资产已完成发布前验证，尚未上传。完整包 2,790,829,396 字节、SHA-256 `8c598d90e594a4e3957b48421f780c491cd06c73fb1914600b69950b0a44ab2d`，排除了旧归档及运行缓存；审计为 0 add、7 replace、0 delete。生产补丁在真实旧文件最小基线上升级成功，版本 2026.08.25.1、channel 状态 `current`。全部自动测试通过，GitHub 尚无 v1.0.9。
+- Current objective: 1.0.9 本体与 Backend 2026.08.25.1 已完成发布；等待用户从本机 1.0.7 实测自更新、自动重启和随后 15 KB Backend 增量升级。
+- Current state: GitHub v1.0.9、ModelScope Releases、模型页 EXE 及 Backend 完整包/补丁/channel 均已发布并回读。三处 EXE 均为 17,471,986 字节、SHA-256 `ceee62ae201e57efde39955f219d95e565899f8c307955495088c2553a682ddb`；完整后端包 2,790,829,396 字节、SHA-256 `8c598d90e594a4e3957b48421f780c491cd06c73fb1914600b69950b0a44ab2d`，增量包 14,698 字节、SHA-256 `57ac66c15f88f8de90044b26f40a9ab9462018ed0d79efbd332f186f870ccf60`。真实安装目录查询远端 channel 正确选择单补丁而非全量包。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 提交并推送 1.0.9 源码、创建标签；重新生成正式 Backend 审计产物，按完整包→增量包→channel 上传回读后，再发布 GitHub/ModelScope 本体并做三源核对。
+- Next recommended step: 用户手动重新打开当前 1.0.7 的 3FUI，检查更新到 1.0.9并确认自动重启；进入模型下载页执行 Backend 更新，预期显示 2026.08.24.1→2026.08.25.1、增量模式、下载 14,698 字节。
 
 ## Active TODO
 
-- [ ] Task: 发布自更新重启修正版 1.0.9。
+- [x] Task: 发布自更新重启修正版 1.0.9。
   - Owner: user / Codex
-  - Status: 用户已授权；版本、说明、构建和隔离测试完成，等待提交与远端上传；远端 1.0.8 保持不变。
+  - Status: 已完成源码提交、标签、GitHub/ModelScope 发布及三源回读；远端 1.0.8 保持不变。
   - Relevant files: `cli/Program.cs`, `release/test-updater.ps1`
   - Notes/blockers: 本机 1.0.7→1.0.8 失败由目标 EXE 共享冲突触发；旧更新器失败后不重启。1.0.9 的下载 EXE 本身会作为临时更新器执行，因此 1.0.7 可直接使用新逻辑升级到 1.0.9。
 
@@ -25,9 +25,9 @@ Updated by: Codex
   - Relevant files: `cli/BackendUpdateManager.cs`, `cli/Program.cs`, `VideoEnhancerPlugin/PluginPanel.vb`, `release/build-backend-patch.ps1`, `release/backend-channel.example.json`, `release/test-backend-updater.ps1`, `release/发布流程.md`
   - Notes/blockers: 尚未制作或上传真实生产补丁/`Backend/channel.json`，也未在实际 3.4GB 后端目录执行升级。远端通道上线前新 UI 会保守显示“更新信息不可用”，不会回退到旧覆盖解压。
 
-- [ ] Task: 准备并验证首个生产后端增量通道。
+- [x] Task: 准备并验证首个生产后端增量通道。
   - Owner: user / Codex
-  - Status: 完整包、生产补丁、channel 和真实旧文件升级测试均已通过，等待按安全顺序上传并激活。
+  - Status: 2026.08.25.1 完整包、生产补丁和 channel 已按顺序上传并激活；SDK 文件树大小/哈希、channel 回读和真实客户端增量选择均通过。
   - Relevant files: ModelScope `Backend/python_YYYYMMDD.7z`, `Backend/patches/*.7z`, `Backend/channel.json`
   - Notes/blockers: 需要取得已公开完整包对应的基线目录与目标目录，选择不会被旧 CLI 自修补的稳定哨兵。发布脚本现已强制审计并自动制包；上传顺序固定为完整包、补丁、最后 channel，回读核对前不会创建 GitHub Release。未获恢复发布指令前不上传。
 
@@ -1200,3 +1200,11 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Release tooling fix: 发现 `test-release-gates.ps1` 的 `-ValidateOnly` 会覆盖 `release/dist/backend-update` 正式审计输出。发布脚本新增 `-BackendOutputRoot`，测试改用独立临时目录，并显式清零成功后的 native 退出码；5/5 复验通过且正式审计文件哈希保持不变。
 - Verification: 插件与单文件 CLI 构建成功（0 错误、2 个既有 CA1416）；EXE 报告 1.0.9，预发布产物 17,471,989 字节、SHA-256 `03c4738e21bb767db3681f6421dd69a4ab73e893e5f7b22a2e00181b162f4385`，stable 内容一致且无旧上游字段。自更新 6/6、后端事务 6/6、发布门禁 5/5、顺序包装器 6/6、Python 语法和 `git diff --check` 全部通过。
 - Git/release: GitHub 尚无 v1.0.9。本轮期间用户另行将 `release/发布流程.md` 的一键发布前置条件补充为先提交到 GitHub，已识别为相关改动并保留；当前等待统一提交推送后发布。
+
+### 2026-08-25 11:58 - Codex
+
+- Release: `e6f5344 release: 1.0.9 updater and backend channel` 已推送到 `fork/main`，注释标签 v1.0.9 已推送；GitHub Release `https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.0.9` 为正式非草稿/非预发布，正文严格使用三行分类模板，资产仅 EXE 和 `stable.json`。
+- Backend publication: 发布脚本第三次完成完整包解压/逐文件核对后，按 `Backend/python_20260825.7z`→`Backend/patches/2026.08.24.1_to_2026.08.25.1.7z`→`Backend/channel.json` 顺序上传，并在创建 GitHub Release 前回读 channel 成功。ModelScope SDK 文件树确认完整包大小 2,790,829,396、SHA-256 `8c598d90e594a4e3957b48421f780c491cd06c73fb1914600b69950b0a44ab2d`；补丁大小 14,698、SHA-256 `57ac66c15f88f8de90044b26f40a9ab9462018ed0d79efbd332f186f870ccf60`。
+- App verification: GitHub Release、ModelScope Releases 和 `VideoEnhancer-Models/Plugin/videoenhancer.exe` 三处 EXE 均为 17,471,986 字节、SHA-256 `ceee62ae201e57efde39955f219d95e565899f8c307955495088c2553a682ddb`。GitHub/ModelScope stable 版本、路径、大小、哈希和 Notes 完全一致，均无旧上游字段。
+- Client/channel verification: 用正式 1.0.9 客户端对当前真实 3FUI Backend 目录读取公开 channel，识别安装版本 2026.08.24.1、最新 2026.08.25.1、模式 `patch`、补丁数 1、下载量 14,698 字节，没有误选 2.79 GB 全量包。正式安装 EXE 仍保留 1.0.7，供用户真实验证升级和自动重启。
+- Remaining/local: 新后端完整包保留在 `C:\Program portable\3FUI\3FUI\Plugin\python_20260825.7z` 作为已发布资产来源；最小化生产补丁测试目录位于 `%TEMP%\videoenhancer-backend-production-test-20bf217bd6e74cdba05f6be664851fc7`，仅含少量测试文件。发布记录更新后需提交推送并确认工作树干净。

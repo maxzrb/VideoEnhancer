@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-25 12:57
+Last updated: 2026-08-25 13:12
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 按用户授权提交并发布 1.0.10，修复启动环境自检占用 Backend、阻止增量更新的问题。
-- Current state: 1.0.10 版本元数据、三行 Release Notes 和本地产物已完成；EXE 为 17,473,013 字节、SHA-256 `7522e4e94685f9e7e896df52ebbb0cfd707282a2531185cbfc0a454e2e987cc0`。顺序处理 6/6、自更新 6 类、Backend 事务 6/6、发布门禁 5/5 均通过；公开 Backend 2026.08.25.1 完整包重新解压后与候选目录逐文件审计为 0 add/replace/delete，因此不制作或上传新后端包。尚未提交、推送或创建 Release。
+- Current objective: 1.0.10 已完成提交、双源发布和远端回读；等待用户从 1.0.9 实测升级及随后 Backend 14,698 字节增量更新。
+- Current state: 发布提交 `a7220fb`、`fork/main` 和标签 `v1.0.10` 一致；GitHub 正式 Release、ModelScope Releases 和模型页 EXE 均为 17,473,022 字节、SHA-256 `8f890047b20344fac530a98f8bc01adfc8c80624787b57a67da77dd5618ce37c`。两端 `stable.json` 均为 555 字节、SHA-256 `d54d5564e3ea78bc5fb7b0fd17fc12284f43713f101ecd4c1ac957384ebc5272`。Backend 严格审计为 0 add/replace/delete，版本保持 2026.08.25.1，未重复上传后端包。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 提交 1.0.10 发布分支，合并并推送 `fork/main`，随后运行双源正式发布并回读 GitHub/ModelScope 文件、清单与哈希。
+- Next recommended step: 用户从 1.0.9 更新到 1.0.10；若旧版启动自检尚未结束，先等待其退出再执行首次本体更新。重启进入 1.0.10 后，在模型下载页重试 Backend 2026.08.24.1→2026.08.25.1 增量更新。
 
 ## Active TODO
 
@@ -1215,3 +1215,11 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Fix: `RunCheck(verbose)` 只保留 FFmpeg、Python、后端脚本、库导入、模型目录和后端版本等轻量检查，不再隐式执行全部 TensorRT Engine 反序列化；显式 `--validate-engines` 和实际推理时按需校验保持不变。插件新增自检取消令牌与任务跟踪，在本体自更新、Backend 更新、插件停用和控件销毁前终止自检进程树并等待退出；CLI 对真实视频任务的后端占用门禁没有放宽。
 - Verification: CLI Release 构建成功（0 错误、2 个既有 CA1416 警告）；插件构建成功；后端事务测试 6/6；`git diff --check` 通过。将候选 EXE 临时放入真实 Plugin 根目录执行 `--check -backend tensorrt`，36 个 TensorRT 模型可发现，基础检查退出码 0、耗时约 1.27 秒，输出不含 Engine 反序列化；显式 `--validate-engines` 代码入口仍存在。
 - Files/Git: 修改 `cli/Program.cs`、`VideoEnhancerPlugin/PluginPanel.vb`、`docs/codex/STATUS.md`、`version/工作进度.md`。版本仍为 1.0.9，未提交、未推送、未发布；建议审核后作为 1.0.10 提交。测试副本 `C:\Program portable\3FUI\3FUI\Plugin\videoenhancer-check-test.exe` 已退出且不参与运行，但当前执行策略拒绝删除该二进制，需后续手动清理。
+
+### 2026-08-25 13:12 - Codex
+
+- Release: 按用户授权将修复升级为 1.0.10；发布分支 `release/1.0.10` 提交 `a7220fb release: 1.0.10 lightweight environment check`，随后快进合并并推送 `fork/main`。GitHub Release `https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.0.10` 已创建，正式非草稿/非预发布；标签和 main 均指向 `a7220fb`，正文严格为三条 `[更改]`。
+- Backend gate: 从已发布 `python_20260825.7z` 重新解压 29,707 文件、6,261,268,671 字节作为基线，与当前候选 Backend 逐文件审计；结果 0 add、0 replace、0 delete，版本两端均为 2026.08.25.1，因此本次没有制作或上传新后端包、补丁或 channel。
+- Verification: CLI/插件构建通过（0 错误、2 个既有 CA1416）；顺序包装器 6/6、自更新器 success/transient-lock/tamper/invalid-package/rollback/restart-on-failure、Backend 事务 6/6、发布门禁 5/5 均通过。自更新测试脚本会继承故意失败样例的 native 退出码 1，但最终 PASS 哨兵完整输出，其余脚本退出 0。
+- Remote readback: GitHub、ModelScope Releases `releases/1.0.10/VideoEnhancer-1.0.10-win-x64.exe` 和 ModelScope Models `Plugin/videoenhancer.exe` 均为 17,473,022 字节、SHA-256 `8f890047b20344fac530a98f8bc01adfc8c80624787b57a67da77dd5618ce37c`；GitHub/ModelScope `stable.json` 均为 555 字节、SHA-256 `d54d5564e3ea78bc5fb7b0fd17fc12284f43713f101ecd4c1ac957384ebc5272`。
+- Migration/local: 1.0.9 尚无更新前取消自检逻辑，首次升级 1.0.10 时若旧自检仍运行，应等待其退出再点更新；进入 1.0.10 后由新生命周期管理解决。临时完整基线保留于 `%TEMP%\videoenhancer-backend-base-20260825-release-1010`（约 6.26 GB），测试 EXE 保留于 `C:\Program portable\3FUI\3FUI\Plugin\videoenhancer-check-test.exe`，当前执行策略拒绝删除，需手动清理。

@@ -243,6 +243,16 @@ Namespace videoenhancer
             Public Property RelativePath As String
             Public Property Size As Long
             Public Property Installed As Boolean
+            Public Property StatusText As String = ""
+            Public Property ActionText As String = ""
+            Public Property IsBackend As Boolean
+        End Class
+        Private NotInheritable Class BackendDownloadStatus
+            Public Property State As String = ""
+            Public Property InstalledVersion As String = ""
+            Public Property LatestVersion As String = ""
+            Public Property Mode As String = ""
+            Public Property DownloadSize As Long
         End Class
         Private NotInheritable Class DownloadListRowTag
             Public Property Entry As DownloadModelEntry
@@ -3535,7 +3545,7 @@ Namespace videoenhancer
             Dim header As New Panel() With {.Dock = DockStyle.Top, .Height = 76, .BackColor = Color.Transparent}
             Dim description As New HtmlColorLabel() With {
                 .Text = "<font color=#D8D8D8><b>ModelScope 模型镜像</b></font><br/>" &
-                        "<font color=#8A8A8A>模型下载到 models 对应分类；Bin 文件下载到 bin，Backend 文件下载到 python。压缩包会自动解压。</font>",
+                        "<font color=#8A8A8A>模型下载到对应目录；Backend 单独检查版本并优先下载增量补丁，失败会自动回滚。</font>",
                 .AutoSize = False, .Dock = DockStyle.Fill,
                 .TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft, .LineSpacing = 4
             }
@@ -3607,6 +3617,8 @@ Namespace videoenhancer
                     Dim stdout = ""
                     Dim stderr = ""
                     Dim exitCode = -1
+                    Dim backendStdout = ""
+                    Dim backendExitCode = -1
                     Try
                         Dim psi As New ProcessStartInfo With {
                             .FileName = exePath, .WorkingDirectory = Path.GetDirectoryName(exePath),
@@ -3634,17 +3646,42 @@ Namespace videoenhancer
                                 End If
                             End If
                         End Using
+                        Dim backendPsi As New ProcessStartInfo With {
+                            .FileName = exePath, .WorkingDirectory = Path.GetDirectoryName(exePath),
+                            .UseShellExecute = False, .RedirectStandardOutput = True,
+                            .RedirectStandardError = True, .CreateNoWindow = True,
+                            .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
+                        }
+                        backendPsi.ArgumentList.Add("--backend-status")
+                        backendPsi.ArgumentList.Add("--json")
+                        Using backendProcess As Process = Diagnostics.Process.Start(backendPsi)
+                            If backendProcess IsNot Nothing Then
+                                Dim backendOutputTask = backendProcess.StandardOutput.ReadToEndAsync()
+                                Dim backendErrorTask = backendProcess.StandardError.ReadToEndAsync()
+                                If backendProcess.WaitForExit(45000) Then
+                                    backendStdout = backendOutputTask.GetAwaiter().GetResult()
+                                    backendExitCode = backendProcess.ExitCode
+                                    If backendExitCode <> 0 Then stderr &= Environment.NewLine & backendErrorTask.GetAwaiter().GetResult()
+                                Else
+                                    Try
+                                        backendProcess.Kill(True)
+                                    Catch
+                                    End Try
+                                End If
+                            End If
+                        End Using
                     Catch ex As Exception
                         stderr = ex.Message
                     End Try
                     Try
-                        BeginInvoke(New Action(Sub() RenderDownloadModels(stdout, stderr, exitCode)))
+                        BeginInvoke(New Action(Sub() RenderDownloadModels(stdout, stderr, exitCode, backendStdout, backendExitCode)))
                     Catch
                     End Try
                 End Sub)
         End Sub
 
-        Private Sub RenderDownloadModels(stdout As String, stderr As String, exitCode As Integer)
+        Private Sub RenderDownloadModels(stdout As String, stderr As String, exitCode As Integer,
+                                         backendStdout As String, backendExitCode As Integer)
             _downloadsLoading = False
             _btnRefreshDownloads.Enabled = True
             _downloadActionsEnabled = True
@@ -3670,15 +3707,31 @@ Namespace videoenhancer
 
                 Try
                     Dim entries As New List(Of DownloadModelEntry)()
+                    Dim backendStatus As BackendDownloadStatus = Nothing
+                    If backendExitCode = 0 AndAlso Not String.IsNullOrWhiteSpace(backendStdout) Then
+                        Using backendDocument = JsonDocument.Parse(backendStdout.Trim())
+                            Dim root = backendDocument.RootElement
+                            backendStatus = New BackendDownloadStatus With {
+                                .State = root.GetProperty("state").GetString(),
+                                .InstalledVersion = root.GetProperty("installedVersion").GetString(),
+                                .LatestVersion = root.GetProperty("latestVersion").GetString(),
+                                .Mode = root.GetProperty("mode").GetString(),
+                                .DownloadSize = root.GetProperty("downloadSize").GetInt64()
+                            }
+                        End Using
+                    End If
                     Using document = JsonDocument.Parse(stdout.Trim())
                         For Each item In document.RootElement.EnumerateArray()
                             Dim name = item.GetProperty("name").GetString()
                             Dim relativePath = item.GetProperty("path").GetString()
                             Dim size = item.GetProperty("size").GetInt64()
-                            entries.Add(New DownloadModelEntry With {
+                            Dim entry = New DownloadModelEntry With {
                                 .Name = If(name, relativePath), .RelativePath = If(relativePath, ""), .Size = size,
                                 .Installed = IsDownloadInstalled(If(relativePath, ""))
-                            })
+                            }
+                            entry.IsBackend = DownloadCategory(entry.RelativePath).Equals("Backend", StringComparison.OrdinalIgnoreCase)
+                            If entry.IsBackend Then ApplyBackendDownloadStatus(entry, backendStatus)
+                            entries.Add(entry)
                         Next
                     End Using
                     Dim categoryOrder = New String() {"Plugin", "Backend", "BasicVSR++", "Bin", "ONNX", "Param-Bin", "FlashVSR", "Frame-Interpolation", "RIFE", "PTH", "TensorRT-Default"}
@@ -3701,6 +3754,39 @@ Namespace videoenhancer
             Finally
                 _downloadList.EndUpdate()
             End Try
+        End Sub
+
+        Private Shared Sub ApplyBackendDownloadStatus(entry As DownloadModelEntry, status As BackendDownloadStatus)
+            entry.Name = "Backend 后端"
+            If status Is Nothing Then
+                entry.Installed = True
+                entry.StatusText = "更新信息不可用"
+                entry.ActionText = "刷新后重试"
+                Return
+            End If
+            entry.Size = status.DownloadSize
+            Select Case status.State
+                Case "current"
+                    entry.Installed = True
+                    entry.Name &= " " & status.LatestVersion
+                    entry.StatusText = "已是最新版本"
+                    entry.ActionText = "已是最新"
+                Case "update-available", "legacy-update-available"
+                    entry.Installed = False
+                    entry.Name &= " " & status.InstalledVersion & " → " & status.LatestVersion
+                    entry.StatusText = If(status.Mode = "patch", "可增量更新", "需要完整修复")
+                    entry.ActionText = If(status.Mode = "patch", "增量更新", "完整修复")
+                Case "not-installed"
+                    entry.Installed = False
+                    entry.Name &= " " & status.LatestVersion
+                    entry.StatusText = "尚未安装"
+                    entry.ActionText = "完整安装"
+                Case Else
+                    entry.Installed = False
+                    entry.Name &= " → " & status.LatestVersion
+                    entry.StatusText = "版本无法识别"
+                    entry.ActionText = "完整修复"
+            End Select
         End Sub
 
         Private Shared Function DownloadCategory(relativePath As String) As String
@@ -3808,6 +3894,8 @@ Namespace videoenhancer
 
             Dim paths = entries.Select(Function(entry) entry.RelativePath).ToList()
             Dim installedCount = entries.Where(Function(entry) entry.Installed).Count()
+            Dim isBackendGroup = category.Equals("Backend", StringComparison.OrdinalIgnoreCase)
+            If Not isBackendGroup Then
             Dim batchItem = New UltraDetailListView.ListItem(New UltraDetailListView.ListSubItem() {
                 New UltraDetailListView.ListSubItem("本组资源"),
                 New UltraDetailListView.ListSubItem(entries.Count & " 个文件"),
@@ -3821,18 +3909,19 @@ Namespace videoenhancer
             batchItem.SubItems(DownloadActionColumn).ForeColor = If(installedCount = entries.Count, UiTextMuted, UiAccent)
             _downloadList.Items.Add(batchItem)
             _downloadGroupItems(category) = batchItem
+            End If
 
             For Each entry In entries
                 Dim item = New UltraDetailListView.ListItem(New UltraDetailListView.ListSubItem() {
                     New UltraDetailListView.ListSubItem(entry.Name),
                     New UltraDetailListView.ListSubItem(If(entry.Size > 0, FormatDownloadSize(entry.Size), "-")),
-                    New UltraDetailListView.ListSubItem(If(entry.Installed, "本地已安装", "未安装")),
-                    New UltraDetailListView.ListSubItem(If(entry.Installed, "已存在", "下载"))
+                    New UltraDetailListView.ListSubItem(If(String.IsNullOrWhiteSpace(entry.StatusText), If(entry.Installed, "本地已安装", "未安装"), entry.StatusText)),
+                    New UltraDetailListView.ListSubItem(If(String.IsNullOrWhiteSpace(entry.ActionText), If(entry.Installed, "已存在", "下载"), entry.ActionText))
                 }) With {
                     .GroupName = category,
                     .Tag = New DownloadListRowTag With {.Entry = entry, .Category = category}
                 }
-                item.SubItems(2).ForeColor = If(entry.Installed, UiSuccess, UiTextMuted)
+                item.SubItems(2).ForeColor = If(entry.Installed, UiSuccess, If(entry.IsBackend, UiAccent, UiTextMuted))
                 item.SubItems(DownloadActionColumn).ForeColor = If(entry.Installed, UiTextMuted, UiAccent)
                 _downloadList.Items.Add(item)
                 _downloadItemsByPath(entry.RelativePath) = item
@@ -3861,9 +3950,10 @@ Namespace videoenhancer
         Private Async Sub OnDownloadAllClick(sender As Object, e As EventArgs)
             If Not _downloadActionsEnabled OrElse Not _downloadOnline OrElse _downloadsLoading OrElse
                 _archiveCleanupBusy OrElse _downloadActiveCount > 0 Then Return
-            ' 当前插件 EXE 由自动更新流程管理；保留在资源列表中供查看/单独下载，避免“下载全部”重复覆盖正在运行的程序。
+            ' 插件 EXE 由自动更新流程管理；Backend 使用独立事务更新，均不进入三路并行资源下载。
             Dim paths = _downloadItemsByPath.Keys.
-                Where(Function(path) Not path.Equals("Plugin/videoenhancer.exe", StringComparison.OrdinalIgnoreCase)).
+                Where(Function(path) Not path.Equals("Plugin/videoenhancer.exe", StringComparison.OrdinalIgnoreCase) AndAlso
+                    Not DownloadCategory(path).Equals("Backend", StringComparison.OrdinalIgnoreCase)).
                 ToList()
             If paths.Count = 0 Then
                 ShowStatus("请先刷新资源列表。", True)
@@ -3895,8 +3985,8 @@ Namespace videoenhancer
                 End Sub)
             If result.ExitCode = 0 Then
                 entry.Installed = True
-                SetDownloadRowState(relativePath, "本地已安装", "已完成", UiSuccess, UiTextMuted)
-                ShowStatus("模型下载完成：" & relativePath, False)
+                SetDownloadRowState(relativePath, If(entry.IsBackend, "已更新", "本地已安装"), "已完成", UiSuccess, UiTextMuted)
+                ShowStatus(If(entry.IsBackend, "后端更新完成", "模型下载完成：" & relativePath), False)
             ElseIf result.Errors.Contains("NO_NETWORK|") Then
                 SetDownloadRowState(relativePath, "网络中断", "重试", UiDanger, UiAccent)
                 _downloadOnline = False
@@ -4018,8 +4108,12 @@ Namespace videoenhancer
                     .RedirectStandardError = True, .CreateNoWindow = True,
                     .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
                 }
-                psi.ArgumentList.Add("--download-model")
-                psi.ArgumentList.Add(relativePath)
+                If DownloadCategory(relativePath).Equals("Backend", StringComparison.OrdinalIgnoreCase) Then
+                    psi.ArgumentList.Add("--update-backend")
+                Else
+                    psi.ArgumentList.Add("--download-model")
+                    psi.ArgumentList.Add(relativePath)
+                End If
                 Using process As New Process With {.StartInfo = psi}
                     AddHandler process.OutputDataReceived,
                         Sub(s, ev)
@@ -4029,6 +4123,12 @@ Namespace videoenhancer
                                 If parts.Length > 1 Then progress(parts(1) & "%")
                             ElseIf ev.Data.StartsWith("EXTRACT_COMPLETE|", StringComparison.Ordinal) Then
                                 progress("解压完成")
+                            ElseIf ev.Data.StartsWith("BACKEND_PATCH_START|", StringComparison.Ordinal) Then
+                                progress("下载增量补丁")
+                            ElseIf ev.Data.StartsWith("BACKEND_FULL_START|", StringComparison.Ordinal) Then
+                                progress("下载完整修复包")
+                            ElseIf ev.Data.StartsWith("BACKEND_PATCH_COMPLETE|", StringComparison.Ordinal) Then
+                                progress("补丁已应用")
                             End If
                         End Sub
                     AddHandler process.ErrorDataReceived, Sub(s, ev) If ev.Data IsNot Nothing Then errors.AppendLine(ev.Data)

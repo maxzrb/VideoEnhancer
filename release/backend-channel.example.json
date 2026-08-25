@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "latestVersion": "2026.08.25.1",
+  "full": {
+    "path": "Backend/python_20260825.7z",
+    "size": 0,
+    "sha256": ""
+  },
+  "patches": [
+    {
+      "baseVersion": "2026.08.24.1",
+      "targetVersion": "2026.08.25.1",
+      "path": "Backend/patches/20260824.1_to_20260825.1.7z",
+      "size": 0,
+      "sha256": ""
+    }
+  ],
+  "legacyBaselines": [
+    {
+      "version": "2026.08.24.1",
+      "sentinels": [
+        {
+          "path": "backend/rve-backend.py",
+          "sha256": ""
+        }
+      ]
+    }
+  ]
+}

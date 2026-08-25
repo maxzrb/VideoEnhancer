@@ -34,6 +34,17 @@ def _normalise_upscaled_frame(render, source_frame, frame):
     return frame
 
 
+def _align_interpolation_dtype(render, frame):
+    """跨模型精度不同时，把超分结果转换为插帧器实际使用的 dtype。"""
+    target_dtype = getattr(render.interpolateOption, "dtype", None)
+    if target_dtype is None or not hasattr(frame, "get_frame_tensor"):
+        return frame
+    tensor = frame.get_frame_tensor()
+    if getattr(tensor, "dtype", None) == target_dtype:
+        return frame
+    return frame.set_frame_tensor(tensor.to(dtype=target_dtype))
+
+
 def _stop_after_render_error(render):
     """解除 RVE 三条工作线程的阻塞，让主线程能够报告失败。"""
     try:
@@ -122,6 +133,7 @@ def _patch_render(render_module, instance_holder=None):
                         )
 
                 if self.interpolateModel:
+                    frame = _align_interpolation_dtype(self, frame)
                     interpolated_frames = self.interpolateOption(
                         img1=frame,
                         transition=scene_detect,

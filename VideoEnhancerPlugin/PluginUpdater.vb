@@ -18,7 +18,6 @@ Namespace videoenhancer
         Public Property SchemaVersion As Integer
         Public Property Channel As String = ""
         Public Property Version As String = ""
-        Public Property UpstreamBase As String = ""
         Public Property PublishedAt As String = ""
         Public Property Package As UpdatePackageInfo
         Public Property Notes As String = ""

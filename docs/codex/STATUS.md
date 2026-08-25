@@ -1,17 +1,35 @@
 # Project Status
 
-Last updated: 2026-08-24 21:15
+Last updated: 2026-08-25 10:56
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 完成 FlashVSR/BasicVSR++ 低内存修复，并让 CUDA/TensorRT 补帧按权重内部架构正确支持 `.pth/.pt/.pkl`。
-- Current state: 已选择性部署作者的有限时间窗口/FFmpeg 流式写出实现；CLI 已按权重内容筛选 CUDA/TRT 补帧模型，新增 RIFE flow/encode 专用预构建命令并嵌入两个 Python 辅助脚本；插件模型转换页源码和 DLL 已构建。ModelScope 后端已从用户下午版 3.447 GB 包恢复正确基线、叠加 8 个文件并覆盖上传，远端大小/SHA/revision 回读通过。用户明确要求先提交远端、换 3060 设备实测，不发布 1.0.8 Release。
+- Current objective: 发布 1.0.8 本体到 GitHub 与 ModelScope；按用户明确要求暂缓 Backend 完整包、增量包和 channel 上传。
+- Current state: 1.0.8 源码与本体产物已完成发布前验证。真实后端审计确认 2026.08.24.1→2026.08.25.1 仅替换 7 个脚本、无新增/删除，运行时 `backend/cache` 已排除；暂缓模式只在本地生成 14,699 字节补丁，不生成或上传 channel。CLI/插件构建通过，顺序包装器 6/6、后端更新 6/6、发布门禁 5/5、EXE 更新器隔离测试均通过；`stable.json` 不再包含 `upstreamBase`。尚未创建提交、标签或远端 Release。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 提交并推送 `fork/main`；在 3060 设备拉取 Git，并从 ModelScope 下载 `Backend/python_20260824.7z`，实测 RIFE CUDA/TRT 与时序长视频内存。全部通过前不发布 1.0.8。
+- Next recommended step: 提交并推送 1.0.8 源码，创建 `v1.0.8` 标签；仅发布 EXE 与 `stable.json` 到 GitHub/ModelScope，并回读核对。Backend 通道留待用户验证升级能力后另行发布。
 
 ## Active TODO
+
+- [x] Task: 实现后端增量更新机制。
+  - Owner: Codex
+  - Status: CLI、插件、补丁生成器、协议示例、隔离测试和发布说明均已完成；6 类事务测试全部通过。1.0.8 仍暂停。
+  - Relevant files: `cli/BackendUpdateManager.cs`, `cli/Program.cs`, `VideoEnhancerPlugin/PluginPanel.vb`, `release/build-backend-patch.ps1`, `release/backend-channel.example.json`, `release/test-backend-updater.ps1`, `release/发布流程.md`
+  - Notes/blockers: 尚未制作或上传真实生产补丁/`Backend/channel.json`，也未在实际 3.4GB 后端目录执行升级。远端通道上线前新 UI 会保守显示“更新信息不可用”，不会回退到旧覆盖解压。
+
+- [ ] Task: 准备并验证首个生产后端增量通道。
+  - Owner: user / Codex
+  - Status: pending；代码已就绪，发布仍暂停。
+  - Relevant files: ModelScope `Backend/python_YYYYMMDD.7z`, `Backend/patches/*.7z`, `Backend/channel.json`
+  - Notes/blockers: 需要取得已公开完整包对应的基线目录与目标目录，选择不会被旧 CLI 自修补的稳定哨兵。发布脚本现已强制审计并自动制包；上传顺序固定为完整包、补丁、最后 channel，回读核对前不会创建 GitHub Release。未获恢复发布指令前不上传。
+
+- [x] Task: 完成 RTX 3060 代表模型 GPU 兼容矩阵。
+  - Owner: Codex
+  - Status: 578 项全部取得终态：576 PASS、2 SKIP_OOM、0 功能失败/超时。单模型 50/50、同后端 150/150、跨后端 376/378 通过；FlashVSR + GIMM 两种顺序因 6GB 显存不足按用户要求不再重测。
+  - Relevant files: `cli/Program.cs`, `cli/tests/gpu_matrix_runner.py`, `test-results/gpu-matrix/*`
+  - Notes/blockers: GIMM 通常使用 320x240/4 帧；时序超分 + GIMM 使用已验证数值稳定的 256x192/4 帧；其余动态模型使用 96x64/4 帧，静态 ONNX SwinIR 使用 320x240。AnimeSR/SwinIR/CRAFT 已验证不支持当前 TensorRT 单图直接 Engine 路径，不进入组合矩阵。
 
 - [x] Task: 评估并接入自有 ModelScope 模型镜像。
   - Owner: user / Codex
@@ -22,17 +40,17 @@ Updated by: Codex
   - Owner: Codex
   - Status: 已完成反编译审查、选择性移植、构建、隔离模型布局测试、ModelScope 增量同步与实际安装目录部署。
   - Relevant files: `cli/Program.cs`, `cli/README.md`, `VideoEnhancerPlugin/PluginConfig.vb`, `VideoEnhancerPlugin/PluginPanel.vb`
-  - Notes/blockers: 保留旧 `models\RIFE` 兼容读取；新版 CUDA 补帧支持 `.pth/.pt/.pkl`；本轮 TensorRT 改为只收 RIFE 权重并由 RVE 自动构建 Engine；BasicVSR++ 优化目录为 1x，官方单 PTH 为 4x。未合并作者硬编码仓库、删除 `core-path`、旧环境检查和 1.4.2 版本号。GPU 推理仍待 NVIDIA 机器实测。
+  - Notes/blockers: 保留旧 `models\RIFE` 兼容读取；新版 CUDA 补帧支持 `.pth/.pt/.pkl`；TensorRT 只收 RIFE 权重并由 RVE 自动构建 Engine；BasicVSR++ 优化目录为 1x，官方单 PTH 为 4x。未合并作者硬编码仓库、删除 `core-path`、旧环境检查和 1.4.2 版本号。RIFE heavy 与 GMFSS Base 的短样本 CUDA 已通过，完整视频和 TensorRT 仍待实测。
 
 - [x] Task: 合并时序后端低内存修复并重构 CUDA/TensorRT 补帧能力检测。
   - Owner: user / Codex
-  - Status: 低内存实现、内容架构检查、RIFE TRT 专用预构建、CLI/UI 分流和 CPU 测试均已完成；真实 GPU 验证待 3060 环境。
+  - Status: 低内存实现、内容架构检查、RIFE TRT 专用预构建、CLI/UI 分流和 CPU 测试均已完成；3060 上 RIFE heavy 与 GMFSS Base 的短样本 CUDA 已通过。
   - Relevant files: 外部 Python 后端的 `rve-basicvsrpp-backend.py`、`rve-flashvsr-backend.py`、`src/temporal_video.py`、`src/basicvsrpp/model.py`、`src/flashvsr/nodes.py`；仓库内 `cli/Program.cs`、`VideoEnhancerPlugin/PluginPanel.vb`。
-  - Notes/blockers: 通用 `convert_tensorrt.py` 仍只用于单帧超分；RIFE `.pth/.pt/.pkl` 使用独立 flow/encode 构建。当前机器无 NVIDIA；全部 3060 实测通过前不发布 1.0.8。
+  - Notes/blockers: 通用 `convert_tensorrt.py` 仍只用于单帧超分；RIFE `.pth/.pt/.pkl` 使用独立 flow/encode 构建。GMFSS 当前仅支持 CUDA/PyTorch，不进入 NCNN/TensorRT 列表；全部 3060 实测通过前不发布 1.0.8。
 
 - [ ] Task: 建立独立项目发行与上游同步流程。
   - Owner: user / Codex
-  - Status: 独立 SemVer、上游基线记录、版本文档、ModelScope Release 生成脚本与公开稳定通道已完成；GitHub Actions/Release 自动发布和正式上游同步清单仍待后续。
+  - Status: 独立 SemVer、版本文档、ModelScope Release 生成脚本与公开稳定通道已完成；GitHub Actions/Release 自动发布和正式上游同步清单仍待后续。
   - Planned scope: GitHub Actions/Release、上游提交筛选与同步记录。
   - Notes/blockers: 用户确认不分发 `PotPlayer.7z`；ModelScope 创建数据集时自动填入 Apache-2.0 标签，项目自身与第三方代码/载荷的正式许可证仍需另行整理。
 
@@ -105,6 +123,8 @@ Updated by: Codex
   - Relevant files: `preview/1.9.6-preview.1/src/VideoEnhancerPlugin/PluginConfig.vb`, `PluginPanel.vb`, `QueueHook.vb`, `cli/Program.cs`
 
 ## Recently Completed
+
+- 2026-08-25 00:35: RTX 3060 代表模型矩阵收口：578 项中 576 通过、2 项 FlashVSR + GIMM 因 6GB OOM 跳过、0 功能失败；BasicVSR++ 跨后端入口修复后 12/12 组合通过，正式 EXE 与发布产物哈希一致。
 
 - 2026-08-22 19:43: 模型下载资源区改为 LakeUI `UltraDetailListView`；82 个资源不再创建 302 个后代控件，真实列表渲染与全局 3 并发槽验证通过。
 
@@ -232,12 +252,18 @@ Updated by: Codex
 
 ## Environment Notes
 
-- Current known environment: Windows PowerShell，.NET SDK 10，工作区 `D:\pyprogram\3FUI plugin`。
-- Recheck required before: 更换 3FUI/LakeUI 宿主版本后重新编译插件。
-- Local-only notes: 本次从 3FUI 6.1.39 官方单文件包提取 `FFmpegFreeUI.dll`/`LakeUI.dll` 到临时目录，并通过 `VideoEnhancerPlugin/build.ps1 -HostBin <目录>` 编译；工作区 `videoenhancer.ini` 的 `core-path` 指向不存在的 `C:\PortableSoft\VideoEnhancer-CLI`，用于验证列表命令不再依赖该配置。本机没有可调用的 `nvidia-smi`；可用系统 Python 3.14 和 FFmpeg 8.1.1 完成伪后端/FFV1 测试。终端策略拒绝清理两个 2026-08-24 隔离测试目录，具体路径记录在最新 Session Log。
+- Current known environment: Windows PowerShell，工作区 `C:\Codex Program\3fui plugin`；Git 2.55.0、.NET SDK 10.0.400、系统 Python 3.14.6、uv Python 3.13.14、FFmpeg 8.1.2、GitHub CLI 2.93.0、ModelScope CLI 1.39.1。
+- GPU: NVIDIA GeForce RTX 3060 Laptop GPU，驱动 610.88，显存 6144 MiB。3FUI 插件目录已具备当前 Python 后端和补帧模型；已完成短样本 RIFE heavy 与 GMFSS Base CUDA 实际推理，TensorRT 和完整视频仍待验证。
+- 3FUI: 安装路径 `C:\Program portable\3FUI\3FUI`，版本 6.1.39（commit `642ddf4`）；开发程序集缓存位于 `%LocalAppData%\VideoEnhancerDev\FFmpegFreeUI.6.1.39.extracted`，当前插件源码编译通过。
+- Authentication: GitHub CLI 已登录 `maxzrb`；ModelScope CLI 已安装并加入用户 PATH，但此设备尚未登录。不要把 Token 写入仓库。
+- Local-only note: 解析回归辅助文件 `C:\Program portable\3FUI\3FUI\plugin\videoenhancer-resolver-test.exe` 因终端安全策略拒绝删除而保留；3FUI 配置仍指向正式 `videoenhancer.exe`，不会加载该测试副本。CUDA 回归样本及 `output-gmfss-base.mkv` 位于 `%TEMP%\videoenhancer-cuda-scene-test`，同样未绕过终端策略强制清理。补帧能力缓存位于 `%LocalAppData%\VideoEnhancer\cache\interpolation-capabilities-v1.json`。
+- Recheck required before: 3FUI/LakeUI 版本变化后重新提取宿主程序集；真实 TRT 测试前确认 CUDA/TensorRT/Torch-TensorRT 与当前驱动兼容。
 
 ## Verification And Commands
 
+- Latest 2026-08-24 GMFSS checks: 权重元数据确认 Base 顶层无 `rife`、Union 有 `rife`；Base/Union CUDA 初始化均通过。实际 GMFSS Base 640x360 CUDA 任务退出码 0，输入 24 帧、输出 47 帧。CUDA 下拉框列出 12 项，冷扫描约 3.98 秒，缓存后 5 次为 0.368–0.383 秒；TensorRT 与 NCNN 各只列 5 个 RIFE，不含 GMFSS。正式部署 EXE 版本 1.0.7，源/目标 SHA-256 均为 `9F2959857B5D67E2B837213E80E70B5933173263728B74D725FDFF0E4EF1B819`。
+- Latest 2026-08-24 CUDA scene-detect check: 实际 RTX 3060 运行 `rife4.26.heavy.pkl` 成功，RVE 参数使用 `--scene_detect_method pyscenedetect` 且不再传 NCNN 模型目录；任务退出码 0，640x360 输入 24 帧、输出 47 帧，符合 2 倍补帧。正式部署 EXE 源/目标 SHA-256 均为 `64268C901BB124697A04509DE6999D469C8FD7987706C2655D19A6AD7910FE16`。
+- Latest 2026-08-24 RTX 3060 checks: CLI/插件构建成功，内置 Python 脚本 `py_compile` 通过，顺序后端 unittest 6/6 通过；CUDA 列表为 8 项、TensorRT 列表为 5 项。`RIFE/rife4.26.heavy`、`rife4.26.heavy`、带 `.pkl` 路径及普通 `rife4.26` 共 6 种输入均解析到正确权重；正式部署 EXE SHA-256 为 `B18D735C4B213CAE00B851E7238D39F58C19D086189425E9544E0CB59CB8BE62`。
 - Latest 2026-08-24 checks: CLI Release build and single-file publish passed with version 1.0.3 (0 errors, 2 existing CA1416 warnings); ordered backend tests 6/6 passed; ModelScope returned 127 tree entries and 105 downloadable items after pagination; all five RIFE remote sizes/SHA-256 matched local assets; isolated real CLI download and TensorRT discovery of five weights passed.
 - Commands run:
   - `dotnet build cli\VideoEnhancer.csproj -c Release`: 成功，0 错误，2 个既有 Windows 平台分析警告。
@@ -270,12 +296,13 @@ Updated by: Codex
 ## Git Sync
 
 - Git repository: 根目录 yes
-- Branch: `main`
-- Last known feature commit: `25dba3b feat: add RIFE TensorRT interpolation support`
-- Upstream relation: 相对原作者 `origin/main` 为 ahead 16 / behind 5；`git pull --ff-only` 安全中止，独立维护线不合并该上游。
-- Uncommitted changes: 本条记录提交前为 ModelScope 分页修复和收尾记录；完成第二个提交后以 `git status` 为准。
-- Working tree clean: 本条记录提交前 no；收尾目标 yes。
-- Commit recommended before switching agents/devices: yes，本轮分页修复和记录应先提交；推送 `fork` 需用户另行要求。
+- Branch: `main`，跟踪 `fork/main`
+- Last known commit: `7030ba1 docs: record backend upload and GPU handoff`
+- Remote topology: `fork=https://github.com/maxzrb/VideoEnhancer.git`；`origin=https://github.com/user-Wing/VideoEnhancer.git`。
+- Upstream relation: 修复前 `main` 与 `fork/main` 一致；独立维护线不直接合并或推送原作者 `origin`。
+- Uncommitted changes: `cli/Program.cs`、`docs/codex/STATUS.md`、`version/工作进度.md`。
+- Working tree clean: no，本轮模型解析修复和记录待提交。
+- Commit recommended before switching agents/devices: yes；解析修复应作为独立提交，验证后再决定是否推送 `fork/main`。不得发布 1.0.8。
 
 ## Session Log
 
@@ -1038,3 +1065,107 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Git publication: 功能提交 `753a3a4 feat: add RIFE TensorRT tooling and temporal low-memory support` 已推送到 `https://github.com/maxzrb/VideoEnhancer.git` 的 `main`；本地 `HEAD` 与 `fork/main` 均为 `753a3a447dc2c16a79c607389a2daeec561fb087`。原作者 `origin` 未推送、未合并。
 - Handoff: 3060 设备应先拉取 `fork/main`，再从 `AerithDream/VideoEnhancer-Models` 下载远端 revision `c0d5b6c09e08df7a2b25af49ed6f73e586a4bd1c` 的 `Backend/python_20260824.7z`。优先验证 RIFE CUDA、RIFE TensorRT 首次构建/缓存命中，以及 FlashVSR/BasicVSR++ 长视频内存。
 - Release guard: 项目版本保持 1.0.7；用户本地验证无误前不得发布 1.0.8。
+
+### 2026-08-24 21:30 - Codex
+
+- User report: CUDA 补帧选择 `RIFE/rife4.26.heavy` 后报“补帧模型名不唯一”。
+- Root cause: `ResolveInterpModel()` 已精确匹配 `RIFE/rife4.26.heavy`，但旧逻辑仍调用通用 `Path.GetFileNameWithoutExtension(raw)`；Windows 将 `.heavy` 视为扩展名并得到 `rife4.26`，从而又匹配普通 `rife4.26.pkl`，错误形成两个候选。实际模型目录中 heavy 和普通权重各只有一份。
+- Fix: `cli/Program.cs` 改为先按 `InterpModelDisplayName` 精确匹配完整相对架构路径；短名称回退只剥离 `.pth/.pt/.pkl/.engine` 四种真实权重扩展名，保留 `.heavy` 等模型名后缀；直接候选统一返回规范绝对路径，解决带扩展名和混合分隔符的二次架构检查失败；真正歧义时列出候选相对路径。
+- Verification: 基于远端 `7030ba1` 构建插件和自包含 CLI 成功（仅 2 个既有 CA1416）；内置 Python 脚本编译通过；顺序后端测试 6/6。真实便携后端列出 CUDA 8 项、TensorRT 5 项；heavy/普通 4.26 的相对路径、短名和带 `.pkl` 输入共 6/6 正确解析，heavy 架构为 `RIFE425_heavy`、普通为 `RIFE425`。
+- Deployment: 仅覆盖 `C:\Program portable\3FUI\3FUI\plugin\videoenhancer.exe`，未修改 DLL、Python 或模型；源/目标 SHA-256 均为 `B18D735C4B213CAE00B851E7238D39F58C19D086189425E9544E0CB59CB8BE62`。部署版再次检查 `RIFE/rife4.26.heavy` 退出码 0，可直接重试任务，无需重启 3FUI。
+- Local cleanup: 终端安全策略拒绝删除测试副本 `videoenhancer-resolver-test.exe`；配置未引用该文件，不影响运行。
+- Release/Git: 版本保持 1.0.7，未发布 1.0.8。源码和本记录待提交，未推送。
+
+### 2026-08-24 21:45 - Codex
+
+- User report: 模型解析修复后任务进入 CUDA 后端，但在转场检测阶段报 `ValueError: The provided filename ...\EfficientNet-SceneDetect is a directory`，用户询问是否由 `.pkl` 引起以及换 `.pth` 是否更好。
+- Root cause: `.pkl` 权重已被 PyTorch 成功加载并识别为 `RIFE425_heavy`；崩溃与补帧权重格式无关。当前模型包只含 `EfficientNet-SceneDetect.bin/.param`（NCNN 格式），旧 CLI 却对所有后端都传入该目录；RVE 在 CUDA/TensorRT 主后端会选择 PyTorch 转场检测器并调用 `torch.jit.load(directory)`，因此失败。
+- Fix: `BuildBackendArgs()` 按主后端选择转场检测方式。CUDA/TensorRT 使用 RVE 内置且无需外部模型的 `pyscenedetect`；NCNN/ONNX 继续使用 `sudo_scene_detect` 和现有 EfficientNet NCNN 模型。转场检测和用户阈值仍然启用。
+- Verification: CLI Release 构建、自包含发布、6/6 既有后端测试及模型解析检查通过。RTX 3060 上实际运行 `rife4.26.heavy.pkl` CUDA 任务退出码 0；640x360 输入 24 帧、输出 47 帧，符合 2 倍补帧 `2N-1`，证明 `.pkl` 和修复后的转场检测链路均可工作。
+- Deployment: 正式 EXE 已覆盖 `C:\Program portable\3FUI\3FUI\plugin\videoenhancer.exe`；源/目标 SHA-256 均为 `64268C901BB124697A04509DE6999D469C8FD7987706C2655D19A6AD7910FE16`。未修改 DLL、Python 后端或模型文件，不建议仅为扩展名改成 `.pth`。
+- Remaining: 用户重试原始 1920x1080 完整任务；随后验证 RIFE TensorRT 首次构建/缓存命中及 FlashVSR/BasicVSR++ 长视频内存。
+- Release/Git: 版本保持 1.0.7，未发布 1.0.8。工作树包含 CLI 与两份交接记录改动，尚未提交或推送；建议完整视频验证后单独提交本轮修复。
+
+### 2026-08-24 22:00 - Codex
+
+- User report: `GMFSS/GMFSS-Fortuna-Base` CUDA 初始化报 `KeyError: 'rife'`，且安装 GMFSS 后补帧模型下拉框读取明显慢于只有 RIFE 时；用户同时询问 GMFSS 是否存在 NCNN/TensorRT 可用版本。
+- Root cause: Base 权重的 `metadata` 明确为 `architecture=gmfss, model_type=base`，顶层只有 `flownet/metricnet/feat_ext/fusionnet`，设计上没有 Union 才需要的 `rife`。旧 RVE 加载器默认 `model_type=union`，无条件访问 `combined_state_dict["rife"]`，随后还错误使用 Union 的 `FusionNet_u`。列表变慢则因为每次新 CLI 进程都导入 PyTorch 并完整扫描所有权重；当前目录新增 4 个 GIMM 和 3 个 GMFSS 大权重后更明显。
+- Fix: CLI 启动时只对结构完全匹配的已知 RVE 2.4 GMFSS 加载器应用 UTF-8、换行符保持的兼容补丁；未来结构不匹配则不覆盖。加载器读取 `metadata.model_type`，Base 使用 `FusionNet_b` 且不创建 IFNet，Union 使用 `FusionNet_u` 并按 `rife` 内部架构选择 IFNet。架构检查器对 GMFSS/GIMM 使用 `torch.load(..., weights_only=True, mmap=True)` 的轻量元数据路径；CLI 新增按绝对路径、文件大小和 UTC 修改时间自动失效的本地能力缓存。
+- Verification: GMFSS Base 与 Union 在 RTX 3060 上均完成 CUDA 模型初始化。Base 实际 640x360 补帧任务退出码 0，输入 24 帧、输出 47 帧，符合 2 倍补帧 `2N-1`。CLI 构建/发布成功（0 错误、2 个既有 CA1416），Python `py_compile` 和顺序后端 unittest 6/6 通过。12 项 CUDA 权重冷扫描约 3.98 秒；缓存后正式 EXE 连续 5 次为 0.368–0.383 秒。模型文件指纹变化会自动重检。
+- Backend scope: 当前项目和所用 RVE 原生 GMFSS 路径仅实现 CUDA/PyTorch。正式列表验证 CUDA 有 3 个 GMFSS，TensorRT 与 NCNN 均只列 5 个 RIFE；RVE 源码也明确提示 GMFSS TensorRT 尚未实现。更正：外部 `vs-gmfss_union` / `vs-gmfss_fortuna` 与 Enhancr 已实现 GMFSS Union/Fortuna TensorRT，但不是当前 RVE 可直接启用的现成路径。
+- Deployment: 正式 EXE 已覆盖 `C:\Program portable\3FUI\3FUI\plugin\videoenhancer.exe`，版本仍为 1.0.7；源/目标 SHA-256 均为 `9F2959857B5D67E2B837213E80E70B5933173263728B74D725FDFF0E4EF1B819`。安装后端的 `GMFSS.py` 与架构检查器已更新；未修改模型权重、插件 DLL 或发布通道。
+- Remaining: 用户重试原始 1920x1080 GMFSS Base 任务并比较 Union/AnimeRun 画面；随后继续 RIFE TensorRT 首次构建/缓存命中和时序模型长视频内存验证。
+- Release/Git: 版本保持 1.0.7，未发布 1.0.8。`HEAD` 与 `fork/main` 均为 `7030ba1`；工作树有 `cli/Program.cs`、架构检查器和两份记录共 4 个文件未提交，建议完整任务验证后提交并推送。
+
+### 2026-08-24 22:10 - Codex
+
+- Decision: 用户决定暂不接入 GMFSS TensorRT。已更正此前“GMFSS Fortuna 没有 TensorRT 实现”的错误记录：当前 RVE 2.4 原生 GMFSS 类确实只执行 PyTorch/CUDA并在 TensorRT 下回退，但 Enhancr 通过 `vs-gmfss_union` / `vs-gmfss_fortuna` 已实现 Union 与 Fortuna TensorRT。
+- RVE model audit: 本机 RVE 2.4.1-dev17 的补帧工厂支持 RIFE、GIMM、GMFSS、IFRNet；当前项目能力检查只放行前三者，因此唯一尚未接入的现成补帧架构是 IFRNet PyTorch/CUDA。IFRNet 在 TensorRT 参数下只回退 PyTorch，不应列入 TensorRT；NCNN 插帧器仍是 RIFE 专用。ModelScope 当前还未镜像 RIFE 4.15、4.18、4.20、4.22/4.22-lite 等 RVE 已兼容的旧权重变体，但这属于补权重而非新增架构。
+- Restoration audit: RVE 命令行完整支持可重复传入的 `--extra_restoration_models` 1x 修复链，官方模型表包括 DeH264、DRUNet、DnCNN。本机已有 `DenoiseH264-SuperUltraCompact-1x`、`DnCNN-ColorBlind-1x` 的 NCNN 权重及两个 1x PTH/ONNX 修复模型，但当前 CLI/插件没有独立修复模型和链式顺序入口；作为普通 1x 主模型出现不等于完整接入修复链。
+- Non-model capability: RIFE DRBA 类仍存在，但当前 `rve-backend.py` 把 `drba=False` 写死，不能视为可直接接入的命令行能力。ONNX 插帧文件存在，但 `RenderVideo` 主路径没有完整接线，也不列为已支持后端。
+- Priority: 建议先补 IFRNet CUDA 的权重来源、ModelScope 分发、架构扫描和下拉框；再实现 DeH264/DRUNet/DnCNN 修复链。GMFSS TensorRT 保持暂缓。
+- Release/Git: 本次只审计和更正记录，不修改功能代码、模型或部署文件；版本保持 1.0.7，未发布 1.0.8。当前功能改动仍建议在完整视频验证后提交并推送。
+
+### 2026-08-24 22:20 - Codex
+
+- Question: 用户询问去压缩/去噪模型与后续不同后端的兼容关系。本次只审计现有代码，不实施功能。
+- Native RVE semantics: `--extra_restoration_models` 可以重复传入，但没有独立 backend 参数；`RenderVideo.setupExtraRestoration()` 使用整个进程的 `self.backend`。原生和项目内 `upscale-first` 包装器都固定按“全部 1x 修复 → 补帧/超分”执行。PyTorch/TensorRT 共用 `UpscalePytorch`，NCNN 使用 scale=1 的 `UpscaleNCNN`；ONNX/DirectML 没有 extra restoration 分支，FlashVSR/BasicVSR++ 会提前转入专用时序入口，也不接收修复链。
+- Cross-backend design: 修复后端与第一项后续操作相同时可合并在一个 RVE 进程内，避免中间编码；不同时必须扩展现有 `RunVideoPipeline()`，用 RGB FFV1 无损中间视频拆成 2–3 阶段。建议固定修复优先，并按 DeH264 → denoise → interpolation/upscale 排序。当前管线只规划超分与补帧两项，尚不能表达独立修复阶段。
+- HDR boundary: 本项目已拒绝 HDR + NCNN/ONNX，且 RVE 自身会把 NCNN HDR 回退到 SDR。因此 HDR 修复阶段只能用 CUDA/PyTorch 或经验证的 TensorRT；即使后续切回 CUDA，前一 NCNN/ONNX 阶段造成的 HDR 丢失也无法恢复。
+- Model/backend risk: DeH264 类普通单输入 1x PTH/NCNN 模型最适合首批验证。标准 DnCNN 可走 NCNN，PyTorch 注册表也支持，但标记为不支持 FP16，CUDA 通常会回退 FP32。DRUNet 同样不支持 FP16，且当前 `UpscaleModelWrapper` 从 Spandrel 描述器取出原始 `model.model`，丢掉用于拼接噪声图的 `call_fn`；直接按三通道调用四通道 DRUNet 有结构性风险，接入前必须修补并实测。TensorRT 通过 Torch-TensorRT 尝试编译每个 1x PTH，不等于所有架构都可编译；需要按模型建立白名单和本机缓存验证。
+- Resource risk: 同进程最终会重新加载补帧、超分和全部修复模型；RTX 3060 6 GB 在多模型 CUDA/TRT 组合下可能 OOM。跨进程阶段较稳但增加 FFV1 磁盘空间、读写时间和一次 RGB 解码/编码边界。
+- Release/Git: 未修改功能代码、模型或部署文件，只更新 HandShake 记录；版本仍为 1.0.7。工作树继续包含此前两个源码修改和两份记录，建议完整 GPU 验证后再统一提交。
+
+### 2026-08-24 23:25 - Codex
+
+- Matrix scope: 用户将“所有模型”调整为“每类架构选择代表模型，代表组合全部测试”。建立 `cli/tests/gpu_matrix_runner.py`，生成 4 帧 FFV1 夹具、逐项 JSONL、CSV/Markdown 报告、超时日志、断点恢复和失败重跑。经 TensorRT 能力校正后有效矩阵为 578 项：单模型 50、同后端 150、跨后端 378。
+- Single-model result: 当前可选的补帧/超分代表 50/50 全部通过。NCNN 8 类、CUDA 14 类、TensorRT 11 类、ONNX 9 类、FlashVSR、BasicVSR++，以及 NCNN/CUDA/TensorRT RIFE、CUDA GIMM、GMFSS Base/Union 均有真实输出，并按尺寸与逐帧计数验证。
+- Fixes from runtime: 修复 NCNN 在完整输出后的 Vulkan `0xC0000005` 误报（仅严格 ffprobe 校验通过时归一成功）；过滤场景检测模型；GIMM 新字段加载、FP32/autocast 与 320x240 最低夹具；SwinIR/GRL CUDA FP32；渲染线程异常后主动清理；ONNX 带点名称与 `-2x.onnx` 倍率；TensorRT 64 高度探测、MAX_PATH 缓存键和 GRL FP32 Engine。
+- TensorRT capability: AnimeSR 是 5D 时序输入，SwinIR 命中 Torch-TensorRT 切片分解错误，CRAFT 生成混合分区多输出 Engine，均不兼容当前单图直接 Engine 适配器，已从 TensorRT 清单排除。GRL FP16 失败、FP32 Engine 验证和实际视频均通过，因此保留并按模型选择 FP32。
+- Verification/deployment: 多轮 `dotnet build/publish` 均 0 错误（仅 2 个既有 CA1416），顺序包装器 unittest 6/6；正式 `C:\Program portable\3FUI\3FUI\Plugin\videoenhancer.exe` 已同步。版本保持 1.0.7，未发布 1.0.8；工作树尚未提交，矩阵完整收口后统一建议提交。
+
+### 2026-08-25 09:18 - Codex
+
+- User decision: 用户明确暂停 1.0.8 发布，要求先评估老用户能否及时更新 Python 后端，以及覆盖安装是否会留下旧脚本。本轮未修改版本号、未构建或上传发布资产、未创建 GitHub Release/标签。
+- Current mechanism: `DownloadRepositoryModel()` 将 Backend 归档下载到活动 `CoreRoot/python`，随后 `7z x -y` 直接解压到 `CoreRoot`。该路径只覆盖同名文件，不删除新版归档中已取消或改名的旧文件；没有暂存环境、版本清单、健康检查、目录交换或失败回滚，中断后可能形成半新半旧环境。
+- Discovery issue: `PluginPanel.IsDownloadInstalled()` 对 Backend 只检查 `python/python.exe`。只要任意旧后端存在，最新日期归档也显示“本地已安装”，单项下载函数随即返回，因此正常用户看不到可操作的后端更新入口。
+- Compatibility boundary: 当前待发布 EXE 会在启动时对已知 RVE 2.4 文件结构同步补帧检查器，并以保守文本匹配修补 GMFSS、GIMM 和 ONNX；这能临时兜住本轮四个后端脚本变化，但结构不匹配时会放弃修改，不能作为长期升级方案。
+- Recommended design: 后端更新独立于普通模型下载。使用远端/本地版本与 SHA-256 标记；归档下载到活动目录之外；解压到同盘暂存目录；验证 Python、关键脚本和基本导入；等待任务与 3FUI 退出后，把现有 `python` 目录改名为备份并将新目录原子换入；失败立即回滚。旧目录保留到新后端健康检查通过，未知用户文件不直接删除。
+- Release/Git: `main` 与 `fork/main` 在审计前均为 `7030ba1`，工作树已有矩阵相关未提交变更。版本保持 1.0.7；建议完成事务式后端更新器和隔离测试后，再恢复 1.0.8 发布并提交推送。
+
+### 2026-08-25 09:27 - Codex
+
+- User concern: 每次后端更新重新下载约 3.4GB 不可接受，询问是否可采用游戏式增量更新。本轮仍只做设计，不恢复发布、不上传资源。
+- Recommendation: 首版采用文件级增量包，而不是对压缩后的 `.7z` 做二进制差分。本轮远端基线后仅 4 个 Python 脚本变化，原始总量约 47KB，补丁可降到几十 KB；压缩包二进制差分对重压缩和精确基础文件高度敏感，不适合作为第一版。
+- Patch contract: 远端通道清单列出目标版本、全量包及可用补丁边；每个补丁记录 `baseVersion`、`targetVersion`、新增/替换/删除操作、每个旧文件和新文件 SHA-256、补丁自身大小与 SHA-256、最低 CLI 版本及健康检查。客户端根据本地版本选择最小可达补丁链。
+- Transaction: 下载到活动目录外并校验；拒绝直接修改正在运行的 Python；更新前只备份补丁涉及的文件，删除操作改为移动到事务备份；新文件先写 `.new` 并验哈希，再原子替换；全程写 pending journal。进程中断后下次启动可回滚或继续，健康检查通过后才提交新版本标记。
+- Compatibility: 遗留环境没有版本标记时，用少量已知哨兵文件哈希识别公开基线；能识别则补写标记并走增量，无法识别、关键文件被改动或补丁链过大时才提示全量修复安装。未知用户文件保留，只有旧清单中受项目管理且补丁明确声明删除的路径才会移动。
+- Scope decision: 保留 `Backend/python_YYYYMMDD.7z` 作为新装与修复兜底；普通脚本/小 DLL 更新走文件级补丁。若未来单个大型二进制频繁变化，再考虑内容寻址分块或 xdelta，不在 MVP 中增加复杂度。
+
+### 2026-08-25 10:09 - Codex
+
+- Objective: 按用户授权实现游戏式后端增量更新机制，同时继续暂停 1.0.8 发布。
+- Implementation: 新增 `BackendUpdateManager`，实现 schema v1 通道/补丁解析、遗留哨兵识别、按下载字节数选择最小补丁链、本地版本标记、逐文件 old/new SHA-256、add/replace/delete、已自修补文件幂等跳过、活动 Python 进程阻止、受影响文件备份、pending journal、原子替换、健康检查、即时回滚和下次启动恢复。未知/损坏基线走完整包暂存探测和同卷目录切换，避免覆盖解压残留旧脚本。
+- Plugin/UI: Backend 状态与模型列表分别查询；下载页显示当前版本、目标版本、增量/完整模式及有效下载大小；Backend 不再进入分类批量、下载全部或三路并行，单独调用 `--update-backend`。远端 channel 不可用时保守禁用旧覆盖路径。
+- Release tooling: 新增 `release/build-backend-patch.ps1`、`release/backend-channel.example.json`、`release/test-backend-updater.ps1`；发布文档规定完整包/补丁/channel 上传顺序和哈希门禁。CLI 新增 `--backend-status`、`--update-backend`、`--apply-backend-patch`、`--backend-channel`，并拒绝 `--download-model Backend/...` 的旧覆盖安装。
+- Verification: `dotnet build cli/videoenhancer.csproj -c Release --no-restore` 成功（0 错误、2 个既有 CA1416）；插件用 `%LocalAppData%\VideoEnhancerDev\FFmpegFreeUI.6.1.39.extracted` 构建成功；后端更新隔离测试 6/6（通道增量、SHA 冲突、健康失败回滚、中断恢复、完整修复、幂等部分补丁）；顺序包装器 unittest 6/6；两个 Python 工具 `py_compile` 通过；CLI 帮助和 `git diff --check` 通过。
+- Files changed this session: `cli/BackendUpdateManager.cs`, `cli/Program.cs`, `VideoEnhancerPlugin/PluginPanel.vb`, `release/build-backend-patch.ps1`, `release/backend-channel.example.json`, `release/test-backend-updater.ps1`, `release/发布流程.md`, `docs/codex/STATUS.md`, `version/工作进度.md`。工作树还包含此前 GPU 矩阵与运行时修复，均保留未覆盖。
+- Release/Git: 版本保持 1.0.7；没有上传 ModelScope/GitHub 资产、创建标签或恢复 1.0.8 发布。`main...fork/main`，工作树不干净。首个生产补丁仍需从真实公开基线和目标后端生成并做实际安装目录验证；建议先提交当前源码与测试，再准备远端通道。
+
+### 2026-08-25 10:34 - Codex
+
+- Objective: 按用户要求强化发布流程：每次严格检查 Backend 变动并制作增量包；GitHub Release 正文强制逐行使用 `[更改]xxxx`、`[新增]xxxx`、`[移除]xxxx`。
+- Release gate: `build-modelscope-release.ps1` 取消默认自由文本说明，支持 `-NotesFile`，在构建前拒绝空行、自由段落、未知分类和一行多个条目；生成 `release-notes.txt`，`stable.json.notes` 与 GitHub `--notes-file` 使用同一规范化内容。每次运行必须提供 Backend 基线/候选目录及版本，新增 `-ValidateOnly` 供无构建预检。
+- Backend packaging: 新增 `prepare-backend-update.ps1`，逐文件计算长度/SHA-256 并分类 add/replace/delete。无变化时要求版本不变；有变化时要求版本递增、完整包和稳定哨兵，解压完整包并与候选目录逐文件核对，随后调用补丁生成器并输出增量包、`channel.json`、`backend-release-audit.json`。正式双源发布在 Backend 变化时先按完整包→补丁→channel 上传 ModelScope 并回读核对，之后才创建 GitHub Release。
+- Documentation/tests: 新增 `release/release-notes.example.txt` 和 `release/test-release-gates.ps1`；更新 `release/发布流程.md` 的门禁、构建、一键发布、上传顺序、后端制包、Release Notes 模板和最终签字项。
+- Verification: PowerShell 三个发布脚本语法解析通过；模板文件通过 `-ValidateOnly`；旧式自由文本说明按预期拒绝；正式门禁测试 4/4 通过，覆盖合法逐行模板、非法自由文本、Backend add/replace/delete 自动制包及完整包不一致拒绝；`git diff --check` 通过。
+- Release/Git: 版本保持 1.0.7，1.0.8 仍暂停；未创建 Release/标签、未上传后端或本体资产。`git pull --ff-only` 为 Already up to date，`main...fork/main`；工作树含本轮和此前 GPU/增量运行时改动，尚未提交，建议在准备真实发布资产前提交。
+
+### 2026-08-25 10:56 - Codex
+
+- Objective: 按用户恢复发布的指令准备 1.0.8 本体，同时明确暂缓 Backend 包与更新通道；移除现行发行元数据中的 `UpstreamBase/upstreamBase`。
+- Backend audit: 从公开 `python_20260824.7z` 提取 2026.08.24.1 基线，与当前候选 2026.08.25.1 逐文件哈希。修正审计器以排除顶层下载归档和 `backend/cache/` Triton 运行缓存，最终为 0 add、7 replace、0 delete；暂缓模式本地补丁 14,699 字节，不生成 channel，未上传任何 Backend 资产。
+- Release tooling: `build-modelscope-release.ps1` 新增显式 `-DeferBackendPublish`，仍执行真实审计和补丁生成，但跳过完整包、补丁及 channel 上传；门禁测试增加暂缓模式与缓存排除，5/5 通过。发布文档要求此模式只能在用户明确授权时使用，不能宣称后端已发布。
+- Version/metadata: `PluginVersion.Current`、CLI csproj 和 README 更新为 1.0.8；删除 `PluginVersion.UpstreamBase`、更新清单的 `upstreamBase` 属性和 `stable.json` 生成字段。Release Notes 已按每行单项的固定模板准备。
+- Verification: CLI 与插件 Release 构建成功（0 错误、2 个既有 Windows CA1416）；顺序包装器 unittest 6/6、Python `py_compile`、后端事务测试 6/6、发布门禁 5/5、EXE 更新器 success/tamper/invalid-package/rollback 均通过。产物版本 1.0.8，大小 17,471,662，SHA-256 `ee510e5599029e6637fdd072f8b64a78dacab07b21d3a6f28c54a8c401afd46e`；清单哈希一致且无 `upstreamBase`。
+- Release/Git: 此记录时尚未提交、推送、创建标签或上传本体。下一步提交源码并仅发布本体双源；Backend 继续暂缓。

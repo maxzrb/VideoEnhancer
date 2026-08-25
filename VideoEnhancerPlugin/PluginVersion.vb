@@ -1,10 +1,9 @@
 Namespace videoenhancer
 
-    ''' <summary>独立发行版本；上游基线只用于同步记录，不参与更新比较。</summary>
+    ''' <summary>独立发行版本。</summary>
     Public NotInheritable Class PluginVersion
 
-        Public Const Current As String = "1.0.7"
-        Public Const UpstreamBase As String = "1.4.2"
+        Public Const Current As String = "1.0.8"
 
         Private Sub New()
         End Sub

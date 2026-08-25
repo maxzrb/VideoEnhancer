@@ -40,6 +40,7 @@ internal static class Program
     private const string EmbeddedOrderedBackendResource = "VideoEnhancer.Embedded.rve-ordered-backend.py";
     private const string EmbeddedInterpolationInspectorResource = "VideoEnhancer.Embedded.inspect_interpolation_models.py";
     private const string EmbeddedRifeTensorRTPrepareResource = "VideoEnhancer.Embedded.prepare_rife_tensorrt.py";
+    private const int InterpolationCapabilityCacheVersion = 1;
     private const string DefaultModelScopeDataset = "AerithDream/VideoEnhancer-Models";
     private static string? ModelScopeToken =>
         Environment.GetEnvironmentVariable("VIDEOENHANCER_MODELSCOPE_TOKEN")?.Trim() is { Length: > 0 } localToken
@@ -75,6 +76,7 @@ internal static class Program
     private static string InterpolationInspectorScript => Path.Combine(CoreRoot, "python", "backend", "inspect_interpolation_models.py");
     private static string RifeTensorRTPrepareScript => Path.Combine(CoreRoot, "python", "backend", "prepare_rife_tensorrt.py");
     private static string FfmpegExe => Path.Combine(CoreRoot, "bin", "ffmpeg", "ffmpeg.exe");
+    private static string FfprobeExe => Path.Combine(CoreRoot, "bin", "ffmpeg", "ffprobe.exe");
     private static string ModelsDir => Path.Combine(CoreRoot, "models");
     private static string FrameInterpolationDir => Path.Combine(ModelsDir, "Frame-Interpolation");
     private static string LegacyRifeDir => Path.Combine(ModelsDir, "RIFE");
@@ -83,6 +85,16 @@ internal static class Program
         ?? Path.Combine(ModelsDir, "EfficientNet-SceneDetect");
     private static string DefaultModel => Path.Combine(ModelsDir, "RealESRGAN-AnimeVideoV3-2x");
     private static string PythonSitePackages => Path.Combine(CoreRoot, "python", "python", "Lib", "site-packages");
+    private static string InterpolationCapabilityCachePath
+    {
+        get
+        {
+            var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(basePath)) basePath = Path.GetTempPath();
+            return Path.Combine(basePath, "VideoEnhancer", "cache",
+                $"interpolation-capabilities-v{InterpolationCapabilityCacheVersion}.json");
+        }
+    }
 
     // ── Windows Job Object：CLI 进程被 3fui 停止/退出时，整棵后端进程树（python + ffmpeg）一并终止 ──
 
@@ -410,6 +422,10 @@ internal static class Program
         public bool ListDownloadModels;
         public bool CleanDownloadArchives;
         public string DownloadModel = "";
+        public bool BackendStatus;
+        public bool UpdateBackend;
+        public string ApplyBackendPatch = "";
+        public string BackendChannel = "";
         public string DownloadUrl = "";
         public string DownloadOutput = "";
         public string ExtractArchive = "";
@@ -584,6 +600,23 @@ internal static class Program
             return Fail(configError, 1);
         }
 
+        BackendUpdateManager.RecoverPending(CoreRoot);
+
+        if (o.BackendStatus)
+        {
+            return RunBackendStatus(o.BackendChannel, o.Json);
+        }
+
+        if (o.UpdateBackend)
+        {
+            return RunBackendUpdate(o.BackendChannel);
+        }
+
+        if (!string.IsNullOrWhiteSpace(o.ApplyBackendPatch))
+        {
+            return ApplyBackendPatchArchive(Path.GetFullPath(o.ApplyBackendPatch));
+        }
+
         MigrateLegacyFfmpegLayout();
         EnsureInterpolationSupportScripts();
 
@@ -743,10 +776,6 @@ internal static class Program
         string? interpModel = null;
         if (o.HasInterpModel)
         {
-            if (o.Backend == "basicvsrpp")
-            {
-                return Fail("BasicVSR++ 是时序视频超分管线，不能与 RIFE 补帧同时运行");
-            }
             interpModel = ResolveInterpModel(o.InterpModel, o.InterpBackend);
             if (interpModel.Length == 0)
             {
@@ -902,6 +931,18 @@ internal static class Program
                     break;
                 case "--download-model":
                     o.DownloadModel = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--backend-status":
+                    o.BackendStatus = true;
+                    break;
+                case "--update-backend":
+                    o.UpdateBackend = true;
+                    break;
+                case "--apply-backend-patch":
+                    o.ApplyBackendPatch = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--backend-channel":
+                    o.BackendChannel = TakeValue(args, ref i, name, inlineValue);
                     break;
                 case "--download-url":
                     o.DownloadUrl = TakeValue(args, ref i, name, inlineValue);
@@ -1338,6 +1379,217 @@ internal static class Program
         source.CopyTo(destination);
     }
 
+    private static string DefaultBackendChannel => ModelScopeResolveRoot + "Backend/channel.json";
+
+    private static BackendUpdateChannel LoadBackendChannel(string configuredSource, out string source)
+    {
+        source = string.IsNullOrWhiteSpace(configuredSource)
+            ? Environment.GetEnvironmentVariable("VIDEOENHANCER_BACKEND_CHANNEL")?.Trim() ?? DefaultBackendChannel
+            : configuredSource.Trim();
+        string json;
+        if (Uri.TryCreate(source, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
+            ApplyModelScopeAuthentication(client);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("VideoEnhancer/" + ToolVersion);
+            json = client.GetStringAsync(uri).GetAwaiter().GetResult();
+        }
+        else
+        {
+            source = Path.GetFullPath(source);
+            json = File.ReadAllText(source, Encoding.UTF8);
+        }
+        return BackendUpdateManager.ReadChannel(json);
+    }
+
+    private static int RunBackendStatus(string configuredSource, bool json)
+    {
+        try
+        {
+            var channel = LoadBackendChannel(configuredSource, out _);
+            var status = BackendUpdateManager.GetStatus(CoreRoot, channel);
+            if (json)
+            {
+                using var buffer = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(buffer))
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("state", status.State);
+                    writer.WriteString("installedVersion", status.InstalledVersion);
+                    writer.WriteString("latestVersion", status.LatestVersion);
+                    writer.WriteString("mode", status.Mode);
+                    writer.WriteNumber("downloadSize", status.DownloadSize);
+                    writer.WriteNumber("patchCount", status.PatchRoute.Count);
+                    writer.WriteEndObject();
+                }
+                Console.WriteLine(Encoding.UTF8.GetString(buffer.ToArray()));
+            }
+            else
+            {
+                Console.WriteLine($"BACKEND_STATUS|{status.State}|{status.InstalledVersion}|{status.LatestVersion}|{status.Mode}|{status.DownloadSize}");
+            }
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            WriteRemoteFailure("无法读取后端更新状态", ex);
+            return 3;
+        }
+    }
+
+    private static int RunBackendUpdate(string configuredSource)
+    {
+        try
+        {
+            var channel = LoadBackendChannel(configuredSource, out var source);
+            var status = BackendUpdateManager.GetStatus(CoreRoot, channel);
+            if (status.State == "current")
+            {
+                Console.WriteLine("BACKEND_CURRENT|" + status.LatestVersion);
+                return 0;
+            }
+            if (status.Mode == "full")
+            {
+                Console.WriteLine($"BACKEND_FULL_START|{status.LatestVersion}|{status.Full.Size}");
+                var archive = AcquireBackendArtifact(source, status.Full.Path, status.Full.Size, status.Full.Sha256);
+                return ApplyBackendFullArchive(archive, status.LatestVersion);
+            }
+
+            foreach (var patch in status.PatchRoute)
+            {
+                Console.WriteLine($"BACKEND_PATCH_START|{patch.BaseVersion}|{patch.TargetVersion}|{patch.Size}");
+                var archive = AcquireBackendArtifact(source, patch.Path, patch.Size, patch.Sha256);
+                var code = ApplyBackendPatchArchive(archive);
+                if (code != 0) return code;
+            }
+            Console.WriteLine("BACKEND_UPDATE_COMPLETE|" + status.LatestVersion);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            if (IsNetworkFailure(ex) || IsAuthenticationFailure(ex))
+                WriteRemoteFailure("后端更新失败", ex);
+            else
+                Console.Error.WriteLine("[错误] 后端更新失败：" + ex.Message);
+            return 1;
+        }
+    }
+
+    private static string AcquireBackendArtifact(
+        string channelSource,
+        string artifactPath,
+        long expectedSize,
+        string expectedSha256)
+    {
+        var downloads = Path.Combine(BackendUpdateManager.StateRoot(CoreRoot), "downloads");
+        Directory.CreateDirectory(downloads);
+        var safeName = Path.GetFileName(artifactPath.Replace('\\', '/'));
+        if (string.IsNullOrWhiteSpace(safeName))
+            throw new InvalidOperationException("后端更新包路径无效：" + artifactPath);
+        var destination = Path.Combine(downloads, safeName);
+        if (File.Exists(destination))
+        {
+            try
+            {
+                BackendUpdateManager.VerifyArtifact(destination, expectedSize, expectedSha256);
+                return destination;
+            }
+            catch
+            {
+                File.Delete(destination);
+            }
+        }
+
+        if (Uri.TryCreate(channelSource, UriKind.Absolute, out var channelUri)
+            && (channelUri.Scheme == Uri.UriSchemeHttp || channelUri.Scheme == Uri.UriSchemeHttps))
+        {
+            string url;
+            if (Uri.TryCreate(artifactPath, UriKind.Absolute, out var artifactUri))
+                url = artifactUri.ToString();
+            else if (channelSource.Equals(DefaultBackendChannel, StringComparison.OrdinalIgnoreCase))
+                url = ModelScopeResolveRoot + string.Join("/", artifactPath.Split('/').Select(Uri.EscapeDataString));
+            else
+                url = new Uri(channelUri, artifactPath).ToString();
+            var code = ModelScopeToken is null
+                ? DownloadWithAria(url, destination, printComplete: false)
+                : DownloadModelScopeFile(url, destination);
+            if (code != 0) throw new InvalidOperationException("无法下载后端更新包：" + artifactPath);
+        }
+        else
+        {
+            var channelFile = Path.GetFullPath(channelSource);
+            var channelDirectory = Path.GetDirectoryName(channelFile)!;
+            var source = Path.IsPathRooted(artifactPath)
+                ? Path.GetFullPath(artifactPath)
+                : Path.GetFullPath(Path.Combine(channelDirectory, artifactPath.Replace('/', Path.DirectorySeparatorChar)));
+            if (!File.Exists(source)
+                && Path.GetFileName(channelDirectory).Equals("Backend", StringComparison.OrdinalIgnoreCase)
+                && artifactPath.Replace('\\', '/').StartsWith("Backend/", StringComparison.OrdinalIgnoreCase))
+            {
+                source = Path.GetFullPath(Path.Combine(
+                    Directory.GetParent(channelDirectory)!.FullName,
+                    artifactPath.Replace('/', Path.DirectorySeparatorChar)));
+            }
+            if (!File.Exists(source)) throw new FileNotFoundException("找不到本地后端更新包", source);
+            File.Copy(source, destination, true);
+        }
+        BackendUpdateManager.VerifyArtifact(destination, expectedSize, expectedSha256);
+        return destination;
+    }
+
+    private static int ApplyBackendPatchArchive(string archive)
+    {
+        if (!File.Exists(archive)) return Fail("后端补丁不存在：" + archive, 1);
+        var extractRoot = Path.Combine(
+            BackendUpdateManager.StateRoot(CoreRoot),
+            "extract-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var code = ExtractWith7Zip(archive, extractRoot);
+            if (code != 0) return code;
+            var version = BackendUpdateManager.ApplyExtractedPatch(CoreRoot, extractRoot);
+            Console.WriteLine("BACKEND_PATCH_COMPLETE|" + version);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("[错误] 应用后端补丁失败：" + ex.Message);
+            return 1;
+        }
+        finally
+        {
+            if (Directory.Exists(extractRoot)) Directory.Delete(extractRoot, true);
+        }
+    }
+
+    private static int ApplyBackendFullArchive(string archive, string targetVersion)
+    {
+        var extractRoot = Path.Combine(
+            BackendUpdateManager.StateRoot(CoreRoot),
+            "full-extract-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var code = ExtractWith7Zip(archive, extractRoot);
+            if (code != 0) return code;
+            var stagedPython = File.Exists(Path.Combine(extractRoot, "python", "python", "python.exe"))
+                ? Path.Combine(extractRoot, "python")
+                : extractRoot;
+            BackendUpdateManager.ApplyStagedFullBackend(CoreRoot, stagedPython, targetVersion);
+            Console.WriteLine("BACKEND_UPDATE_COMPLETE|" + targetVersion);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("[错误] 完整后端安装失败：" + ex.Message);
+            return 1;
+        }
+        finally
+        {
+            if (Directory.Exists(extractRoot)) Directory.Delete(extractRoot, true);
+        }
+    }
+
     private sealed record RemoteModel(string Name, string Path, long Size, string Sha256);
 
     private static List<RemoteModel> FetchRemoteModels()
@@ -1406,6 +1658,9 @@ internal static class Program
 
         // 新版补帧包已迁移到 Frame-Interpolation；旧 RIFE/RIFE.7z 与其内容重复，
         // 但远端文件仍保留给旧客户端使用，因此只从当前下载列表隐藏旧路径。
+        result.RemoveAll(model =>
+            model.Path.Equals("Backend/channel.json", StringComparison.OrdinalIgnoreCase)
+            || model.Path.StartsWith("Backend/patches/", StringComparison.OrdinalIgnoreCase));
         result.RemoveAll(model => model.Path.Equals("RIFE/RIFE.7z", StringComparison.OrdinalIgnoreCase));
 
         return result.OrderBy(m => m.Path, StringComparer.OrdinalIgnoreCase).ToList();
@@ -1503,6 +1758,8 @@ internal static class Program
         }
 
         var normalized = requestedPath.Replace('\\', '/').TrimStart('/');
+        if (normalized.StartsWith("Backend/", StringComparison.OrdinalIgnoreCase))
+            return Fail("后端不能再用覆盖解压方式安装，请改用 --update-backend", 1);
         var model = models.FirstOrDefault(m => m.Path.Equals(normalized, StringComparison.OrdinalIgnoreCase));
         if (model is null) return Fail("镜像中不存在该文件：" + normalized, 1);
 
@@ -1752,6 +2009,9 @@ internal static class Program
         {
             InstallEmbeddedBackendScript(EmbeddedInterpolationInspectorResource, InterpolationInspectorScript);
             InstallEmbeddedBackendScript(EmbeddedRifeTensorRTPrepareResource, RifeTensorRTPrepareScript);
+            EnsureGmfssModelTypeCompatibility();
+            EnsureGimmModelCompatibility();
+            EnsureOnnxModelCompatibility();
         }
         catch (Exception ex)
         {
@@ -1776,6 +2036,172 @@ internal static class Program
         Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
         using var output = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
         resource.CopyTo(output);
+    }
+
+    /// <summary>修补当前 RVE 2.4 GMFSS 加载器，使其按权重元数据区分 Base 与 Union。</summary>
+    private static void EnsureGmfssModelTypeCompatibility()
+    {
+        var modelLoader = Path.Combine(CoreRoot, "python", "backend", "src", "pytorch",
+            "InterpolateArchs", "GMFSS", "GMFSS.py");
+        if (!File.Exists(modelLoader)) return;
+
+        var bytes = File.ReadAllBytes(modelLoader);
+        var hasUtf8Bom = bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble);
+        var text = Encoding.UTF8.GetString(bytes, hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0,
+            bytes.Length - (hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0));
+        if (text.Contains("detected_model_type", StringComparison.Ordinal)) return;
+
+        var newline = text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var normalized = text.Replace("\r\n", "\n");
+        const string oldDetect =
+            "        combined_state_dict = torch.load(model_path, map_location=\"cpu\")\n\n" +
+            "        archDetect = ArchDetect(combined_state_dict[\"rife\"])\n" +
+            "        rife_version = archDetect.getArchName()\n" +
+            "        # print(rife_version)\n" +
+            "        if rife_version.lower() == \"rife46\":\n" +
+            "            from .IFNet_HDv3 import IFNet\n" +
+            "        else:\n" +
+            "            # this is dumb, it detects rife4.7 with a stupid hack, so we need to just force load 422\n" +
+            "            from .IFNet_HDv3_422 import IFNet";
+        const string newDetect =
+            "        combined_state_dict = torch.load(\n" +
+            "            model_path, map_location=\"cpu\", weights_only=True, mmap=True\n" +
+            "        )\n" +
+            "        metadata = combined_state_dict.get(\"metadata\", {})\n" +
+            "        detected_model_type = str(metadata.get(\"model_type\", \"\")).lower()\n" +
+            "        if detected_model_type in {\"base\", \"union\"}:\n" +
+            "            self.model_type = detected_model_type\n" +
+            "        elif \"rife\" not in combined_state_dict:\n" +
+            "            # 旧版 Base 权重没有 metadata，也没有 RIFE 分支。\n" +
+            "            self.model_type = \"base\"\n\n" +
+            "        IFNet = None\n" +
+            "        if self.model_type != \"base\":\n" +
+            "            if \"rife\" not in combined_state_dict:\n" +
+            "                raise ValueError(\"GMFSS Union 权重缺少 rife 组件\")\n" +
+            "            archDetect = ArchDetect(combined_state_dict[\"rife\"])\n" +
+            "            rife_version = archDetect.getArchName()\n" +
+            "            if rife_version.lower() == \"rife46\":\n" +
+            "                from .IFNet_HDv3 import IFNet\n" +
+            "            else:\n" +
+            "                # RIFE 4.7 等分支继续使用现有 4.22 兼容实现。\n" +
+            "                from .IFNet_HDv3_422 import IFNet";
+        if (!normalized.Contains("from .FusionNet_u import GridNet", StringComparison.Ordinal)
+            || !normalized.Contains(oldDetect, StringComparison.Ordinal)
+            || !normalized.Contains("        self.ifnet = IFNet(ensemble=ensemble).to(dtype=dtype, device=device)", StringComparison.Ordinal)
+            || !normalized.Contains("        self.fusionnet = GridNet().to(dtype=dtype, device=device)", StringComparison.Ordinal)
+            || !normalized.Contains("        if model_type != \"base\":", StringComparison.Ordinal))
+        {
+            // 后端结构不是已知的 2.4 版本时不做文本改写，避免覆盖未来实现。
+            return;
+        }
+
+        normalized = normalized
+            .Replace("from .FusionNet_u import GridNet",
+                "from .FusionNet_b import GridNet as BaseGridNet\nfrom .FusionNet_u import GridNet as UnionGridNet",
+                StringComparison.Ordinal)
+            .Replace(oldDetect, newDetect, StringComparison.Ordinal)
+            .Replace("        self.ifnet = IFNet(ensemble=ensemble).to(dtype=dtype, device=device)",
+                "        self.ifnet = (\n" +
+                "            IFNet(ensemble=ensemble).to(dtype=dtype, device=device)\n" +
+                "            if IFNet is not None\n" +
+                "            else None\n" +
+                "        )", StringComparison.Ordinal)
+            .Replace("        self.fusionnet = GridNet().to(dtype=dtype, device=device)",
+                "        fusionnet_class = BaseGridNet if self.model_type == \"base\" else UnionGridNet\n" +
+                "        self.fusionnet = fusionnet_class().to(dtype=dtype, device=device)",
+                StringComparison.Ordinal)
+            .Replace("        if model_type != \"base\":",
+                "        if self.model_type != \"base\":", StringComparison.Ordinal);
+
+        File.WriteAllText(modelLoader, normalized.Replace("\n", newline), new UTF8Encoding(hasUtf8Bom));
+    }
+
+    /// <summary>修补当前 RVE 2.4 GIMM 加载器，使其兼容带元数据的新权重字段名。</summary>
+    private static void EnsureGimmModelCompatibility()
+    {
+        var backendRoot = Path.Combine(CoreRoot, "python", "backend", "src", "pytorch");
+        var files = new[]
+        {
+            Path.Combine(backendRoot, "InterpolateArchs", "DetectInterpolateArch.py"),
+            Path.Combine(backendRoot, "InterpolateArchs", "GIMM", "gimmvfi_r.py"),
+            Path.Combine(backendRoot, "InterpolateGIMM.py"),
+        };
+        if (files.Any(path => !File.Exists(path))) return;
+
+        static void PatchUtf8File(string path, string oldValue, string newValue, string marker)
+        {
+            var bytes = File.ReadAllBytes(path);
+            var hasUtf8Bom = bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble);
+            var text = Encoding.UTF8.GetString(bytes, hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0,
+                bytes.Length - (hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0));
+            if (text.Contains(marker, StringComparison.Ordinal)) return;
+            var newline = text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+            var normalized = text.Replace("\r\n", "\n");
+            if (!normalized.Contains(oldValue, StringComparison.Ordinal)) return;
+            normalized = normalized.Replace(oldValue, newValue, StringComparison.Ordinal);
+            File.WriteAllText(path, normalized.Replace("\n", newline), new UTF8Encoding(hasUtf8Bom));
+        }
+
+        PatchUtf8File(
+            files[0],
+            "        if \"raft\" in self.state_dict:  # load in GIMM RAFT\n" +
+            "            self.state_dict = self.state_dict[\"raft\"]",
+            "        if \"raft\" in self.state_dict:  # load in legacy GIMM RAFT\n" +
+            "            self.state_dict = self.state_dict[\"raft\"]\n" +
+            "        elif \"flow_estimator\" in self.state_dict:  # 新模型包字段名\n" +
+            "            self.state_dict = self.state_dict[\"flow_estimator\"]",
+            "新模型包字段名");
+        PatchUtf8File(
+            files[1],
+            "        ckpt = torch.load(model_path)\n" +
+            "        model.load_state_dict(ckpt[\"raft\"], strict=True)",
+            "        ckpt = torch.load(model_path, weights_only=True, map_location=\"cpu\")\n" +
+            "        flow_state = ckpt.get(\"raft\", ckpt.get(\"flow_estimator\"))\n" +
+            "        if flow_state is None:\n" +
+            "            raise ValueError(\"GIMM 权重缺少 raft/flow_estimator 组件\")\n" +
+            "        model.load_state_dict(flow_state, strict=True)",
+            "GIMM 权重缺少 raft/flow_estimator 组件");
+        PatchUtf8File(
+            files[2],
+            "            state_dict = torch.load(self.interpolateModel, map_location=self.device)[\n" +
+            "                \"gimmvfi_r\"\n" +
+            "            ]\n" +
+            "            self.flownet.load_state_dict(state_dict)",
+            "            combined_state_dict = torch.load(\n" +
+            "                self.interpolateModel, map_location=self.device, weights_only=True\n" +
+            "            )\n" +
+            "            state_dict = combined_state_dict.get(\n" +
+            "                \"gimmvfi_r\", combined_state_dict.get(\"gimmvfi\")\n" +
+            "            )\n" +
+            "            if state_dict is None:\n" +
+            "                raise ValueError(\"GIMM 权重缺少 gimmvfi_r/gimmvfi 组件\")\n" +
+            "            self.flownet.load_state_dict(state_dict)",
+            "GIMM 权重缺少 gimmvfi_r/gimmvfi 组件");
+        PatchUtf8File(
+            files[2],
+            "                    with torch.autocast(enabled=True, device_type=self.device.type):",
+            "                    # FP32 兼容模式必须关闭 autocast，否则仍会回到半精度并产生 NaN。\n" +
+            "                    with torch.autocast(\n" +
+            "                        enabled=self.dtype != torch.float32, device_type=self.device.type\n" +
+            "                    ):",
+            "FP32 兼容模式必须关闭 autocast");
+    }
+
+    /// <summary>修补当前 RVE 2.4 ONNX 倍率解析，使其支持模型库使用的末尾 -2x.onnx 命名。</summary>
+    private static void EnsureOnnxModelCompatibility()
+    {
+        var loader = Path.Combine(CoreRoot, "python", "backend", "src", "onnx", "UpscaleONNX.py");
+        if (!File.Exists(loader)) return;
+        var bytes = File.ReadAllBytes(loader);
+        var hasUtf8Bom = bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble);
+        var text = Encoding.UTF8.GetString(bytes, hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0,
+            bytes.Length - (hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0));
+        const string oldValue = "    name = os.path.basename(modelPath).lower()";
+        const string newValue = "    name = os.path.splitext(os.path.basename(modelPath))[0].lower()";
+        if (text.Contains(newValue, StringComparison.Ordinal)
+            || !text.Contains(oldValue, StringComparison.Ordinal)) return;
+        File.WriteAllText(loader, text.Replace(oldValue, newValue, StringComparison.Ordinal),
+            new UTF8Encoding(hasUtf8Bom));
     }
 
     private static int DownloadWithAria(string url, string destination, bool printComplete = true)
@@ -2040,6 +2466,7 @@ internal static class Program
             }
             else if (backend == "tensorrt" && File.Exists(c)
                      && (IsTensorRTEngineFile(c) || IsPthModelFile(c))
+                     && (IsTensorRTEngineFile(c) || IsTensorRtConvertibleUpscaleSource(c))
                      && !IsInInterpolationDirectory(c))
             {
                 return c;
@@ -2080,7 +2507,8 @@ internal static class Program
             foreach (var f in discovered)
             {
                 var relativeName = UpscaleModelDisplayName(f, backend);
-                if (relativeName.Equals(requestedWithoutExtension, StringComparison.OrdinalIgnoreCase)
+                if (relativeName.Equals(requestedName, StringComparison.OrdinalIgnoreCase)
+                    || relativeName.Equals(requestedWithoutExtension, StringComparison.OrdinalIgnoreCase)
                     || ModelBaseName(f).Equals(baseName, StringComparison.OrdinalIgnoreCase))
                 {
                     return f;
@@ -2303,13 +2731,19 @@ internal static class Program
         string? interpModel, string? interpFactor, string backend, string? backendScript = null, bool hdrMode = false,
         bool dynamicOpticalFlow = false, double sceneThreshold = 4.0, int tileSize = 0)
     {
+        var modelFileName = Path.GetFileName(modelFolder);
+        var precision = backend == "cuda"
+                        && (Regex.IsMatch(modelFileName, @"SwinIR|GRL", RegexOptions.IgnoreCase)
+                            || Regex.IsMatch(Path.GetFileName(interpModel ?? ""), @"GIMM", RegexOptions.IgnoreCase))
+            ? "float32"
+            : "auto";
         var args = new List<string>
         {
             string.IsNullOrWhiteSpace(backendScript) ? BackendScript : backendScript,
             "-i", input,
             "-o", outputFile,
             "-b", backend is "cuda" or "tensorrt" ? (backend == "tensorrt" ? "tensorrt" : "pytorch") : backend,
-            "--precision", "auto",
+            "--precision", precision,
             "--custom_encoder", " " + customEncoder + " ",
             "--tensorrt_opt_profile", "3",
             "--pytorch_gpu_id", "0",
@@ -2357,10 +2791,19 @@ internal static class Program
             args.Add(scale);
         }
 
-        args.Add("--scene_detect_model");
-        args.Add(SceneDetectModel);
         args.Add("--scene_detect_method");
-        args.Add("sudo_scene_detect");
+        if (backend is "cuda" or "tensorrt")
+        {
+            // 当前模型包只提供 NCNN 格式的 EfficientNet 转场模型。CUDA/TensorRT
+            // 主后端会把模型路径交给 torch.jit.load，因此改用 RVE 内置且无需模型的检测器。
+            args.Add("pyscenedetect");
+        }
+        else
+        {
+            args.Add("sudo_scene_detect");
+            args.Add("--scene_detect_model");
+            args.Add(SceneDetectModel);
+        }
         args.Add("--scene_detect_threshold");
         // 直接使用 RVE 官方外部阈值标尺；RVE 内部负责换算为模型阈值。
         args.Add(sceneThreshold.ToString("0.###", CultureInfo.InvariantCulture));
@@ -2407,26 +2850,41 @@ internal static class Program
                         .TryGetValue(Path.GetFullPath(candidate), out var capability)
                     && string.IsNullOrWhiteSpace(capability.Error) && capability.Cuda)
                 {
-                    return candidate;
+                    return Path.GetFullPath(candidate);
                 }
             }
             else if (backend == "tensorrt")
             {
-                if (File.Exists(candidate) && IsRifeInterpolationSource(candidate)) return candidate;
+                if (File.Exists(candidate) && IsRifeInterpolationSource(candidate)) return Path.GetFullPath(candidate);
             }
             else if (Directory.Exists(candidate) && IsNcnnModelFolder(candidate))
             {
-                return candidate;
+                return Path.GetFullPath(candidate);
             }
         }
 
         var normalizedRaw = raw.Replace('\\', '/').TrimEnd('/');
-        var matched = DiscoverInterpModels(backend)
-            .Where(path => InterpModelDisplayName(path).Equals(normalizedRaw, StringComparison.OrdinalIgnoreCase)
-                           || Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
-                               .Equals(Path.GetFileName(raw), StringComparison.OrdinalIgnoreCase)
-                           || Path.GetFileNameWithoutExtension(path)
-                               .Equals(Path.GetFileNameWithoutExtension(raw), StringComparison.OrdinalIgnoreCase))
+        var discovered = DiscoverInterpModels(backend);
+
+        // UI 保存的是相对架构路径。先处理这个无歧义的精确值，避免把
+        // rife4.26.heavy 中的 .heavy 误当作扩展名后又匹配到 rife4.26。
+        var exactMatched = discovered
+            .Where(path => InterpModelDisplayName(path).Equals(normalizedRaw, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (exactMatched.Count == 1)
+        {
+            return exactMatched[0];
+        }
+        if (exactMatched.Count > 1)
+        {
+            Console.Error.WriteLine("[错误] 补帧模型相对路径不唯一：" + raw);
+            return "";
+        }
+
+        var requestedName = InterpModelLookupName(normalizedRaw);
+        var matched = discovered
+            .Where(path => InterpModelLookupName(InterpModelDisplayName(path))
+                .Equals(requestedName, StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (matched.Count == 1)
         {
@@ -2435,6 +2893,10 @@ internal static class Program
         if (matched.Count > 1)
         {
             Console.Error.WriteLine("[错误] 补帧模型名不唯一，请使用包含架构目录的相对路径：" + raw);
+            foreach (var path in matched)
+            {
+                Console.Error.WriteLine("       " + InterpModelDisplayName(path));
+            }
             return "";
         }
 
@@ -2450,6 +2912,17 @@ internal static class Program
             ? "[提示] 用法：-interp-backend " + backend + " -interp-model <模型名>，例如 -interp-model rife46"
             : "[提示] 用法：-interp-model <模型名或路径>，例如 -interp-model rife-v4.25");
         return "";
+    }
+
+    /// <summary>生成补帧模型的短名称，只剥离真实权重扩展名，保留 .heavy 等模型名后缀。</summary>
+    private static string InterpModelLookupName(string value)
+    {
+        var fileName = Path.GetFileName(value.Replace('\\', '/').TrimEnd('/'));
+        var extension = Path.GetExtension(fileName);
+        return new[] { ".pth", ".pt", ".pkl", ".engine" }
+            .Contains(extension, StringComparer.OrdinalIgnoreCase)
+            ? Path.GetFileNameWithoutExtension(fileName)
+            : fileName;
     }
 
     /// <summary>发现补帧模型，并兼容读取旧 models\RIFE 目录。</summary>
@@ -2531,6 +3004,80 @@ internal static class Program
     private sealed record InterpolationCapability(
         string Path, string Architecture, string BaseArchitecture, bool Cuda, bool TensorRT, string Error);
 
+    private sealed record CachedInterpolationCapability(
+        long Length, long LastWriteTimeUtcTicks, InterpolationCapability Capability);
+
+    private static Dictionary<string, CachedInterpolationCapability> LoadInterpolationCapabilityCache()
+    {
+        var cache = new Dictionary<string, CachedInterpolationCapability>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            if (!File.Exists(InterpolationCapabilityCachePath)) return cache;
+            using var document = JsonDocument.Parse(File.ReadAllBytes(InterpolationCapabilityCachePath));
+            var root = document.RootElement;
+            if (root.GetProperty("version").GetInt32() != InterpolationCapabilityCacheVersion) return cache;
+            foreach (var item in root.GetProperty("entries").EnumerateArray())
+            {
+                var path = Path.GetFullPath(item.GetProperty("path").GetString() ?? "");
+                if (string.IsNullOrWhiteSpace(path)) continue;
+                var capability = new InterpolationCapability(
+                    path,
+                    item.GetProperty("architecture").GetString() ?? "",
+                    item.GetProperty("base_architecture").GetString() ?? "",
+                    item.GetProperty("cuda").GetBoolean(),
+                    item.GetProperty("tensorrt").GetBoolean(),
+                    item.GetProperty("error").GetString() ?? "");
+                cache[path] = new CachedInterpolationCapability(
+                    item.GetProperty("length").GetInt64(),
+                    item.GetProperty("last_write_utc_ticks").GetInt64(),
+                    capability);
+            }
+        }
+        catch
+        {
+            // 缓存损坏或被旧进程同时替换时直接重新检查，不影响模型列表。
+        }
+        return cache;
+    }
+
+    private static void SaveInterpolationCapabilityCache(
+        Dictionary<string, CachedInterpolationCapability> cache)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(InterpolationCapabilityCachePath)!);
+            using var buffer = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(buffer))
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("version", InterpolationCapabilityCacheVersion);
+                writer.WriteStartArray("entries");
+                foreach (var entry in cache.Values
+                             .Where(entry => File.Exists(entry.Capability.Path))
+                             .Take(512))
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("path", entry.Capability.Path);
+                    writer.WriteNumber("length", entry.Length);
+                    writer.WriteNumber("last_write_utc_ticks", entry.LastWriteTimeUtcTicks);
+                    writer.WriteString("architecture", entry.Capability.Architecture);
+                    writer.WriteString("base_architecture", entry.Capability.BaseArchitecture);
+                    writer.WriteBoolean("cuda", entry.Capability.Cuda);
+                    writer.WriteBoolean("tensorrt", entry.Capability.TensorRT);
+                    writer.WriteString("error", entry.Capability.Error);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+            File.WriteAllBytes(InterpolationCapabilityCachePath, buffer.ToArray());
+        }
+        catch
+        {
+            // 缓存只是性能优化；只读目录或并发写入失败时仍使用本次检查结果。
+        }
+    }
+
     /// <summary>读取权重内部结构，不再用扩展名或目录名猜测补帧架构。</summary>
     private static Dictionary<string, InterpolationCapability> InspectInterpolationCapabilities(IEnumerable<string> modelPaths)
     {
@@ -2539,13 +3086,36 @@ internal static class Program
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         var result = new Dictionary<string, InterpolationCapability>(StringComparer.OrdinalIgnoreCase);
-        if (paths.Count == 0 || !File.Exists(PythonExe) || !File.Exists(InterpolationInspectorScript))
+        if (paths.Count == 0)
+        {
+            return result;
+        }
+
+        var cache = LoadInterpolationCapabilityCache();
+        var pendingPaths = new List<string>();
+        foreach (var path in paths)
+        {
+            var info = new FileInfo(path);
+            if (cache.TryGetValue(path, out var cached)
+                && cached.Length == info.Length
+                && cached.LastWriteTimeUtcTicks == info.LastWriteTimeUtc.Ticks)
+            {
+                result[path] = cached.Capability;
+            }
+            else
+            {
+                pendingPaths.Add(path);
+            }
+        }
+        if (pendingPaths.Count == 0
+            || !File.Exists(PythonExe)
+            || !File.Exists(InterpolationInspectorScript))
         {
             return result;
         }
 
         var args = new List<string> { InterpolationInspectorScript };
-        args.AddRange(paths);
+        args.AddRange(pendingPaths);
         var inspected = RunProcessCapture(PythonExe, args.ToArray(), 180);
         var jsonLine = inspected.Output.Replace("\r", "")
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -2565,7 +3135,11 @@ internal static class Program
                     item.GetProperty("cuda").GetBoolean(),
                     item.GetProperty("tensorrt").GetBoolean(),
                     item.GetProperty("error").GetString() ?? "");
+                var info = new FileInfo(fullPath);
+                cache[fullPath] = new CachedInterpolationCapability(
+                    info.Length, info.LastWriteTimeUtc.Ticks, result[fullPath]);
             }
+            SaveInterpolationCapabilityCache(cache);
         }
         catch (Exception ex)
         {
@@ -3072,7 +3646,7 @@ internal static class Program
                 try { p.Kill(); } catch { }
                 return (0, 0);
             }
-            var m = Regex.Match(err, @"Video:.*?\b(\d{3,5})x(\d{3,5})\b", RegexOptions.IgnoreCase);
+            var m = Regex.Match(err, @"Video:.*?\b(\d{1,5})x(\d{1,5})\b", RegexOptions.IgnoreCase);
             if (m.Success)
             {
                 return (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value));
@@ -3083,6 +3657,104 @@ internal static class Program
             // 探测失败不影响处理
         }
         return (0, 0);
+    }
+
+    private sealed record VideoProbeInfo(int Width, int Height, long Frames);
+
+    /// <summary>用 ffprobe 严格读取视频尺寸和可解码帧数；任何字段缺失都视为探测失败。</summary>
+    private static VideoProbeInfo? ProbeVideoOutput(string path)
+    {
+        if (!File.Exists(FfprobeExe) || !File.Exists(path)) return null;
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = FfprobeExe,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
+            };
+            foreach (var argument in new[]
+                     {
+                         "-v", "error", "-select_streams", "v:0", "-count_frames",
+                         "-show_entries", "stream=width,height,nb_read_frames,nb_frames",
+                         "-of", "json", path,
+                     })
+            {
+                psi.ArgumentList.Add(argument);
+            }
+            using var process = Process.Start(psi);
+            if (process is null) return null;
+            var output = process.StandardOutput.ReadToEnd();
+            _ = process.StandardError.ReadToEnd();
+            if (!process.WaitForExit(120000) || process.ExitCode != 0) return null;
+
+            using var document = JsonDocument.Parse(output);
+            var stream = document.RootElement.GetProperty("streams").EnumerateArray().FirstOrDefault();
+            if (stream.ValueKind != JsonValueKind.Object) return null;
+            var width = stream.GetProperty("width").GetInt32();
+            var height = stream.GetProperty("height").GetInt32();
+            long frames = 0;
+            foreach (var propertyName in new[] { "nb_read_frames", "nb_frames" })
+            {
+                if (!stream.TryGetProperty(propertyName, out var value)) continue;
+                if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out frames)) break;
+                if (value.ValueKind == JsonValueKind.String
+                    && long.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out frames)) break;
+            }
+            return width > 0 && height > 0 && frames > 0
+                ? new VideoProbeInfo(width, height, frames)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// NCNN 在少数 Vulkan 驱动上会于成品封装完成后的进程清理阶段触发访问冲突。
+    /// 仅当输入、输出的尺寸与帧数完全符合本阶段预期时，才把该特定退出码归一为成功。
+    /// </summary>
+    private static bool ValidateCompletedNcnnOutput(
+        string input, string output, string model, string? interpFactor, out string detail)
+    {
+        detail = "";
+        var source = ProbeVideoOutput(input);
+        var result = ProbeVideoOutput(output);
+        if (source is null || result is null) return false;
+
+        var scale = 1;
+        if (!string.IsNullOrWhiteSpace(model))
+        {
+            var detectedScale = DetectScale(model);
+            if (!int.TryParse(detectedScale, NumberStyles.Integer, CultureInfo.InvariantCulture, out scale)
+                || scale <= 0)
+            {
+                return false;
+            }
+        }
+
+        var factor = 1;
+        if (!string.IsNullOrWhiteSpace(interpFactor)
+            && (!int.TryParse(interpFactor, NumberStyles.Integer, CultureInfo.InvariantCulture, out factor)
+                || factor <= 1))
+        {
+            return false;
+        }
+
+        var expectedWidth = (long)source.Width * scale;
+        var expectedHeight = (long)source.Height * scale;
+        var expectedFrames = factor == 1
+            ? source.Frames
+            : source.Frames * factor - (factor - 1);
+        detail = $"{result.Width}x{result.Height}, {result.Frames} 帧（预期 {expectedWidth}x{expectedHeight}, {expectedFrames} 帧）";
+        return result.Width == expectedWidth
+               && result.Height == expectedHeight
+               && result.Frames == expectedFrames;
     }
 
     private static int LaunchBackend(
@@ -3146,6 +3818,7 @@ internal static class Program
         var fpsTracker = new FpsTracker(pauseShm);
         var oomHintPrinted = false;
         var fatalBackendError = 0;
+        long fatalBackendDetectedAt = 0;
 
         // 启动前检查停止请求（用户可能在环境检测阶段就点了停止）
         if (stopWatcher is not null && stopWatcher.IsStopRequested())
@@ -3172,6 +3845,7 @@ internal static class Program
             if (BackendFatalRegex.IsMatch(line))
             {
                 Interlocked.Exchange(ref fatalBackendError, 1);
+                Interlocked.CompareExchange(ref fatalBackendDetectedAt, Stopwatch.GetTimestamp(), 0);
             }
             if (!throttle.ShouldForward(line))
             {
@@ -3236,6 +3910,14 @@ internal static class Program
         while (!process.HasExited && !cancelRequested)
         {
             fpsTracker.SamplePause();
+            var fatalDetectedAt = Interlocked.Read(ref fatalBackendDetectedAt);
+            if (fatalDetectedAt > 0
+                && Stopwatch.GetTimestamp() - fatalDetectedAt >= Stopwatch.Frequency * 2)
+            {
+                Console.Error.WriteLine("[失败] 检测到后端渲染线程异常，正在终止残留进程…");
+                try { process.Kill(entireProcessTree: true); } catch { }
+                break;
+            }
             if (stopWatcher is not null && stopWatcher.IsStopRequested())
             {
                 stopped = true;
@@ -3302,6 +3984,21 @@ internal static class Program
             {
                 Console.WriteLine("[信息] 输出文件 : " + outputFile + " " + sizeText);
             }
+            return 0;
+        }
+
+        const int windowsAccessViolation = unchecked((int)0xC0000005);
+        if (backend == "ncnn"
+            && exitCode == windowsAccessViolation
+            && !hasFatalBackendError
+            && ValidateCompletedNcnnOutput(input, outputFile, model, interpFactor, out var validationDetail))
+        {
+            Console.Error.WriteLine("[警告] NCNN 在 Vulkan 清理阶段异常退出，但后端未报告渲染错误。");
+            Console.WriteLine("[校验] 输出视频完整：" + validationDetail);
+            Console.WriteLine(isFinalStage
+                ? "[完成] 视频增强处理成功结束。"
+                : "[阶段完成] " + stageTitle + " 已完成。");
+            Console.WriteLine("[信息] 输出文件 : " + outputFile + " " + sizeText);
             return 0;
         }
 
@@ -3458,27 +4155,37 @@ internal static class Program
         return true;
     }
 
-    private const string TensorRtCacheSchema = "2";
-    private const string TensorRtPrecision = "fp16";
+    private const string TensorRtCacheSchema = "3";
     private const int TensorRtOptimizationLevel = 3;
     private const int TensorRtTilePad = 10;
+
+    /// <summary>GRL 的相对位置编码在 FP16 转换时混用 Float/Half，必须构建 FP32 Engine。</summary>
+    private static string TensorRtPrecisionForModel(string sourcePath) =>
+        Regex.IsMatch(ModelBaseName(sourcePath), @"GRL", RegexOptions.IgnoreCase) ? "fp32" : "fp16";
 
     private static string BuildTensorRtCachePath(
         string sourcePath, TensorRtRuntime runtime, int width, int height, int tileSize, int outputScale)
     {
         using var stream = File.OpenRead(sourcePath);
         var sourceHash = Convert.ToHexString(SHA256.HashData(stream)).Substring(0, 12).ToLowerInvariant();
-        var fileName = SafeCacheComponent(ModelBaseName(sourcePath), 72) +
-            "__gpu-" + SafeCacheComponent(runtime.GpuName, 64) +
-            "__trt-" + SafeCacheComponent(runtime.TensorRtVersion, 32) +
-            "__torchtrt-" + SafeCacheComponent(runtime.TorchTensorRtVersion, 32) +
-            "__precision-" + TensorRtPrecision +
-            "__opt-" + TensorRtOptimizationLevel +
-            "__schema-" + TensorRtCacheSchema +
+        var precision = TensorRtPrecisionForModel(sourcePath);
+        var configuration = string.Join("|", new[]
+        {
+            runtime.GpuName, runtime.TensorRtVersion, runtime.TorchTensorRtVersion,
+            precision, TensorRtOptimizationLevel.ToString(CultureInfo.InvariantCulture),
+            TensorRtCacheSchema, width.ToString(CultureInfo.InvariantCulture),
+            height.ToString(CultureInfo.InvariantCulture), tileSize.ToString(CultureInfo.InvariantCulture),
+            TensorRtTilePad.ToString(CultureInfo.InvariantCulture), outputScale.ToString(CultureInfo.InvariantCulture),
+            sourceHash,
+        });
+        var configurationHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(configuration))).Substring(0, 20).ToLowerInvariant();
+        // 完整配置进入指纹，不再把 GPU/运行时版本全部展开到文件名，避免 Windows MAX_PATH。
+        var fileName = SafeCacheComponent(ModelBaseName(sourcePath), 48) +
             "__input-" + width + "x" + height +
-            "__tile-" + tileSize +
-            "__tilepad-" + TensorRtTilePad +
             "__scale-" + outputScale +
+            "__tile-" + tileSize +
+            "__cfg-" + configurationHash +
             "__src-" + sourceHash + ".engine";
         return Path.Combine(TensorRTCacheDir, fileName);
     }
@@ -3541,7 +4248,7 @@ internal static class Program
         start.ArgumentList.Add("--tile-pad");
         start.ArgumentList.Add(TensorRtTilePad.ToString(CultureInfo.InvariantCulture));
         start.ArgumentList.Add("--precision");
-        start.ArgumentList.Add(TensorRtPrecision);
+        start.ArgumentList.Add(TensorRtPrecisionForModel(sourcePath));
         start.ArgumentList.Add("--optimization-level");
         start.ArgumentList.Add(TensorRtOptimizationLevel.ToString(CultureInfo.InvariantCulture));
 
@@ -3896,6 +4603,7 @@ internal static class Program
         return Directory.GetDirectories(ModelsDir, "*", SearchOption.AllDirectories)
             .Where(p => !IsInInterpolationDirectory(p))
             .Where(IsNcnnModelFolder)
+            .Where(p => !ModelBaseName(p).Equals("EfficientNet-SceneDetect", StringComparison.OrdinalIgnoreCase))
             .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
     }
@@ -3932,8 +4640,16 @@ internal static class Program
     private static List<string> DiscoverTensorRTSelectableModels()
     {
         return DiscoverUpscalePthModels()
+            .Where(IsTensorRtConvertibleUpscaleSource)
             .OrderBy(path => UpscaleModelDisplayName(path, "tensorrt"), StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>排除已实机确认不能进入当前单图直接 Engine 路径的架构。</summary>
+    private static bool IsTensorRtConvertibleUpscaleSource(string path)
+    {
+        var name = ModelBaseName(path);
+        return !Regex.IsMatch(name, @"AnimeSR|SwinIR|CRAFT", RegexOptions.IgnoreCase);
     }
 
     private static List<string> DiscoverOnnxModels()
@@ -4028,7 +4744,11 @@ internal static class Program
 
     private static string? FindNcnnModelFolder(string modelName)
     {
-        return DiscoverModelFolders().FirstOrDefault(p =>
+        if (!Directory.Exists(ModelsDir)) return null;
+        // 场景检测模型不应出现在超分下拉框，但内部仍需要能够定位它。
+        return Directory.GetDirectories(ModelsDir, "*", SearchOption.AllDirectories)
+            .Where(IsNcnnModelFolder)
+            .FirstOrDefault(p =>
             ModelBaseName(p).Equals(modelName, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -4072,6 +4792,9 @@ internal static class Program
         writer.WriteLine("  videoenhancer.exe --list-download-models --json");
         writer.WriteLine("  videoenhancer.exe --clean-download-archives");
         writer.WriteLine("  videoenhancer.exe --download-model <镜像相对路径>");
+        writer.WriteLine("  videoenhancer.exe --backend-status --json");
+        writer.WriteLine("  videoenhancer.exe --update-backend");
+        writer.WriteLine("  videoenhancer.exe --apply-backend-patch <本地补丁包>");
         writer.WriteLine("  videoenhancer.exe --download-url <链接> --download-output <文件>");
         writer.WriteLine("  videoenhancer.exe --extract-archive <压缩包> [--extract-output <目录>]");
         writer.WriteLine("  videoenhancer.exe --version");
@@ -4129,6 +4852,10 @@ internal static class Program
         writer.WriteLine("        VIDEOENHANCER_MODELSCOPE_TOKEN 或 MODELSCOPE_API_TOKEN（不会写入配置文件）");
         writer.WriteLine("  --clean-download-archives  递归清理 models 与 python 中的下载压缩包");
         writer.WriteLine("  --download-model <路径>  用内置 aria2-next 下载镜像文件；压缩包自动用内置 7-Zip-zstd 解压");
+        writer.WriteLine("  --backend-status [--json]  检查后端版本、可用增量补丁和预计下载大小");
+        writer.WriteLine("  --update-backend  按最小补丁链事务更新后端；失败或中断时自动回滚");
+        writer.WriteLine("  --apply-backend-patch <文件>  离线应用后端增量补丁");
+        writer.WriteLine("  --backend-channel <URL或文件>  指定更新通道；也可设置 VIDEOENHANCER_BACKEND_CHANNEL");
         writer.WriteLine("  --download-url <链接> --download-output <文件>  使用内置 aria2-next 下载任意直链");
         writer.WriteLine("  --extract-archive <文件> [--extract-output <目录>]  使用内置 7-Zip-zstd 解压");
         writer.WriteLine("  --image-input <文件>  添加一个图片输入（可重复）");

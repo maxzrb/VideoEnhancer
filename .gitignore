@@ -19,3 +19,6 @@
 # Root build artifacts
 /videoenhancer.exe
 /videoenhancer.3fui.dll
+
+# 本机 GPU 矩阵测试会产生视频、Engine 日志和逐项结果，不进入功能提交
+/test-results/

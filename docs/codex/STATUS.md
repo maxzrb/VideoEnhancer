@@ -1176,3 +1176,4 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Dual-source upload: ModelScope `AerithDream/VideoEnhancer-Releases` 已同步 1.0.8 版本目录、`stable.json`、说明文件和 README；`AerithDream/VideoEnhancer-Models/Plugin/videoenhancer.exe` 已同步。发布脚本在上传前明确进入 `-DeferBackendPublish` 分支，没有上传 Backend 完整包、补丁或 channel。
 - Remote verification: GitHub Release 非草稿、非预发布，正文与 `release/release-notes.txt` 逐行一致，资产严格为 EXE 和 `stable.json` 两项。GitHub EXE、ModelScope Releases EXE、模型页 EXE 均为 17,471,664 字节，SHA-256 `fd249941331cbaa139cb52d770b1e60ec7d2454c7c65eb00fb9495a78345d820`；GitHub/ModelScope 清单版本、路径、大小和哈希一致，均不含 `upstreamBase`。
 - Remaining: Backend 2026.08.25.1 通道尚未发布，用户目前只能验证 1.0.7→1.0.8 本体升级。发布记录更新后需再提交并推送，保持工作树干净。
+- Local cleanup: 远端回读副本和公开后端基线解压目录均已校验位于 `%TEMP%`，但递归删除命令被当前执行策略拒绝，未强行绕过。仍保留 `videoenhancer-1.0.8-remote-verify`、`videoenhancer-backend-base-20260824-0e85c2f0237b43a0af0fb15c8a2c1139` 及路径记录文件，可在不再需要复核时手动删除；原始公开后端归档未触碰。

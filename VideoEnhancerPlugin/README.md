@@ -6,11 +6,13 @@
 
 ## 安装
 
-1. 把三个发行文件复制到主程序目录下的 Plugin 文件夹：
+1. 双击 GitHub Release 中的版本化 EXE，选择 3FUI 主程序。安装器会生成：
    ```
-   <主程序目录>\Plugin\videoenhancer.exe
    <主程序目录>\Plugin\videoenhancer.3fui.dll
-   <主程序目录>\Plugin\videoenhancer-layout.json
+   <主程序目录>\Plugin\videoenhancer\videoenhancer.exe
+   <主程序目录>\Plugin\videoenhancer\bin\...
+   <主程序目录>\Plugin\videoenhancer\python\...
+   <主程序目录>\Plugin\videoenhancer\models\...
    ```
    （文件名必须以 `.3fui.dll` 结尾，宿主按 `*.3fui.dll` 扫描加载；
    程序集名保持 `videoenhancer`，入口类型为 `videoenhancer.Entry`。）
@@ -38,7 +40,7 @@
 
 1. 「插件总开关」（BooleanSwitch，最上方）——打开时若未指定过 videoenhancer.exe，
    会弹出文件选择框，请选择
-   `C:\Users\ARXChem\Documents\LakeUIApps\Video Enhancer GUI\videoenhancer.exe`。
+   `<主程序目录>\Plugin\videoenhancer\videoenhancer.exe`。
    启用后：
    - 「准备文件 → 加入编码队列」按钮被钩子接管；
    - 主程序队列执行进程名被设置为 videoenhancer.exe
@@ -155,7 +157,7 @@
 
 模型下载页会显示 `Plugin/videoenhancer.exe` 资源，但“下载全部”会排除当前插件 EXE；正式升级使用底部“检查更新”入口。插件本体不混入模型解压目录。
 
-从 1.0.6 起，Release 只分发内嵌插件 DLL 的 EXE。新 EXE 作为临时更新器等待 3FUI 完全退出，备份并替换目标 EXE，再从自身释放 DLL；失败自动回滚，成功后重启 3FUI。布局 JSON 使用 DLL 内嵌资源，不再单独更新。下载首选 GitHub Release 资产，失败回退 ModelScope 镜像（`VIDEOENHANCER_UPDATE_DATASET=owner/name` 可覆盖）；GitHub 检查或下载不可达时均使用 ModelScope 兜底，检查仓库可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖；配置中的 `AutoCheckUpdates` 可关闭启动后台检查。
+从 1.0.6 起，Release 只分发内嵌插件 DLL 的 EXE。1.1.0 起，新 EXE 作为临时更新器等待 3FUI 完全退出，把旧 `Plugin` 平铺目录事务迁入 `Plugin\videoenhancer`；EXE、Backend、模型和工具进入子目录，DLL 留在根目录。短暂占用自动重试，失败恢复旧布局，中断后下次更新先恢复事务，成功后重启 3FUI。布局 JSON 使用 DLL 内嵌资源，不再单独更新。下载首选 GitHub Release 资产，失败回退 ModelScope 镜像（`VIDEOENHANCER_UPDATE_DATASET=owner/name` 可覆盖）；GitHub 检查或下载不可达时均使用 ModelScope 兜底，检查仓库可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖；配置中的 `AutoCheckUpdates` 可关闭启动后台检查。
 
 ## 构建
 

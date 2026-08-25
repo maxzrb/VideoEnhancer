@@ -6,8 +6,9 @@
 
 ## 配置
 
-无需 `videoenhancer.ini`。安装程序会在 `videoenhancer.exe` 同级建立 `models`、`python`、`bin`
-三个便携核心目录，并把 EXE 位置写入插件用户配置；3FUI 加载插件时会自动识别。
+无需 `videoenhancer.ini`。安装程序会把任意版本化发行 EXE 安装为
+`3FUI\Plugin\videoenhancer\videoenhancer.exe`，并在同级建立 `models`、`python`、`bin`
+三个便携核心目录；插件 DLL 单独保留在 `3FUI\Plugin` 根目录，3FUI 加载后会自动识别子目录 EXE。
 
 ## 构建（单文件）
 
@@ -21,11 +22,11 @@
 
 ```powershell
 dotnet publish .\VideoEnhancer.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o .\.publish
-Copy-Item .\.publish\videoenhancer.exe "..\Video Enhancer GUI\videoenhancer.exe"
+Copy-Item .\.publish\videoenhancer.exe "..\FFmpegFreeUI\Plugin\videoenhancer\videoenhancer.exe"
 ```
 
-产物是自包含单文件 `videoenhancer.exe`，复制到 `Video Enhancer GUI\` 根目录即可运行
-（与 `bin\`、`python\`、`models\` 同级）。
+产物是自包含单文件 `videoenhancer.exe`。作为 3FUI 插件使用时放在
+`Plugin\videoenhancer` 中运行，并与 `bin\`、`python\`、`models\` 同级。
 
 ## 用法
 
@@ -112,7 +113,7 @@ PowerShell 示例：
 
 插件以 GitHub Release 为唯一版本标准：优先读取 `maxzrb/VideoEnhancer` 的 `releases/latest` 及其 `stable.json` 清单资产；GitHub 不可达时读取 ModelScope `stable.json` 兜底。可用 `VIDEOENHANCER_UPDATE_GITHUB_REPO=owner/name` 覆盖检查仓库，`VIDEOENHANCER_UPDATE_GITHUB_TOKEN` 供私有仓库或提高 API 限频使用。更新包下载同样首选 GitHub Release 资产，失败时回退 ModelScope 数据集 `AerithDream/VideoEnhancer-Releases`（可用 `VIDEOENHANCER_UPDATE_DATASET=owner/name` 切换）；两源都校验清单中的大小与 SHA-256。发现更高 SemVer 后必须由用户确认。
 
-从 1.0.6 起，更新资产是单个版本化 `videoenhancer.exe`。插件校验下载文件后，将新 EXE 复制为临时更新器；它等待 3FUI 退出，备份并替换目标 EXE，再从自身内嵌资源释放 `videoenhancer.3fui.dll`。任一步失败都会回滚，成功后自动重启 3FUI。布局 JSON 已嵌入 DLL，不再作为更新资产。`--apply-update` 及相关参数是插件内部更新协议，不作为普通处理命令使用。
+从 1.0.6 起，更新资产是单个版本化 `videoenhancer.exe`。1.1.0 起，临时更新器在 3FUI 退出后将旧平铺布局事务迁入 `Plugin\videoenhancer`，把 EXE 安装到子目录并把内嵌 DLL 保留在 `Plugin` 根目录；短暂占用会重试，失败回滚，进程中断后下次安装会先恢复。成功后自动重启 3FUI。布局 JSON 已嵌入 DLL，不再作为更新资产。`--apply-update` 及相关参数是插件内部更新协议，不作为普通处理命令使用。
 
 ## 目录结构
 
@@ -122,11 +123,13 @@ Video Enhancer\              # 本 CLI 项目
   Program.cs
   build.ps1
   README.md
-Video Enhancer GUI\          # 运行目录（exe 输出到这里）
-  videoenhancer.exe
-  bin\ffmpeg\ffmpeg.exe
-  python\python\python.exe
-  python\backend\rve-backend.py
-  models\...
+FFmpegFreeUI\Plugin\
+  videoenhancer.3fui.dll
+  videoenhancer\
+    videoenhancer.exe
+    bin\ffmpeg\ffmpeg.exe
+    python\python\python.exe
+    python\backend\rve-backend.py
+    models\...
 ```
 

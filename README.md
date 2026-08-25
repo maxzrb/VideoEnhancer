@@ -3,7 +3,7 @@
 VideoEnhancer 是一个面向 Windows 的视频增强工具，作为 3FUI 插件和命令行程序使用。它负责连接 FFmpeg、RVE 后端、推理模型与任务队列，提供视频超分辨率、运动补帧、图片推理和批处理能力。
 原作者：[user-wing](https://github.com/user-Wing/VideoEnhancer)
 
-当前版本：**1.0.11**
+当前版本：**1.1.0**
 
 ## 功能概览
 
@@ -38,9 +38,9 @@ stable.json
 ### 使用 3FUI 插件
 
 1. 安装或准备可运行的 3FUI。
-2. 从 GitHub Release 下载 `VideoEnhancer-<version>-win-x64.exe`，放入 3FUI 的 `plugin` 目录并重命名为 `videoenhancer.exe`。
-3. 双击运行 `videoenhancer.exe`，选择 3FUI 主程序；安装器会从 EXE 内释放插件 DLL。
-4. 启动 3FUI，打开 VideoEnhancer 页面并指定 `videoenhancer.exe` 路径。
+2. 从 GitHub Release 下载 `VideoEnhancer-<version>-win-x64.exe`，无需手动改名或移动。
+3. 双击版本化 EXE 并选择 3FUI 主程序；安装器会创建 `Plugin\videoenhancer`，把自身安装为固定名称 `videoenhancer.exe`，并将插件 DLL 放在 `Plugin` 根目录。
+4. 启动 3FUI，VideoEnhancer 会自动识别子目录中的 `videoenhancer.exe`；也可在页面中手动指定。
 5. 在模型下载页刷新远端清单，按当前后端下载需要的模型和运行环境。
 
 插件配置默认保存在：
@@ -53,14 +53,17 @@ stable.json
 
 ### 核心目录
 
-`videoenhancer.exe` 同级目录通常包含：
+安装后的目录结构为：
 
 ```text
-videoenhancer.exe
-bin\ffmpeg\ffmpeg.exe
-python\python\python.exe
-python\backend\rve-backend.py
-models\...
+Plugin\
+├─ videoenhancer.3fui.dll
+└─ videoenhancer\
+   ├─ videoenhancer.exe
+   ├─ bin\ffmpeg\ffmpeg.exe
+   ├─ python\python\python.exe
+   ├─ python\backend\rve-backend.py
+   └─ models\...
 ```
 
 首次运行时，安装程序可以创建 `models`、`python` 和 `bin` 目录；模型下载页也可以按资源类别自动放置文件。
@@ -133,7 +136,7 @@ AerithDream/VideoEnhancer-Models
 2. GitHub 检查失败时，从 ModelScope `AerithDream/VideoEnhancer-Releases` 读取 `stable.json`。
 3. 下载更新包时优先使用 GitHub Release 资产，失败后使用 ModelScope 镜像。
 4. 下载完成后校验 EXE 大小和 SHA-256。
-5. 新 EXE 作为临时更新器等待 3FUI 退出，替换 `videoenhancer.exe` 并从自身释放 `videoenhancer.3fui.dll`；任一步失败都会回滚。
+5. 新 EXE 作为临时更新器等待 3FUI 退出；旧平铺布局会事务迁移到 `Plugin\videoenhancer`，EXE 写入子目录，DLL 保留在 `Plugin` 根目录。短暂占用会重试，持续占用或迁移失败会恢复旧布局；进程中断后下次更新会先恢复未完成事务。
 
 可配置环境变量：
 

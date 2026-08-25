@@ -7,8 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>videoenhancer</AssemblyName>
     <RootNamespace>VideoEnhancer</RootNamespace>
-    <Version>1.0.11</Version>
-    <!-- 单文件自包含发布：videoenhancer.exe 可直接复制到 Video Enhancer GUI 根目录运行 -->
+    <Version>1.1.0</Version>
+    <!-- 单文件自包含发布：双击后安装到 3FUI\Plugin\videoenhancer 子目录 -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

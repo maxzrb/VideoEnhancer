@@ -3,7 +3,7 @@ Namespace videoenhancer
     ''' <summary>独立发行版本。</summary>
     Public NotInheritable Class PluginVersion
 
-        Public Const Current As String = "1.0.11"
+        Public Const Current As String = "1.1.0"
 
         Private Sub New()
         End Sub

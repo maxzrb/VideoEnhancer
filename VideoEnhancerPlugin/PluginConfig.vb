@@ -69,35 +69,45 @@ Namespace videoenhancer
         End Function
 
         ''' <summary>
-        ''' 安装程序会把自身路径写入插件配置；配置丢失或路径失效时，再从 3FUI 与插件目录自动发现。
+        ''' 配置丢失或旧平铺路径失效时，优先从 Plugin\videoenhancer 子目录自动发现，再兼容旧路径。
         ''' </summary>
         Public Shared Function ResolveInstalledExePath(Optional configuredPath As String = "") As String
-            If Not String.IsNullOrWhiteSpace(configuredPath) AndAlso File.Exists(configuredPath) Then
-                Return Path.GetFullPath(configuredPath)
+            If Not String.IsNullOrWhiteSpace(configuredPath) Then
+                Try
+                    Dim configuredFullPath = Path.GetFullPath(configuredPath)
+                    Dim configuredDirectory = Path.GetDirectoryName(configuredFullPath)
+                    If Not String.IsNullOrWhiteSpace(configuredDirectory) AndAlso
+                       Not Path.GetFileName(configuredDirectory).Equals("videoenhancer", StringComparison.OrdinalIgnoreCase) Then
+                        Dim migratedPath = Path.Combine(configuredDirectory, "videoenhancer", "videoenhancer.exe")
+                        If File.Exists(migratedPath) Then Return Path.GetFullPath(migratedPath)
+                    End If
+                    If File.Exists(configuredFullPath) Then Return configuredFullPath
+                Catch
+                End Try
             End If
             Dim candidates As New Collections.Generic.List(Of String)()
             Try
-                candidates.Add(Path.Combine(AppContext.BaseDirectory, "videoenhancer.exe"))
+                AddLayoutCandidates(candidates, AppContext.BaseDirectory)
             Catch
             End Try
             Try
                 Dim assemblyDir = Path.GetDirectoryName(GetType(PluginConfig).Assembly.Location)
                 If Not String.IsNullOrWhiteSpace(assemblyDir) Then
-                    candidates.Add(Path.Combine(assemblyDir, "videoenhancer.exe"))
+                    AddLayoutCandidates(candidates, assemblyDir)
                     Dim hostDir = Directory.GetParent(assemblyDir)
-                    If hostDir IsNot Nothing Then candidates.Add(Path.Combine(hostDir.FullName, "videoenhancer.exe"))
+                    If hostDir IsNot Nothing Then AddLayoutCandidates(candidates, hostDir.FullName)
                 End If
             Catch
             End Try
             Try
                 Dim processPath = Environment.ProcessPath
                 If Not String.IsNullOrWhiteSpace(processPath) Then
-                    candidates.Add(Path.Combine(Path.GetDirectoryName(processPath), "videoenhancer.exe"))
+                    AddLayoutCandidates(candidates, Path.GetDirectoryName(processPath))
                 End If
             Catch
             End Try
             Try
-                candidates.Add(Path.Combine(Environment.CurrentDirectory, "videoenhancer.exe"))
+                AddLayoutCandidates(candidates, Environment.CurrentDirectory)
             Catch
             End Try
             For Each candidate In candidates
@@ -108,6 +118,28 @@ Namespace videoenhancer
             Next
             Return ""
         End Function
+
+        ''' <summary>由已安装 EXE 反推出承载 DLL 的 Plugin 根目录，同时兼容旧平铺布局。</summary>
+        Public Shared Function ResolvePluginRoot(exePath As String) As String
+            If String.IsNullOrWhiteSpace(exePath) Then Return ""
+            Try
+                Dim exeDirectory = Path.GetDirectoryName(Path.GetFullPath(exePath))
+                If String.IsNullOrWhiteSpace(exeDirectory) Then Return ""
+                If Path.GetFileName(exeDirectory).Equals("videoenhancer", StringComparison.OrdinalIgnoreCase) Then
+                    Dim parent = Directory.GetParent(exeDirectory)
+                    If parent IsNot Nothing Then Return parent.FullName
+                End If
+                Return exeDirectory
+            Catch
+                Return ""
+            End Try
+        End Function
+
+        Private Shared Sub AddLayoutCandidates(candidates As Collections.Generic.List(Of String), root As String)
+            If String.IsNullOrWhiteSpace(root) Then Return
+            candidates.Add(Path.Combine(root, "videoenhancer", "videoenhancer.exe"))
+            candidates.Add(Path.Combine(root, "videoenhancer.exe"))
+        End Sub
 
         Public Sub Save()
             Try

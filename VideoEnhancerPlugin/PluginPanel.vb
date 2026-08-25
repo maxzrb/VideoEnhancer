@@ -374,10 +374,10 @@ Namespace videoenhancer
                 If String.IsNullOrWhiteSpace(installedExe) OrElse Not File.Exists(installedExe) Then
                     Throw New FileNotFoundException("找不到已安装的 videoenhancer.exe")
                 End If
-                Dim targetDirectory = Path.GetDirectoryName(Path.GetFullPath(installedExe))
+                Dim targetDirectory = PluginConfig.ResolvePluginRoot(installedExe)
                 If String.IsNullOrWhiteSpace(targetDirectory) OrElse
                     Not File.Exists(Path.Combine(targetDirectory, "videoenhancer.3fui.dll")) Then
-                    Throw New InvalidOperationException("自动更新要求 EXE 与插件 DLL 位于同一 plugin 目录")
+                    Throw New InvalidOperationException("自动更新无法确定承载插件 DLL 的 Plugin 目录")
                 End If
                 Dim hostExe = Environment.ProcessPath
                 If String.IsNullOrWhiteSpace(hostExe) OrElse Not File.Exists(hostExe) Then
@@ -3632,9 +3632,7 @@ Namespace videoenhancer
         End Sub
 
         Private Function DownloadExecutablePath() As String
-            If File.Exists(_config.ExePath) Then Return _config.ExePath
-            Dim besideHost = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "videoenhancer.exe")
-            Return If(File.Exists(besideHost), besideHost, "")
+            Return PluginConfig.ResolveInstalledExePath(_config.ExePath)
         End Function
 
         Private Sub ResetDownloadList()
@@ -3885,9 +3883,9 @@ Namespace videoenhancer
                 Dim category = normalized.Substring(0, slash)
                 Dim suffix = normalized.Substring(slash + 1).Replace("/"c, Path.DirectorySeparatorChar)
                 Dim coreRoot = ResolveCoreRoot()
+                Dim resolvedExe = PluginConfig.ResolveInstalledExePath(_config.ExePath)
                 Dim destinationRoot = If(category.Equals("Plugin", StringComparison.OrdinalIgnoreCase),
-                    Path.GetDirectoryName(If(File.Exists(_config.ExePath), _config.ExePath,
-                        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "videoenhancer.exe"))),
+                    If(String.IsNullOrWhiteSpace(resolvedExe), coreRoot, Path.GetDirectoryName(resolvedExe)),
                     If(category.Equals("Backend", StringComparison.OrdinalIgnoreCase),
                         Path.Combine(coreRoot, "python"),
                         If(category.Equals("Bin", StringComparison.OrdinalIgnoreCase),
@@ -4948,7 +4946,9 @@ Namespace videoenhancer
         End Function
 
         Private Function ResolveCoreRoot() As String
-            Dim exeDir = If(File.Exists(_config.ExePath), Path.GetDirectoryName(_config.ExePath), AppDomain.CurrentDomain.BaseDirectory)
+            Dim resolvedExe = PluginConfig.ResolveInstalledExePath(_config.ExePath)
+            Dim exeDir = If(String.IsNullOrWhiteSpace(resolvedExe), AppDomain.CurrentDomain.BaseDirectory,
+                Path.GetDirectoryName(resolvedExe))
             Dim iniPath = Path.Combine(exeDir, "videoenhancer.ini")
             Try
                 If File.Exists(iniPath) Then

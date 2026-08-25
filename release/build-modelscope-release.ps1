@@ -145,6 +145,10 @@ $releaseNotesPath = Join-Path $distRoot 'release-notes.txt'
 Write-Host "OK: $packagePath"
 Write-Host "OK: $stablePath"
 
+# 目录结构升级属于安装门禁：正式资产必须通过全新安装、旧布局迁移、占用回退和中断恢复。
+& (Join-Path $PSScriptRoot 'test-installer.ps1') -Installer $packagePath
+& (Join-Path $PSScriptRoot 'test-updater.ps1') -Version $Version
+
 # 原生命令在 EAP=Stop 下写 stderr 会被当成终止错误，发布前临时放宽。
 function Invoke-Native {
     param([scriptblock]$Block)

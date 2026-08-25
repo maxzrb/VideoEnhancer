@@ -743,6 +743,7 @@ internal static class Program
 
         // 3. 放大模型（-no-upscale 时跳过，用于"仅补帧"模式）
         var model = "";
+        string? requestedScale = null;
         if (useUpscale)
         {
             model = ResolveModel(o.Model, o.Backend);
@@ -750,7 +751,6 @@ internal static class Program
             {
                 return 1;
             }
-            string? requestedScale = null;
             if (o.HasScaleOverride)
             {
                 if (!int.TryParse(o.ScaleOverride, out var requestedScaleValue) || requestedScaleValue < 1)
@@ -806,7 +806,9 @@ internal static class Program
             }
             else
             {
-                scale = o.Backend == "basicvsrpp" ? BasicVsrPlusPlusScale(model) : DetectScale(model);
+                // TensorRT 会把源模型替换为带输入尺寸的缓存 Engine 路径；继续解析新路径
+                // 可能把 96x64 中的 x6 误认为倍率，因此沿用转换前已经确定的值。
+                scale = requestedScale;
             }
         }
 
@@ -1115,7 +1117,7 @@ internal static class Program
         return (arg, null);
     }
 
-    /// <summary>在 3FUI 退出后替换 EXE，并从新 EXE 内嵌资源释放插件 DLL；任一替换失败都会恢复原文件。</summary>
+    /// <summary>在 3FUI 退出后迁移到子目录布局并替换 EXE/DLL；任一步失败都会恢复旧布局。</summary>
     private static int ApplyUpdate(Options o)
     {
         if (string.IsNullOrWhiteSpace(o.UpdatePackage) || string.IsNullOrWhiteSpace(o.UpdateTarget))
@@ -1132,17 +1134,14 @@ internal static class Program
         }
 
         var packagePath = Path.GetFullPath(o.UpdatePackage);
-        var targetDirectory = Path.GetFullPath(o.UpdateTarget)
+        var pluginRoot = Path.GetFullPath(o.UpdateTarget)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (!File.Exists(packagePath)) return Fail("更新包不存在：" + packagePath, 1);
-        if (!Directory.Exists(targetDirectory)) return Fail("更新目标目录不存在：" + targetDirectory, 1);
+        if (!Directory.Exists(pluginRoot)) return Fail("Plugin 目录不存在：" + pluginRoot, 1);
 
-        var updateFiles = new[] { "videoenhancer.exe", "videoenhancer.3fui.dll" };
         var workRoot = Path.Combine(Path.GetTempPath(), "VideoEnhancerUpdate", Guid.NewGuid().ToString("N"));
         var stagingDirectory = Path.Combine(workRoot, "staging");
-        var backupDirectory = Path.Combine(workRoot, "backup");
         Directory.CreateDirectory(stagingDirectory);
-        Directory.CreateDirectory(backupDirectory);
         var hostExitConfirmed = waitPid == 0;
 
         try
@@ -1184,44 +1183,17 @@ internal static class Program
             if (new FileInfo(stagedPlugin).Length <= 0)
                 throw new InvalidDataException("新 EXE 内嵌的插件 DLL 无效");
 
-            var hadOriginal = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-            foreach (var name in updateFiles)
-            {
-                var target = Path.Combine(targetDirectory, name);
-                var exists = File.Exists(target);
-                hadOriginal[name] = exists;
-                if (exists) File.Copy(target, Path.Combine(backupDirectory, name), true);
-            }
-
-            try
-            {
-                foreach (var name in updateFiles)
-                {
-                    CopyUpdateFileWithSharingRetry(
-                        Path.Combine(stagingDirectory, name),
-                        Path.Combine(targetDirectory, name),
-                        TimeSpan.FromSeconds(10));
-                }
-            }
-            catch
-            {
-                foreach (var name in updateFiles)
-                {
-                    var target = Path.Combine(targetDirectory, name);
-                    try
-                    {
-                        if (hadOriginal[name])
-                            File.Copy(Path.Combine(backupDirectory, name), target, true);
-                        else if (File.Exists(target))
-                            File.Delete(target);
-                    }
-                    catch (Exception rollbackError)
-                    {
-                        Console.Error.WriteLine("[回滚警告] " + name + "：" + rollbackError.Message);
-                    }
-                }
-                throw;
-            }
+            var existingCoreRoot = Directory.Exists(Path.Combine(
+                    ApplicationLayoutManager.ApplicationRoot(pluginRoot), "python"))
+                ? ApplicationLayoutManager.ApplicationRoot(pluginRoot)
+                : pluginRoot;
+            BackendUpdateManager.RecoverPending(existingCoreRoot);
+            ApplicationLayoutManager.Install(
+                pluginRoot,
+                stagedExe,
+                stagedPlugin,
+                replaceCanonicalExe: true,
+                removeLegacyExe: true);
 
             Console.WriteLine("UPDATE_COMPLETE|" + ToolVersion);
             WriteUpdateResult(o.UpdateResult, "OK|" + ToolVersion);
@@ -1237,30 +1209,6 @@ internal static class Program
             try { Directory.Delete(workRoot, true); } catch { }
             if (hostExitConfirmed) TryRestartHost(o.RestartExe);
         }
-    }
-
-    /// <summary>短暂文件占用常见于宿主退出后的子进程或安全扫描，先重试再判定更新失败。</summary>
-    private static void CopyUpdateFileWithSharingRetry(string source, string target, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (true)
-        {
-            try
-            {
-                File.Copy(source, target, true);
-                return;
-            }
-            catch (IOException ex) when (IsSharingViolation(ex) && DateTime.UtcNow < deadline)
-            {
-                Thread.Sleep(250);
-            }
-        }
-    }
-
-    private static bool IsSharingViolation(IOException ex)
-    {
-        var errorCode = ex.HResult & 0xFFFF;
-        return errorCode is 32 or 33;
     }
 
     /// <summary>宿主已经退出后，无论更新成败都尝试恢复 3FUI，错误详情由结果文件在下次启动时显示。</summary>
@@ -1298,7 +1246,7 @@ internal static class Program
         }
     }
 
-    /// <summary>双击无参数启动时安装插件 DLL，并按需初始化便携核心目录。</summary>
+    /// <summary>双击无参数启动时将版本化安装器事务安装为固定名称，并初始化便携核心目录。</summary>
     private static int RunInteractiveInstaller()
     {
         var installationStarted = false;
@@ -1325,28 +1273,29 @@ internal static class Program
             var hostDirectory = Path.GetDirectoryName(hostExe)
                 ?? throw new InvalidOperationException("无法确定所选程序的目录。");
             var pluginDirectory = Path.Combine(hostDirectory, "plugin");
-            var pluginPath = Path.Combine(pluginDirectory, "videoenhancer.3fui.dll");
-            Directory.CreateDirectory(pluginDirectory);
-            ExtractEmbeddedPlugin(pluginPath);
-            Console.WriteLine("插件已安装到：" + pluginPath);
-
             var currentExe = Path.GetFullPath(Environment.ProcessPath ?? Path.Combine(AppRoot, "videoenhancer.exe"));
-            var hasOtherEntries = Directory.EnumerateFileSystemEntries(AppRoot)
-                .Any(path => !string.Equals(Path.GetFullPath(path), currentExe, StringComparison.OrdinalIgnoreCase));
+            var installedExe = InstallPluginFiles(currentExe, pluginDirectory);
+            Console.WriteLine("程序已安装为：" + installedExe);
+            Console.WriteLine("插件已安装到：" + Path.Combine(pluginDirectory, "videoenhancer.3fui.dll"));
+
+            var applicationDirectory = ApplicationLayoutManager.ApplicationRoot(pluginDirectory);
+            var hasOtherEntries = Directory.EnumerateFileSystemEntries(pluginDirectory)
+                .Any(path => !string.Equals(Path.GetFullPath(path), applicationDirectory, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(Path.GetFileName(path), ApplicationLayoutManager.PluginDllName, StringComparison.OrdinalIgnoreCase));
             if (hasOtherEntries)
             {
-                Console.Write("检测到程序当前目录存在其他文件，");
+                Console.Write("检测到插件目录存在其他文件，");
             }
-            Console.Write($"程序即将在\"{AppRoot}\"中自动创建核心目录（models、python 和 bin），是否继续？选择\"是(Y)\"：");
+            Console.Write($"程序即将在\"{applicationDirectory}\"中自动创建核心目录（models、python 和 bin），是否继续？选择\"是(Y)\"：");
             if (!ReadYes())
             {
                 Console.WriteLine("插件安装完成；已跳过核心目录初始化。");
                 return 0;
             }
 
-            Directory.CreateDirectory(Path.Combine(AppRoot, "models"));
-            Directory.CreateDirectory(Path.Combine(AppRoot, "python"));
-            Directory.CreateDirectory(Path.Combine(AppRoot, "bin"));
+            Directory.CreateDirectory(Path.Combine(applicationDirectory, "models"));
+            Directory.CreateDirectory(Path.Combine(applicationDirectory, "python"));
+            Directory.CreateDirectory(Path.Combine(applicationDirectory, "bin"));
             Console.WriteLine("安装完成。核心目录已准备好。");
             return 0;
         }
@@ -1377,6 +1326,16 @@ internal static class Program
 
     private static string? PickHostExecutable()
     {
+        // 自动测试或受管部署可显式提供宿主路径；普通双击安装仍使用文件选择窗口。
+        var configuredHost = Environment.GetEnvironmentVariable("VIDEOENHANCER_INSTALL_HOST")?.Trim();
+        if (!string.IsNullOrWhiteSpace(configuredHost))
+        {
+            var fullPath = Path.GetFullPath(configuredHost.Trim('"'));
+            if (!File.Exists(fullPath))
+                throw new FileNotFoundException("VIDEOENHANCER_INSTALL_HOST 指向的程序不存在", fullPath);
+            return fullPath;
+        }
+
         const int fileCapacity = 32768;
         var fileBuffer = Marshal.AllocHGlobal(fileCapacity * sizeof(char));
         var filter = Marshal.StringToHGlobalUni("可执行程序 (*.exe)\0*.exe\0所有文件 (*.*)\0*.*\0\0");
@@ -1411,6 +1370,50 @@ internal static class Program
             Marshal.FreeHGlobal(initialDirectory);
             Marshal.FreeHGlobal(title);
             Marshal.FreeHGlobal(defaultExtension);
+        }
+    }
+
+    /// <summary>
+    /// 将任意文件名的发行 EXE 安装为 Plugin\videoenhancer\videoenhancer.exe，DLL 留在 Plugin 根目录。
+    /// 运行中的源 EXE 只读复制即可；旧平铺目录与目标文件一起事务迁移。
+    /// </summary>
+    private static string InstallPluginFiles(string sourceExePath, string pluginDirectory)
+    {
+        var sourceExe = Path.GetFullPath(sourceExePath);
+        var targetDirectory = Path.GetFullPath(pluginDirectory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!File.Exists(sourceExe)) throw new FileNotFoundException("安装程序不存在", sourceExe);
+        Directory.CreateDirectory(targetDirectory);
+
+        var targetExe = ApplicationLayoutManager.ExecutablePath(targetDirectory);
+        var sourceIsTarget = sourceExe.Equals(Path.GetFullPath(targetExe), StringComparison.OrdinalIgnoreCase);
+        var workRoot = Path.Combine(Path.GetTempPath(), "VideoEnhancerInstall", Guid.NewGuid().ToString("N"));
+        var stagingDirectory = Path.Combine(workRoot, "staging");
+        Directory.CreateDirectory(stagingDirectory);
+
+        try
+        {
+            var stagedExe = Path.Combine(stagingDirectory, ApplicationLayoutManager.ExecutableName);
+            var stagedPlugin = Path.Combine(stagingDirectory, ApplicationLayoutManager.PluginDllName);
+            File.Copy(sourceExe, stagedExe, true);
+            ExtractEmbeddedPlugin(stagedPlugin);
+            var existingCoreRoot = Directory.Exists(Path.Combine(
+                    ApplicationLayoutManager.ApplicationRoot(targetDirectory), "python"))
+                ? ApplicationLayoutManager.ApplicationRoot(targetDirectory)
+                : targetDirectory;
+            BackendUpdateManager.RecoverPending(existingCoreRoot);
+            return ApplicationLayoutManager.Install(
+                targetDirectory,
+                stagedExe,
+                stagedPlugin,
+                replaceCanonicalExe: !sourceIsTarget,
+                removeLegacyExe: !sourceExe.Equals(
+                    Path.Combine(targetDirectory, ApplicationLayoutManager.ExecutableName),
+                    StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            try { Directory.Delete(workRoot, true); } catch { }
         }
     }
 
@@ -2635,12 +2638,22 @@ internal static class Program
     private static string? DetectScale(string modelFolder)
     {
         var name = Path.GetFileName(modelFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        var match = Regex.Match(name, @"-(\d)x", RegexOptions.IgnoreCase);
-        if (!match.Success)
+        var stem = Path.GetFileNameWithoutExtension(name);
+        // RealESRGAN AnimeVideo v3 的官方文件名没有倍率后缀，但模型原生输出为 4 倍。
+        if (stem.Equals("realesr-animevideov3", StringComparison.OrdinalIgnoreCase))
         {
-            match = Regex.Match(name, @"x(\d)", RegexOptions.IgnoreCase);
+            return "4";
         }
-        return match.Success ? match.Groups[1].Value : null;
+        // 优先取最后一个独立倍率标记。ONNX 文件名可能先包含 1x3xHxW 张量形状，
+        // 直接取第一个 x 数字会把通道数误当成放大倍率。
+        var matches = Regex.Matches(name, @"(?:^|[-_])(\d+)x(?=[-_.]|$)", RegexOptions.IgnoreCase);
+        if (matches.Count > 0)
+        {
+            return matches[^1].Groups[1].Value;
+        }
+        // x4 形式也必须位于独立字段边界，避免把 fix1、fix2 等普通单词尾部误判为倍率。
+        matches = Regex.Matches(name, @"(?:^|[-_])x(\d+)(?=[-_.v]|$)", RegexOptions.IgnoreCase);
+        return matches.Count > 0 ? matches[^1].Groups[1].Value : null;
     }
 
     /// <summary>

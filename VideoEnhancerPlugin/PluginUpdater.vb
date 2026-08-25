@@ -198,7 +198,7 @@ Namespace videoenhancer
         End Function
 
         Public Shared Sub StartUpdate(packagePath As String,
-                                      targetDirectory As String, waitPid As Integer,
+                                      pluginRoot As String, waitPid As Integer,
                                       restartExe As String)
             Dim updaterDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -223,7 +223,7 @@ Namespace videoenhancer
             startInfo.ArgumentList.Add("--update-package")
             startInfo.ArgumentList.Add(packagePath)
             startInfo.ArgumentList.Add("--update-target")
-            startInfo.ArgumentList.Add(targetDirectory)
+            startInfo.ArgumentList.Add(pluginRoot)
             startInfo.ArgumentList.Add("--wait-pid")
             startInfo.ArgumentList.Add(waitPid.ToString(Globalization.CultureInfo.InvariantCulture))
             startInfo.ArgumentList.Add("--restart-exe")

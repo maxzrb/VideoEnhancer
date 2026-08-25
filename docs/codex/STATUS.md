@@ -1,17 +1,23 @@
 # Project Status
 
-Last updated: 2026-08-25 14:09
+Last updated: 2026-08-25 17:28
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 1.0.11 已发布，为 Backend 增量补丁冲突提供用户确认的完整修复入口，并完成双源资产复核。
-- Current state: 源码提交 `d859f7b`、`main`、标签 `v1.0.11` 和 GitHub Release 已发布；GitHub 与 ModelScope 两个数据集的 EXE 均为 17,473,820 字节、SHA-256 `cdfb7f38688778e332da15566e88a98680ebc662624d49d52e0b1f19fbb4027f`，两端 `stable.json` 均为 539 字节、SHA-256 `e9372cc5a9440a95268fa9fa6b76ae485f7d9bb1981d23b0596b6fd22df9a93c`。Backend 2026.08.25.1 审计为 0 add/replace/delete，未重复上传完整包、补丁或 channel。完整修复按“新包暂存验证→旧后端整目录移入事务备份→新目录切换→成功清理/失败恢复”执行。
+- Current objective: 完成 1.1.0 发布收口：将 EXE、Backend、模型和工具迁入 `Plugin\videoenhancer`，保留插件 DLL 于 `Plugin` 根目录，并发布已通过实机矩阵的候选。
+- Current state: 1.1.0 正式候选已构建并部署到真实 3FUI。迁移前后 47,676 个受管文件、24,989,634,005 字节的 SHA-256 清单完全一致（0 missing/extra/changed）；3FUI 插件页、嵌套 EXE 路径、环境检查和自动重启均通过。GPU 矩阵 679 项取得终态：677 PASS、2 `SKIP_OOM`、0 失败；倍率解析修复的 3 个模型和 `fix1/fix2` 两个防回归模型均用最终候选复测通过。Backend 2026.08.25.1 审计为 unchanged，不制作空补丁或重复上传全量包。尚未提交、推送或创建 v1.1.0 Release。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 在另一台电脑先更新到 1.0.11；增量补丁若再次报告 SHA-256 不匹配，使用新增的“下载完整修复包”并确认事务式整体替换。
+- Next recommended step: 提交并推送 1.1.0 发布候选，发布 GitHub 与 ModelScope 本体，完成双源版本、正文、大小和 SHA-256 回读；Backend 保持 2026.08.25.1 不重复上传。
 
 ## Active TODO
+
+- [ ] Task: 发布独立子目录布局版本 1.1.0。
+  - Owner: Codex
+  - Status: 代码、实机迁移、正式候选和全部发布前门禁已完成；待提交、推送、发布与远端回读。
+  - Relevant files: `cli/ApplicationLayoutManager.cs`, `cli/Program.cs`, `VideoEnhancerPlugin/PluginConfig.vb`, `VideoEnhancerPlugin/PluginUpdater.vb`, `release/test-installer.ps1`, `release/test-updater.ps1`, `cli/tests/gpu_matrix_runner.py`
+  - Notes/blockers: 679 项矩阵为 677 PASS、2 SKIP_OOM、0 失败；两条 OOM 均为 FlashVSR+GIMM 在 6GB RTX 3060 上的双流程，按用户要求不再重测。Backend 无发布内容变化。
 
 - [x] Task: 发布自更新重启修正版 1.0.9。
   - Owner: user / Codex
@@ -1240,3 +1246,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Backend: 2026.08.25.1 发布基线与当前候选审计为 0 add/replace/delete，因此未制作或上传新完整包、补丁和 channel。完整修复会先验证并暂存新包，再将旧 `python` 后端整目录移入事务备份，切换成功后清理备份，失败或中断则恢复；不会在旧目录上覆盖遗留脚本。
 - Verification: CLI/插件构建、单文件 publish、顺序处理 6/6、自更新六类场景、Backend 事务 6/6、发布门禁 5/5 通过；正式发布资产已从 GitHub 和 ModelScope SDK 回读核对。下一步仅需用户在发生冲突的另一台电脑更新至 1.0.11 后验证“下载完整修复包”交互。
 - Git status: 发布记录将在本条之后单独提交并推送；除记录提交外应保持工作树干净。
+
+### 2026-08-25 17:28 - Codex
+
+- Objective/layout: 为全新安装与旧版升级实现固定布局：`Plugin\videoenhancer.3fui.dll` 保留在插件根目录，EXE、`bin`、`models`、`python` 和 Backend 更新状态迁入 `Plugin\videoenhancer`。安装与更新共用可恢复事务，写入移动意图后再操作，支持占用重试、失败回滚和进程中断恢复；未知插件文件不移动。
+- Real migration: 在 `C:\Program portable\3FUI\3FUI` 完成真实迁移。迁移前后 47,676 个受管文件、24,989,634,005 字节的完整 SHA-256 清单一致，0 missing、0 extra、0 changed；配置自动改写为嵌套 EXE，3FUI 插件页显示新路径并通过环境检测。首次关闭宿主的 PowerShell 辅助命令误用了只读 `$Host` 变量，未按预期关闭窗口，但迁移当时没有 VideoEnhancer/Python/FFmpeg 任务且事务成功；随后使用 `$hostProcess` 正常关闭并重启，单实例验证通过。
+- GPU matrix: 动态枚举实际安装目录中的 129 个超分和 22 个补帧模型，组合沿用代表方案，共 679 项。先三路后按用户要求五路并行，最终 677 PASS、2 `SKIP_OOM`、0 失败；跳过项仅为 FlashVSR+GIMM 两种顺序在 6GB RTX 3060 上 OOM。测试发现并修复 ONNX `1x3xHxW...-2x` 与 TensorRT 缓存尺寸导致的倍率误判；最终候选对 3 个行为变化模型及两个 `fix1/fix2` 防回归模型全部实机通过。
+- Verification: 正式构建两次完成 Backend `UNCHANGED` 审计；安装器场景全过（fresh/migration/transient lock/injected rollback/permanent lock），本体更新器场景全过（migration/transient/tamper/invalid/rollback/interruption/restart），Backend 事务 6/6、RVE 有序管线 6/6、发布门禁 5/5、Python 语法和 `git diff --check` 通过。最终实机 EXE 与正式资产哈希一致，`--version` 为 1.1.0，`--check` 全部通过。
+- Backend decision: 实机目录相对 2026.08.25.1 干净基线仅多运行时 `.pyc`、Triton 缓存、本地状态和完整包，不属于发布内容；Backend 源码/依赖不变，因此版本保持 2026.08.25.1，不生成空补丁、不重复上传约 2.79GB 全量包。
+- Files/Git: 修改安装布局、插件路径解析、发布脚本/门禁、GPU runner、README、发布说明与版本记录；新增 `cli/ApplicationLayoutManager.cs`、`release/test-installer.ps1`。当前 `main` 基于 `f3e5566`，工作树只有本次预期改动，尚未提交/推送/发布；下一步创建发布提交并发布 v1.1.0。

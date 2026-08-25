@@ -190,12 +190,60 @@ def make_case(
     )
 
 
-def generate_cases() -> list[MatrixCase]:
+def infer_scale(backend: str, model_name: str) -> int:
+    if backend in {"flashvsr", "basicvsrpp"}:
+        return 4
+    lowered = model_name.lower()
+    if lowered.endswith("realesr-animevideov3"):
+        return 4
+    match = re.search(r"(?:^|[-_])([1-4])x(?:[-_]|$)", lowered)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"x([1-4])", lowered)
+    if match:
+        return int(match.group(1))
+    raise ValueError(f"无法从模型名推断放大倍率：{backend} {model_name}")
+
+
+def single_upscale_model(backend: str, model_name: str) -> UpscaleModel:
+    width, height = 96, 64
+    if backend == "onnx":
+        static_shape = re.search(r"-(240x320|320x448|480x320)-", model_name, re.I)
+        if static_shape:
+            input_height, input_width = (int(value) for value in static_shape.group(1).split("x"))
+            width, height = input_width, input_height
+    return UpscaleModel(
+        backend,
+        "全部已安装模型",
+        model_name,
+        infer_scale(backend, model_name),
+        width,
+        height,
+    )
+
+
+def single_interp_model(backend: str, model_name: str) -> InterpModel:
+    width, height = (320, 240) if model_name.startswith("GIMM-VFI/") else (96, 64)
+    return InterpModel(backend, "全部已安装模型", model_name, width, height)
+
+
+def generate_cases(
+    available_upscale: dict[str, list[str]],
+    available_interp: dict[str, list[str]],
+) -> list[MatrixCase]:
     cases: list[MatrixCase] = []
-    for interp in INTERP_MODELS:
-        cases.append(make_case("single", "single-interp", None, interp))
-    for upscale in UPSCALE_MODELS:
-        cases.append(make_case("single", "single-upscale", upscale, None))
+    for backend, model_names in available_interp.items():
+        for model_name in model_names:
+            cases.append(make_case(
+                "single", "single-interp", None,
+                single_interp_model(backend, model_name),
+            ))
+    for backend, model_names in available_upscale.items():
+        for model_name in model_names:
+            cases.append(make_case(
+                "single", "single-upscale",
+                single_upscale_model(backend, model_name), None,
+            ))
 
     for upscale in UPSCALE_MODELS:
         for interp in INTERP_MODELS:
@@ -228,15 +276,17 @@ def parse_json_array(output: str) -> list[str]:
     raise ValueError("命令输出中没有 JSON 数组")
 
 
-def validate_catalog(exe: Path) -> None:
-    available_upscale: dict[str, set[str]] = {}
+def load_and_validate_catalog(
+    exe: Path,
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    available_upscale: dict[str, list[str]] = {}
     for backend in ("ncnn", "cuda", "tensorrt", "onnx", "flashvsr", "basicvsrpp"):
         result = run_capture([str(exe), "--list-models", "--backend", backend, "--json"], 120)
         if result.returncode != 0:
             raise RuntimeError(f"无法读取 {backend} 超分清单：{result.stderr.strip()}")
-        available_upscale[backend] = set(parse_json_array(result.stdout))
+        available_upscale[backend] = parse_json_array(result.stdout)
 
-    available_interp: dict[str, set[str]] = {}
+    available_interp: dict[str, list[str]] = {}
     for backend in ("ncnn", "cuda", "tensorrt"):
         result = run_capture(
             [str(exe), "--list-interp-models", "--interp-backend", backend, "--json"],
@@ -244,7 +294,7 @@ def validate_catalog(exe: Path) -> None:
         )
         if result.returncode != 0:
             raise RuntimeError(f"无法读取 {backend} 补帧清单：{result.stderr.strip()}")
-        available_interp[backend] = set(parse_json_array(result.stdout))
+        available_interp[backend] = parse_json_array(result.stdout)
 
     missing = [
         f"超分 {model.backend}: {model.name}"
@@ -258,6 +308,17 @@ def validate_catalog(exe: Path) -> None:
     )
     if missing:
         raise RuntimeError("代表模型缺失：\n" + "\n".join(missing))
+    # 单模型阶段覆盖安装目录中 CLI 实际列出的全部模型；重复项会导致用例 ID 冲突，必须拒绝。
+    for label, catalog in (("超分", available_upscale), ("补帧", available_interp)):
+        duplicates = [
+            f"{backend}: {name}"
+            for backend, names in catalog.items()
+            for name, count in Counter(names).items()
+            if count > 1
+        ]
+        if duplicates:
+            raise RuntimeError(label + "模型清单存在重复项：\n" + "\n".join(duplicates))
+    return available_upscale, available_interp
 
 
 def ensure_fixture(ffmpeg: Path, fixture_dir: Path, width: int, height: int) -> Path:
@@ -488,7 +549,7 @@ def write_reports(result_dir: Path, records: dict[str, dict[str, object]], total
         groups[key][str(row["status"])] += 1
 
     summary_lines = [
-        "# GPU 代表模型兼容性矩阵",
+        "# GPU 模型兼容性矩阵",
         "",
         f"- 计划用例：{total_cases}",
         f"- 已有结果：{len(ordered)}",
@@ -627,7 +688,8 @@ def main() -> int:
             parser.error(f"文件不存在：{required}")
 
     args.result_dir.mkdir(parents=True, exist_ok=True)
-    all_cases = generate_cases()
+    available_upscale, available_interp = load_and_validate_catalog(exe)
+    all_cases = generate_cases(available_upscale, available_interp)
     selected = filtered_cases(all_cases, args)
     result_path = args.result_dir / "results.jsonl"
     records = read_records(result_path)
@@ -640,7 +702,6 @@ def main() -> int:
         print(args.result_dir / "summary.md")
         return 0
 
-    validate_catalog(exe)
     counts = Counter(case.phase for case in all_cases)
     print(
         "矩阵计划："

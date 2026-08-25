@@ -769,7 +769,8 @@ Namespace videoenhancer
             End If
             Dim tileBackend = String.Equals(backend, "ncnn", StringComparison.OrdinalIgnoreCase) OrElse
                 String.Equals(backend, "cuda", StringComparison.OrdinalIgnoreCase) OrElse
-                String.Equals(backend, "tensorrt", StringComparison.OrdinalIgnoreCase)
+                String.Equals(backend, "tensorrt", StringComparison.OrdinalIgnoreCase) OrElse
+                String.Equals(backend, "onnx", StringComparison.OrdinalIgnoreCase)
             If upscaleOn AndAlso tileSize > 0 AndAlso tileBackend Then
                 sb.Append(" -tile-size ").Append(tileSize.ToString(System.Globalization.CultureInfo.InvariantCulture))
             End If

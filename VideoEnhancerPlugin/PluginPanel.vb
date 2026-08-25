@@ -163,6 +163,14 @@ Namespace videoenhancer
         Private _loadingModels As Boolean = False
         Private _interpModelsLoaded As Boolean = False
         Private _loadingInterpModels As Boolean = False
+        Private _syncingModelSelection As Boolean = False
+        Private _syncingInterpModelSelection As Boolean = False
+        Private _showModelMenuAfterLoad As Boolean = False
+        Private _showInterpMenuAfterLoad As Boolean = False
+        Private ReadOnly _modelCatalog As New List(Of ModelCatalogItem)()
+        Private ReadOnly _interpModelCatalog As New List(Of ModelCatalogItem)()
+        Private _modelMenu As ModernContextMenu
+        Private _interpModelMenu As ModernContextMenu
         Private _uiReady As Boolean = False
         ' ── 选项卡分栏：超分主界面 / 实时预览 / 高级功能 / 模型转换器 ──
         Private ReadOnly _tabs As New ModernTabControl()
@@ -173,7 +181,7 @@ Namespace videoenhancer
         Private ReadOnly _pageAdvanced As New Panel()
         Private ReadOnly _pageDownloader As New Panel()
         Private ReadOnly _pageConverter As New Panel()
-        Private ReadOnly _pageModelInfo As New Panel()
+        Private ReadOnly _pageImporter As New Panel()
         Private ReadOnly _pageTutorial As New Panel()
         Private ReadOnly _markdownSources As New Dictionary(Of Panel, String)()
         Private ReadOnly _markdownReady As New HashSet(Of Panel)()
@@ -217,6 +225,17 @@ Namespace videoenhancer
         Private _convertIsInterpolation As Boolean = False
         Private _convertArchitecture As String = ""
         Private _conversionRunning As Boolean = False
+        ' ── 用户模型导入页 ──
+        Private ReadOnly _btnPickImportFile As New ModernButton()
+        Private ReadOnly _btnPickImportFolder As New ModernButton()
+        Private ReadOnly _btnImportModel As New ModernButton()
+        Private ReadOnly _lblImportSource As New HtmlColorLabel()
+        Private ReadOnly _lblImportStatus As New HtmlColorLabel()
+        Private ReadOnly _importModelList As New UltraDetailListView()
+        Private _importSourcePath As String = ""
+        Private _modelImportBusy As Boolean = False
+        Private _userModelsLoading As Boolean = False
+        Private _importModelListConfigured As Boolean = False
         ' ── 模型下载页 ──
         Private Const DownloadActionColumn As Integer = 3
         Private Const MaxParallelDownloads As Integer = 3
@@ -268,6 +287,45 @@ Namespace videoenhancer
         Private NotInheritable Class DownloadExecutionResult
             Public Property ExitCode As Integer = -1
             Public Property Errors As String = ""
+        End Class
+        Private NotInheritable Class ModelCatalogItem
+            Public Property Id As String = ""
+            Public Property DisplayName As String = ""
+            Public Property Architecture As String = ""
+            Public Property Purpose As String = ""
+            Public Property Scale As Integer
+            Public Property Source As String = ""
+            Public Property Backends As String() = Array.Empty(Of String)()
+        End Class
+        Private NotInheritable Class ModelImportResponse
+            Public Property Success As Boolean
+            Public Property Source As String = ""
+            Public Property Id As String = ""
+            Public Property InstalledPath As String = ""
+            Public Property Task As String = ""
+            Public Property Architecture As String = ""
+            Public Property Purpose As String = ""
+            Public Property Scale As Integer
+            Public Property Backends As String() = Array.Empty(Of String)()
+            Public Property [Error] As String = ""
+        End Class
+        Private NotInheritable Class UserModelItem
+            Public Property Id As String = ""
+            Public Property DisplayName As String = ""
+            Public Property RelativePath As String = ""
+            Public Property Task As String = ""
+            Public Property Architecture As String = ""
+            Public Property Purpose As String = ""
+            Public Property Format As String = ""
+            Public Property Scale As Integer
+            Public Property InputMultiple As Integer = 1
+            Public Property MinimumSize As Integer
+            Public Property Square As Boolean
+            Public Property Tiling As String = ""
+            Public Property Sha256 As String = ""
+            Public Property Size As Long
+            Public Property ImportedAtUtc As String = ""
+            Public Property Backends As String() = Array.Empty(Of String)()
         End Class
         Private ReadOnly _statusClearTimer As New Timer() With {.Interval = 5000}
         ' 定期把「预览输出」右键菜单项挂到编码队列窗体（窗体实例重建后自动恢复）
@@ -567,9 +625,12 @@ Namespace videoenhancer
         ' ────────────────────────── 模型下拉框 ──────────────────────────
 
         Private Sub OnModelDropDownOpened(sender As Object, e As EventArgs)
+            _cmbModel.DroppedDown = False
             If _modelsLoaded Then
+                ShowModelMenu(_cmbModel, _modelCatalog, False)
                 Return
             End If
+            _showModelMenuAfterLoad = True
             StartModelLoad()
         End Sub
 
@@ -582,9 +643,12 @@ Namespace videoenhancer
         End Sub
 
         Private Sub OnInterpDropDownOpened(sender As Object, e As EventArgs)
+            _cmbInterp.DroppedDown = False
             If _interpModelsLoaded Then
+                ShowModelMenu(_cmbInterp, _interpModelCatalog, True)
                 Return
             End If
+            _showInterpMenuAfterLoad = True
             StartInterpModelLoad()
         End Sub
 
@@ -616,15 +680,27 @@ Namespace videoenhancer
             Dim exePath = _config.ExePath
             Dim backend = If(String.IsNullOrWhiteSpace(_config.Backend), "ncnn", _config.Backend)
             Task.Run(Sub()
-                         Dim models = RunListModels(exePath, "--search-models", "-backend", backend)
+                         Dim catalog = RunModelCatalog(exePath, "--list-model-catalog", "-backend", backend)
+                         Dim models As List(Of String) = Nothing
+                         If catalog.Count = 0 Then
+                             models = RunListModels(exePath, "--search-models", "-backend", backend)
+                         End If
                          Try
                              If Me.IsHandleCreated Then
                                  Me.BeginInvoke(New Action(Sub()
-                                                               ApplyModelList(models)
+                                                               If catalog.Count > 0 Then
+                                                                   ApplyModelCatalog(catalog, False)
+                                                               Else
+                                                                   ApplyModelList(If(models, New List(Of String)()))
+                                                               End If
                                                                _loadingModels = False
                                                            End Sub))
                              Else
-                                 ApplyModelList(models)
+                                 If catalog.Count > 0 Then
+                                     ApplyModelCatalog(catalog, False)
+                                 Else
+                                     ApplyModelList(If(models, New List(Of String)()))
+                                 End If
                                  _loadingModels = False
                              End If
                          Catch
@@ -645,21 +721,140 @@ Namespace videoenhancer
             Dim exePath = _config.ExePath
             Dim backend = If(String.IsNullOrWhiteSpace(_config.InterpBackend), "ncnn", _config.InterpBackend)
             Task.Run(Sub()
-                         Dim models = RunListModels(exePath, "--list-interp-models", "-interp-backend", backend)
+                         Dim catalog = RunModelCatalog(exePath, "--list-interp-model-catalog", "-interp-backend", backend)
+                         Dim models As List(Of String) = Nothing
+                         If catalog.Count = 0 Then
+                             models = RunListModels(exePath, "--list-interp-models", "-interp-backend", backend)
+                         End If
                          Try
                              If Me.IsHandleCreated Then
                                  Me.BeginInvoke(New Action(Sub()
                                                                _loadingInterpModels = False
-                                                               ApplyInterpModelList(models)
+                                                               If catalog.Count > 0 Then
+                                                                   ApplyModelCatalog(catalog, True)
+                                                               Else
+                                                                   ApplyInterpModelList(If(models, New List(Of String)()))
+                                                               End If
                                                            End Sub))
                              Else
                                  _loadingInterpModels = False
-                                 ApplyInterpModelList(models)
+                                 If catalog.Count > 0 Then
+                                     ApplyModelCatalog(catalog, True)
+                                 Else
+                                     ApplyInterpModelList(If(models, New List(Of String)()))
+                                 End If
                              End If
                          Catch
                              _loadingInterpModels = False
                          End Try
                      End Sub)
+        End Sub
+
+        Private Sub ApplyModelCatalog(catalog As List(Of ModelCatalogItem), interpolation As Boolean)
+            Dim targetCatalog = If(interpolation, _interpModelCatalog, _modelCatalog)
+            targetCatalog.Clear()
+            targetCatalog.AddRange(catalog.Where(Function(item) item IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(item.Id)))
+            Dim configured = If(interpolation, _config.InterpModel, _config.Model)
+            Dim selected = targetCatalog.FirstOrDefault(
+                Function(item) String.Equals(item.Id, configured, StringComparison.OrdinalIgnoreCase))
+            Dim matchedConfigured = selected IsNot Nothing
+            If selected Is Nothing AndAlso targetCatalog.Count > 0 Then selected = targetCatalog(0)
+            If selected IsNot Nothing Then
+                SetCatalogSelection(selected, interpolation, saveConfig:=Not matchedConfigured)
+            End If
+            If interpolation Then
+                _interpModelsLoaded = targetCatalog.Count > 0
+                _cmbInterp.WaterText = If(targetCatalog.Count > 0, "选择补帧模型…", "未找到补帧模型")
+                If _showInterpMenuAfterLoad AndAlso targetCatalog.Count > 0 Then
+                    _showInterpMenuAfterLoad = False
+                    BeginInvoke(New Action(Sub() ShowModelMenu(_cmbInterp, _interpModelCatalog, True)))
+                End If
+            Else
+                _modelsLoaded = targetCatalog.Count > 0
+                _cmbModel.WaterText = If(targetCatalog.Count > 0, "选择放大模型…", "未找到放大模型")
+                If _showModelMenuAfterLoad AndAlso targetCatalog.Count > 0 Then
+                    _showModelMenuAfterLoad = False
+                    BeginInvoke(New Action(Sub() ShowModelMenu(_cmbModel, _modelCatalog, False)))
+                End If
+            End If
+            If targetCatalog.Count > 0 Then
+                ShowStatus("已读取 " & targetCatalog.Count.ToString() & " 个" & If(interpolation, "补帧", "超分") & "模型，已按架构分组", False)
+            End If
+        End Sub
+
+        Private Shared Function FallbackArchitecture(modelId As String) As String
+            Dim normalized = If(modelId, "").Replace(Convert.ToChar(92), "/"c)
+            For Each architecture In New String() {
+                "RealESRGAN", "RealHatGAN", "ESRGAN", "SPANPlus", "SPAN", "SwinIR", "RealCUGAN",
+                "AnimeSR", "CRAFT", "DITN", "MoSR", "RIFE", "GMFSS", "GIMM"
+            }
+                If normalized.IndexOf(architecture, StringComparison.OrdinalIgnoreCase) >= 0 Then Return architecture
+            Next
+            Dim segments = normalized.Split(New Char() {"/"c}, StringSplitOptions.RemoveEmptyEntries)
+            Return If(segments.Length > 1, segments(0), "其他模型")
+        End Function
+
+        Private Shared Sub ConfigureModelMenu(menu As ModernContextMenu)
+            menu.BackColor = Color.FromArgb(42, 42, 42)
+            menu.BackColor1 = Color.FromArgb(42, 42, 42)
+            menu.BorderColor = Color.FromArgb(72, 72, 72)
+            menu.BorderSize = 1
+            menu.MenuForeColor = UiText
+            menu.HoverBackColor = UiSurfaceHover
+            menu.PressedBackColor = UiAccentPressed
+            menu.ArrowColor = UiTextSecondary
+            menu.ItemHeight = 34
+            menu.ItemPadding = New Padding(12, 0, 12, 0)
+            menu.MenuPadding = New Padding(4)
+            menu.SubMenuHorizontalOffset = 2
+        End Sub
+
+        Private Sub ShowModelMenu(anchor As ModernComboBox, catalog As List(Of ModelCatalogItem), interpolation As Boolean)
+            If catalog.Count = 0 OrElse anchor.IsDisposed Then Return
+            Dim root As New ModernContextMenu()
+            ConfigureModelMenu(root)
+            For Each group In catalog.GroupBy(Function(item) If(String.IsNullOrWhiteSpace(item.Architecture), "其他模型", item.Architecture)).
+                    OrderBy(Function(item) item.Key, StringComparer.CurrentCultureIgnoreCase)
+                Dim submenu As New ModernContextMenu()
+                ConfigureModelMenu(submenu)
+                For Each entry In group.OrderBy(Function(item) item.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+                    Dim selectedEntry = entry
+                    Dim suffix = If(entry.Scale > 0 AndAlso Not interpolation, "  · " & entry.Scale.ToString() & "x", "")
+                    If String.Equals(entry.Source, "user", StringComparison.OrdinalIgnoreCase) Then suffix &= "  [用户]"
+                    Dim child As New ModernContextMenu.ModernMenuItem(entry.DisplayName & suffix) With {
+                        .Checked = String.Equals(entry.Id, If(interpolation, _config.InterpModel, _config.Model), StringComparison.OrdinalIgnoreCase),
+                        .CloseOnClick = True
+                    }
+                    AddHandler child.Click, Sub(sender, e) SetCatalogSelection(selectedEntry, interpolation, saveConfig:=True)
+                    submenu.Items.Add(child)
+                Next
+                root.Items.Add(New ModernContextMenu.ModernMenuItem(group.Key) With {.SubMenu = submenu, .CloseOnClick = False})
+            Next
+            If interpolation Then
+                _interpModelMenu = root
+            Else
+                _modelMenu = root
+            End If
+            root.Show(anchor, New Point(0, anchor.Height + 2))
+        End Sub
+
+        Private Sub SetCatalogSelection(entry As ModelCatalogItem, interpolation As Boolean, saveConfig As Boolean)
+            Dim combo = If(interpolation, _cmbInterp, _cmbModel)
+            If interpolation Then _syncingInterpModelSelection = True Else _syncingModelSelection = True
+            Try
+                combo.Items.Clear()
+                combo.Items.Add(entry.DisplayName)
+                combo.SelectedIndex = 0
+            Finally
+                If interpolation Then _syncingInterpModelSelection = False Else _syncingModelSelection = False
+            End Try
+            If Not saveConfig Then Return
+            If interpolation Then
+                SaveInterpModelSelection(entry.Id)
+            Else
+                _config.Model = entry.Id
+                _config.Save()
+            End If
         End Sub
 
         Private Sub ApplyModelList(models As List(Of String))
@@ -688,6 +883,16 @@ Namespace videoenhancer
                 End Try
             End If
             _cmbModel.Items.Clear()
+            _modelCatalog.Clear()
+            For Each modelId In models
+                _modelCatalog.Add(New ModelCatalogItem With {
+                    .Id = modelId,
+                    .DisplayName = Path.GetFileName(modelId.Replace("/"c, Convert.ToChar(92))),
+                    .Architecture = FallbackArchitecture(modelId),
+                    .Purpose = "SR",
+                    .Source = "discovered"
+                })
+            Next
             If models.Count > 0 Then
                 _cmbModel.Items.AddRange(models)
                 _modelsLoaded = True
@@ -709,7 +914,7 @@ Namespace videoenhancer
                     If(_config.Backend = "flashvsr",
                     "（FlashVSR，连续视频帧专用模型目录）",
                     If(_config.Backend = "cuda",
-                    "（CUDA，models 下的 .pth/.pt/.pkl 文件）",
+                    "（CUDA，models 下的 .pth/.pt/.pkl/.ckpt/.safetensors 文件）",
                     "（models 目录，.param/.bin 文件夹）")))))
                 ShowStatus($"已从 videoenhancer.exe 读取 {models.Count} 个可用模型 " & modeText, False)
             Else
@@ -733,6 +938,17 @@ Namespace videoenhancer
 
         Private Sub ApplyInterpModelList(models As List(Of String))
             _cmbInterp.Items.Clear()
+            _interpModelCatalog.Clear()
+            For Each modelId In models
+                _interpModelCatalog.Add(New ModelCatalogItem With {
+                    .Id = modelId,
+                    .DisplayName = Path.GetFileName(modelId.Replace("/"c, Convert.ToChar(92))),
+                    .Architecture = FallbackArchitecture(modelId),
+                    .Purpose = "Interpolation",
+                    .Scale = 1,
+                    .Source = "discovered"
+                })
+            Next
             If models.Count > 0 Then
                 _cmbInterp.Items.AddRange(models)
                 _interpModelsLoaded = True
@@ -768,6 +984,7 @@ Namespace videoenhancer
         End Sub
 
         Private Sub OnModelSelected(sender As Object, e As EventArgs)
+            If _syncingModelSelection Then Return
             Dim model = _cmbModel.SelectedItem
             If String.IsNullOrWhiteSpace(model) Then
                 Return
@@ -777,11 +994,16 @@ Namespace videoenhancer
         End Sub
 
         Private Sub OnInterpModelSelected(sender As Object, e As EventArgs)
+            If _syncingInterpModelSelection Then Return
             Dim model = _cmbInterp.SelectedItem
             If String.IsNullOrWhiteSpace(model) Then
                 Return
             End If
             Dim selectedModel = model.Trim()
+            SaveInterpModelSelection(selectedModel)
+        End Sub
+
+        Private Sub SaveInterpModelSelection(selectedModel As String)
             If (selectedModel.StartsWith("GIMM-VFI/", StringComparison.OrdinalIgnoreCase) OrElse
                 selectedModel.StartsWith("GMFSS/", StringComparison.OrdinalIgnoreCase)) AndAlso
                Not String.Equals(_config.InterpBackend, "cuda", StringComparison.OrdinalIgnoreCase) Then
@@ -833,7 +1055,7 @@ Namespace videoenhancer
             ShowStatus("推理方式：" & modeText, False)
         End Sub
 
-        ''' <summary>"补帧倍率"选择：保存倍率并提示去"视频参数-画面帧"设置帧率。</summary>
+        ''' <summary>"补帧倍率"选择：保存倍率，后端会按该倍率直接生成目标帧率。</summary>
         Private Sub OnFactorSelected(sender As Object, e As EventArgs)
             If _syncingFactor Then
                 Return
@@ -844,12 +1066,6 @@ Namespace videoenhancer
             End If
             _config.InterpFactor = factor
             _config.Save()
-            Try
-                MessageBox.Show(Me,
-                    "请前往「视频参数-画面帧」页面指定帧率为原视频的 " & factor.ToString("0") & " 倍。",
-                    "补帧倍率", MessageBoxButtons.OK, MessageBoxIcon.Information)
-            Catch
-            End Try
         End Sub
 
         Private Shared Function BackendValue(item As Object) As String
@@ -983,6 +1199,73 @@ Namespace videoenhancer
             Catch
             End Try
             Return models.Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+        End Function
+
+        Private Shared Function RunModelCatalog(exePath As String, ParamArray extraArgs As String()) As List(Of ModelCatalogItem)
+            Dim models As New List(Of ModelCatalogItem)()
+            Try
+                Dim psi As New ProcessStartInfo With {
+                    .FileName = exePath,
+                    .UseShellExecute = False,
+                    .RedirectStandardOutput = True,
+                    .RedirectStandardError = True,
+                    .CreateNoWindow = True,
+                    .StandardOutputEncoding = Encoding.UTF8,
+                    .StandardErrorEncoding = Encoding.UTF8
+                }
+                psi.ArgumentList.Add("--json")
+                For Each argument In extraArgs
+                    If Not String.IsNullOrWhiteSpace(argument) Then psi.ArgumentList.Add(argument)
+                Next
+                Using child = Diagnostics.Process.Start(psi)
+                    If child Is Nothing Then Return models
+                    Dim stdout = child.StandardOutput.ReadToEnd()
+                    child.WaitForExit(180000)
+                    Dim jsonLine = stdout.Replace(Convert.ToChar(13).ToString(), "").
+                        Split(New Char() {Convert.ToChar(10)}, StringSplitOptions.RemoveEmptyEntries).
+                        LastOrDefault(Function(line) line.Trim().StartsWith("["c))
+                    If String.IsNullOrWhiteSpace(jsonLine) Then Return models
+                    Dim parsed = JsonSerializer.Deserialize(Of List(Of ModelCatalogItem))(jsonLine.Trim(),
+                        New JsonSerializerOptions With {.PropertyNameCaseInsensitive = True})
+                    If parsed IsNot Nothing Then
+                        models.AddRange(parsed.Where(Function(item) item IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(item.Id)))
+                    End If
+                End Using
+            Catch
+                models.Clear()
+            End Try
+            Return models.GroupBy(Function(item) item.Id, StringComparer.OrdinalIgnoreCase).
+                Select(Function(group) group.First()).ToList()
+        End Function
+
+        Private Shared Function RunUserModelList(exePath As String) As List(Of UserModelItem)
+            Dim models As New List(Of UserModelItem)()
+            Dim psi As New ProcessStartInfo With {
+                .FileName = exePath,
+                .UseShellExecute = False,
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True,
+                .CreateNoWindow = True,
+                .StandardOutputEncoding = Encoding.UTF8,
+                .StandardErrorEncoding = Encoding.UTF8
+            }
+            psi.ArgumentList.Add("--json")
+            psi.ArgumentList.Add("--list-user-models")
+            Using child = Diagnostics.Process.Start(psi)
+                If child Is Nothing Then Throw New InvalidOperationException("无法启动用户模型清单进程")
+                Dim stdout = child.StandardOutput.ReadToEnd()
+                Dim stderr = child.StandardError.ReadToEnd()
+                child.WaitForExit(30000)
+                If child.ExitCode <> 0 Then Throw New InvalidOperationException(LastNonEmptyLine(stderr))
+                Dim jsonLine = stdout.Replace(Convert.ToChar(13).ToString(), "").
+                    Split(New Char() {Convert.ToChar(10)}, StringSplitOptions.RemoveEmptyEntries).
+                    LastOrDefault(Function(line) line.Trim().StartsWith("["c))
+                If String.IsNullOrWhiteSpace(jsonLine) Then Return models
+                Dim parsed = JsonSerializer.Deserialize(Of List(Of UserModelItem))(jsonLine.Trim(),
+                    New JsonSerializerOptions With {.PropertyNameCaseInsensitive = True})
+                If parsed IsNot Nothing Then models.AddRange(parsed.Where(Function(item) item IsNot Nothing))
+            End Using
+            Return models
         End Function
 
         ' ────────────────────────── 环境检查 ──────────────────────────
@@ -1449,20 +1732,9 @@ Namespace videoenhancer
 
             BuildOfficialUpscalePage()
             BuildOfficialPreviewPage()
-            BuildOfficialAdvancedPage()
             BuildOfficialModelDownloadPage()
             BuildOfficialConverterPage()
-            BuildMarkdownPage(_pageModelInfo,
-                "# 模型选择指南" & Environment.NewLine & Environment.NewLine &
-                "## 放大模型" & Environment.NewLine &
-                "- **NCNN / Param-Bin**：兼容性最好，适合 Vulkan 显卡和日常使用。" & Environment.NewLine &
-                "- **PTH / CUDA**：适合 NVIDIA 显卡，模型选择丰富。" & Environment.NewLine &
-                "- **TensorRT Engine**：吞吐更高，但需要与当前显卡和 CUDA 环境匹配。" & Environment.NewLine &
-                "- **ONNX Runtime**：便于跨后端部署，性能取决于执行提供程序。" & Environment.NewLine & Environment.NewLine &
-                "## 补帧模型" & Environment.NewLine &
-                "- RIFE 模型用于生成中间帧；2 倍适合大多数素材，4 倍以上建议先短片测试。" & Environment.NewLine & Environment.NewLine &
-                "## 建议" & Environment.NewLine &
-                "优先从较短片段开始，确认画质、显存占用和速度后再处理完整视频。")
+            BuildOfficialImporterPage()
             BuildMarkdownPage(_pageTutorial,
                 "# 快速上手" & Environment.NewLine & Environment.NewLine &
                 "## 1. 连接处理程序" & Environment.NewLine &
@@ -1484,11 +1756,11 @@ Namespace videoenhancer
                 "## 4. 加入编码队列" & Environment.NewLine &
                 "回到 3FUI 准备文件并加入队列，插件会自动通过 CLI 中转。" & Environment.NewLine & Environment.NewLine &
                 "## 5. 查看输出" & Environment.NewLine &
-                "在 **实时预览** 查看处理中或已完成的帧；需要多视频比较时打开 **对比工作室**。")
+                "在 **实时预览** 查看处理中或已完成的帧。")
 
             For Each page As Panel In New Panel() {
-                _pageUpscale, _pagePreview, _pageAdvanced, _pageDownloader,
-                _pageConverter, _pageModelInfo, _pageTutorial
+                _pageUpscale, _pagePreview, _pageDownloader,
+                _pageConverter, _pageImporter, _pageTutorial
             }
                 page.BackColor = Color.Transparent
                 Dim modernPage = TryCast(page, ModernPanel)
@@ -1499,17 +1771,15 @@ Namespace videoenhancer
 
             Dim tabMain As New ModernTabControl.ModernTab("超分工作台") With {.BoundControl = _pageUpscale}
             Dim tabPreview As New ModernTabControl.ModernTab("实时预览") With {.BoundControl = _pagePreview}
-            Dim tabAdvanced As New ModernTabControl.ModernTab("对比工具") With {.BoundControl = _pageAdvanced}
             Dim tabDownloader As New ModernTabControl.ModernTab("模型下载") With {.BoundControl = _pageDownloader}
             Dim tabConverter As New ModernTabControl.ModernTab("模型转换") With {.BoundControl = _pageConverter}
-            Dim tabModelInfo As New ModernTabControl.ModernTab("模型指南") With {.BoundControl = _pageModelInfo}
+            Dim tabImporter As New ModernTabControl.ModernTab("模型导入") With {.BoundControl = _pageImporter}
             Dim tabTutorial As New ModernTabControl.ModernTab("使用教程") With {.BoundControl = _pageTutorial}
             _tabs.Items.Add(tabMain)
             _tabs.Items.Add(tabPreview)
-            _tabs.Items.Add(tabAdvanced)
             _tabs.Items.Add(tabDownloader)
             _tabs.Items.Add(tabConverter)
-            _tabs.Items.Add(tabModelInfo)
+            _tabs.Items.Add(tabImporter)
             _tabs.Items.Add(tabTutorial)
             ' 每次打开插件都从超分主界面开始，避免保留上次停留在实时预览/高级功能页的状态。
             _tabs.SelectedIndex = 0
@@ -4527,6 +4797,487 @@ Namespace videoenhancer
             _pageConverter.Controls.Add(root)
         End Sub
 
+        Private Sub BuildOfficialImporterPage()
+            _pageImporter.Dock = DockStyle.Fill
+            _pageImporter.BackColor = Color.Transparent
+            _pageImporter.Padding = New Padding(0, 8, 0, 0)
+            _pageImporter.AllowDrop = True
+            AddHandler _pageImporter.DragEnter, AddressOf OnModelImportDragEnter
+            AddHandler _pageImporter.DragDrop, AddressOf OnModelImportDragDrop
+
+            Dim root As New TableLayoutPanel With {
+                .Dock = DockStyle.Fill,
+                .ColumnCount = 1,
+                .RowCount = 5,
+                .BackColor = Color.Transparent,
+                .Margin = Padding.Empty,
+                .Padding = Padding.Empty,
+                .AllowDrop = True
+            }
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 54.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 68.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 70.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 72.0F))
+            AddHandler root.DragEnter, AddressOf OnModelImportDragEnter
+            AddHandler root.DragDrop, AddressOf OnModelImportDragDrop
+            root.Controls.Add(CreateOfficialSectionHeading(
+                "模型导入", "安全预检架构、用途、倍率与后端能力，通过后安装到 models\User"), 0, 0)
+
+            Dim sourceRow As New Panel With {
+                .Dock = DockStyle.Fill,
+                .BackColor = Color.Transparent,
+                .Margin = Padding.Empty,
+                .Padding = New Padding(0, 9, 0, 9)
+            }
+            _btnPickImportFile.Text = "选择模型或压缩包"
+            _btnPickImportFile.Dock = DockStyle.Left
+            _btnPickImportFile.Width = 180
+            ConfigureOfficialImportButton(_btnPickImportFile)
+            AddHandler _btnPickImportFile.Click, AddressOf OnPickImportFile
+            _btnPickImportFolder.Text = "选择模型文件夹"
+            _btnPickImportFolder.Dock = DockStyle.Left
+            _btnPickImportFolder.Width = 180
+            ConfigureOfficialImportButton(_btnPickImportFolder)
+            AddHandler _btnPickImportFolder.Click, AddressOf OnPickImportFolder
+            _lblImportSource.Text = "<font color=#888888>尚未选择；也可以拖入文件、文件夹或压缩包</font>"
+            _lblImportSource.AutoSize = False
+            _lblImportSource.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
+            Dim sourceValueBox = CreateOfficialValueBox(_lblImportSource)
+            sourceValueBox.Dock = DockStyle.Fill
+            Dim sourceGap1 As New JustEmptyControl With {.Dock = DockStyle.Left, .Width = 10, .BackColor = Color.Transparent}
+            Dim sourceGap2 As New JustEmptyControl With {.Dock = DockStyle.Left, .Width = 12, .BackColor = Color.Transparent}
+            ' 按 3FUI Designer 的 Dock 顺序：Fill 先加，其他控件从右向左加入。
+            sourceRow.Controls.Add(sourceValueBox)
+            sourceRow.Controls.Add(sourceGap2)
+            sourceRow.Controls.Add(_btnPickImportFolder)
+            sourceRow.Controls.Add(sourceGap1)
+            sourceRow.Controls.Add(_btnPickImportFile)
+            root.Controls.Add(sourceRow, 0, 1)
+
+            Dim formats As New HtmlColorLabel With {
+                .Dock = DockStyle.Fill,
+                .Margin = New Padding(0, 8, 0, 4),
+                .Padding = New Padding(14, 0, 14, 0),
+                .BackColor1 = UiSurface,
+                .BorderSize = 0,
+                .BorderRadius = 10,
+                .AutoSize = False,
+                .LineSpacing = 5,
+                .TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft,
+                .Text = "<font color=#DCDCDC><b>支持格式</b></font>　" &
+                        "<font color=#A8A8A8>PTH / PT / CKPT / SAFETENSORS / ONNX / NCNN PARAM+BIN / ZIP / 7Z / RAR</font><br/>" &
+                        "<font color=#888888>补帧仅接受能识别为 RIFE、GMFSS 或 GIMM 的权重；TensorRT 能力按实际架构过滤。</font>"
+            }
+            root.Controls.Add(formats, 0, 2)
+
+            ConfigureImportModelList()
+            root.Controls.Add(_importModelList, 0, 3)
+
+            Dim actionRow As New Panel With {
+                .Dock = DockStyle.Fill,
+                .BackColor = Color.Transparent,
+                .Margin = Padding.Empty,
+                .Padding = New Padding(0, 9, 0, 9)
+            }
+            _btnImportModel.Dock = DockStyle.Right
+            _btnImportModel.Width = 210
+            _btnImportModel.Text = "预检并导入模型"
+            ConfigureOfficialImportButton(_btnImportModel, UiSuccess)
+            AddHandler _btnImportModel.Click, AddressOf OnImportModelClick
+            _lblImportStatus.Text = "<font color=#888888>等待选择模型…</font>"
+            _lblImportStatus.AutoSize = False
+            _lblImportStatus.Dock = DockStyle.Fill
+            _lblImportStatus.Margin = Padding.Empty
+            _lblImportStatus.Padding = New Padding(0, 0, 18, 0)
+            _lblImportStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
+            actionRow.Controls.Add(_lblImportStatus)
+            actionRow.Controls.Add(_btnImportModel)
+            root.Controls.Add(actionRow, 0, 4)
+            _pageImporter.Controls.Add(root)
+        End Sub
+
+        Private Shared Sub ConfigureOfficialImportButton(button As ModernButton, Optional textColor As Color = Nothing)
+            ' 严格对齐 3FUI 官方 Designer 的 ModernButton 用法，不叠加渐变或子控件。
+            button.AnimationDuration = 0
+            button.BackColor = Color.Transparent
+            button.BackColor1 = Color.FromArgb(40, 220, 220, 220)
+            button.BackColor2 = Color.Transparent
+            button.HoverBackColor1 = Color.FromArgb(60, 220, 220, 220)
+            button.HoverBackColor2 = Color.Transparent
+            button.PressedBackColor1 = Color.FromArgb(80, 220, 220, 220)
+            button.PressedBackColor2 = Color.Transparent
+            button.BorderRadius = 10
+            button.BorderSize = 0
+            button.Margin = New Padding(2)
+            button.Padding = Padding.Empty
+            button.Icon = Nothing
+            button.SubText = ""
+            button.TextAlign = ModernButton.TextAlignEnum.Center
+            button.ForeColor = If(textColor = Nothing, UiText, textColor)
+        End Sub
+
+        Private Sub ConfigureImportModelList()
+            If _importModelListConfigured Then Return
+            _importModelListConfigured = True
+            _importModelList.Dock = DockStyle.Fill
+            _importModelList.Margin = New Padding(0, 10, 0, 6)
+            _importModelList.AutoScroll = False
+            _importModelList.Font = New Font("Microsoft YaHei UI", 9.0F)
+            _importModelList.BackColor = Color.Transparent
+            _importModelList.BackgroundColor = Color.Transparent
+            _importModelList.BackgroundSource = ModernPanel1
+            _importModelList.BorderColor = UiStrokeSoft
+            _importModelList.BorderSize = 1
+            _importModelList.BorderRadius = 8
+            _importModelList.HeaderVisible = True
+            _importModelList.HeaderHeight = 38
+            _importModelList.HeaderBackColor = Color.FromArgb(36, 36, 36)
+            _importModelList.HeaderForeColor = UiTextSecondary
+            _importModelList.HeaderBorderColor = Color.FromArgb(52, 52, 52)
+            _importModelList.HeaderBorderWidth = 1
+            _importModelList.AllowColumnResize = True
+            _importModelList.MultiSelect = False
+            _importModelList.AllowDragReorder = False
+            _importModelList.ItemForeColor = UiTextSecondary
+            _importModelList.ItemHoverBackColor = Color.FromArgb(48, 255, 255, 255)
+            _importModelList.ItemSelectedBackColor = Color.FromArgb(54, 71, 156, 255)
+            _importModelList.ItemCornerRadius = 4
+            _importModelList.ItemPadding = New Padding(12, 8, 10, 8)
+            _importModelList.ItemSpacing = 2
+            _importModelList.ContentPadding = New Padding(0, 4, 0, 4)
+            _importModelList.ScrollBarWidth = 10
+            _importModelList.ScrollBarTrackColor = Color.FromArgb(18, 18, 18)
+            _importModelList.ScrollBarThumbColor = Color.FromArgb(72, 72, 72)
+            _importModelList.ScrollBarThumbHoverColor = Color.FromArgb(104, 104, 104)
+            _importModelList.Columns.AddRange(New UltraDetailListView.ListColumn() {
+                New UltraDetailListView.ListColumn("用户模型（双击修正能力）", 300),
+                New UltraDetailListView.ListColumn("架构", 150),
+                New UltraDetailListView.ListColumn("用途", 110),
+                New UltraDetailListView.ListColumn("倍率", 70),
+                New UltraDetailListView.ListColumn("后端", 210),
+                New UltraDetailListView.ListColumn("格式", 100)
+            })
+            AddHandler _importModelList.ItemDoubleClick, AddressOf OnImportModelDoubleClick
+            AddHandler _importModelList.ClientSizeChanged,
+                Sub(sender, e)
+                    If _importModelList.Columns.Count = 0 Then Return
+                    Dim nameWidth = Math.Max(210, _importModelList.ClientSize.Width - 10 - 150 - 110 - 70 - 210 - 100)
+                    If _importModelList.Columns(0).Width <> nameWidth Then
+                        _importModelList.Columns(0).Width = nameWidth
+                        _importModelList.RefreshItems()
+                    End If
+                End Sub
+        End Sub
+
+        Private Async Sub LoadUserModels()
+            If _userModelsLoading Then Return
+            Dim exePath = PluginConfig.ResolveInstalledExePath(_config.ExePath)
+            _importModelList.Items.Clear()
+            If String.IsNullOrWhiteSpace(exePath) OrElse Not File.Exists(exePath) Then
+                AddImportModelMessage("找不到 videoenhancer.exe，请先在超分工作台指定处理程序")
+                Return
+            End If
+            _userModelsLoading = True
+            AddImportModelMessage("正在读取用户模型能力清单…")
+            Try
+                Dim models = Await Task.Run(Function() RunUserModelList(exePath))
+                _importModelList.Items.Clear()
+                If models.Count = 0 Then
+                    AddImportModelMessage("尚未导入用户模型；可从上方选择文件、文件夹或压缩包")
+                    Return
+                End If
+                For Each model In models
+                    Dim item = New UltraDetailListView.ListItem(New UltraDetailListView.ListSubItem() {
+                        New UltraDetailListView.ListSubItem(model.DisplayName),
+                        New UltraDetailListView.ListSubItem(model.Architecture),
+                        New UltraDetailListView.ListSubItem(DisplayUserModelPurpose(model)),
+                        New UltraDetailListView.ListSubItem(If(model.Scale > 0, model.Scale.ToString() & "x", "-")),
+                        New UltraDetailListView.ListSubItem(String.Join(" / ", model.Backends)),
+                        New UltraDetailListView.ListSubItem(model.Format.ToUpperInvariant())
+                    }) With {.Tag = model}
+                    item.SubItems(0).ForeColor = UiText
+                    item.SubItems(4).ForeColor = UiAccent
+                    _importModelList.Items.Add(item)
+                Next
+            Catch ex As Exception
+                _importModelList.Items.Clear()
+                AddImportModelMessage("能力清单读取失败：" & ex.Message)
+            Finally
+                _userModelsLoading = False
+            End Try
+        End Sub
+
+        Private Sub AddImportModelMessage(message As String)
+            _importModelList.Items.Add(New UltraDetailListView.ListItem(New UltraDetailListView.ListSubItem() {
+                New UltraDetailListView.ListSubItem(message, Nothing, UiTextMuted),
+                New UltraDetailListView.ListSubItem(""), New UltraDetailListView.ListSubItem(""),
+                New UltraDetailListView.ListSubItem(""), New UltraDetailListView.ListSubItem(""),
+                New UltraDetailListView.ListSubItem("")
+            }))
+        End Sub
+
+        Private Shared Function DisplayUserModelPurpose(model As UserModelItem) As String
+            Select Case model.Task.ToLowerInvariant()
+                Case "interpolation" : Return "补帧"
+                Case "restoration" : Return "修复"
+                Case Else : Return If(model.Purpose.Equals("Restoration", StringComparison.OrdinalIgnoreCase), "修复", "超分")
+            End Select
+        End Function
+
+        Private Sub OnImportModelDoubleClick(sender As Object, e As UltraDetailListView.ListItemEventArgs)
+            If e.Item Is Nothing Then Return
+            Dim model = TryCast(e.Item.Tag, UserModelItem)
+            If model Is Nothing Then Return
+            ShowUserModelCapabilityEditor(model)
+        End Sub
+
+        Private Sub ShowUserModelCapabilityEditor(model As UserModelItem)
+            Using dialog As New Form With {
+                .Text = "修正模型能力 - " & model.DisplayName,
+                .StartPosition = FormStartPosition.CenterParent,
+                .FormBorderStyle = FormBorderStyle.FixedDialog,
+                .MaximizeBox = False,
+                .MinimizeBox = False,
+                .ShowInTaskbar = False,
+                .BackColor = Color.FromArgb(24, 24, 24),
+                .ForeColor = UiText,
+                .ClientSize = New Size(720, 570),
+                .Font = New Font("Microsoft YaHei UI", 9.0F)
+            }
+                Dim grid As New TableLayoutPanel With {
+                    .Dock = DockStyle.Fill, .ColumnCount = 2, .RowCount = 11,
+                    .Padding = New Padding(20, 16, 20, 16), .BackColor = Color.Transparent
+                }
+                grid.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
+                grid.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
+                For row = 0 To 8
+                    grid.RowStyles.Add(New RowStyle(SizeType.Absolute, If(row = 8, 96.0F, 42.0F)))
+                Next
+                grid.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
+                grid.RowStyles.Add(New RowStyle(SizeType.Absolute, 52.0F))
+
+                Dim addCaption As Action(Of String, Integer) =
+                    Sub(text, row)
+                        grid.Controls.Add(New Label With {
+                            .Text = text, .Dock = DockStyle.Fill, .TextAlign = ContentAlignment.MiddleLeft,
+                            .ForeColor = UiTextSecondary, .BackColor = Color.Transparent
+                        }, 0, row)
+                    End Sub
+                Dim readonlyValue As Func(Of String, Label) =
+                    Function(text) New Label With {
+                        .Text = text, .Dock = DockStyle.Fill, .TextAlign = ContentAlignment.MiddleLeft,
+                        .ForeColor = UiTextMuted, .BackColor = Color.Transparent, .AutoEllipsis = True
+                    }
+
+                Dim architectureBox As New ModernTextBox With {.Text = model.Architecture, .Dock = DockStyle.Fill, .Margin = New Padding(0, 5, 0, 5)}
+                Dim purposeBox As New ModernTextBox With {.Text = model.Purpose, .Dock = DockStyle.Fill, .Margin = New Padding(0, 5, 0, 5)}
+                Dim scaleBox As New NumericUpDown With {
+                    .Minimum = 1D, .Maximum = 16D, .Value = Math.Max(1, Math.Min(16, model.Scale)),
+                    .Dock = DockStyle.Left, .Width = 150, .BackColor = Color.FromArgb(38, 38, 38), .ForeColor = UiText
+                }
+                Dim multipleBox As New NumericUpDown With {
+                    .Minimum = 1D, .Maximum = 1024D, .Value = Math.Max(1, Math.Min(1024, model.InputMultiple)),
+                    .Dock = DockStyle.Left, .Width = 150, .BackColor = Color.FromArgb(38, 38, 38), .ForeColor = UiText
+                }
+                If model.Task.Equals("interpolation", StringComparison.OrdinalIgnoreCase) OrElse
+                    model.Task.Equals("restoration", StringComparison.OrdinalIgnoreCase) Then scaleBox.Enabled = False
+                Dim backendList As New CheckedListBox With {
+                    .Dock = DockStyle.Fill, .BackColor = Color.FromArgb(31, 31, 31), .ForeColor = UiText,
+                    .BorderStyle = BorderStyle.FixedSingle, .CheckOnClick = True, .MultiColumn = True,
+                    .ColumnWidth = 150, .IntegralHeight = False
+                }
+                Dim backendNames = New String() {"ncnn", "cuda", "tensorrt", "onnx", "flashvsr", "basicvsrpp"}
+                backendList.Items.AddRange(backendNames)
+                For index = 0 To backendNames.Length - 1
+                    backendList.SetItemChecked(index, model.Backends.Contains(backendNames(index), StringComparer.OrdinalIgnoreCase))
+                Next
+
+                addCaption("模型文件", 0) : grid.Controls.Add(readonlyValue(model.RelativePath), 1, 0)
+                addCaption("格式 / SHA-256", 1) : grid.Controls.Add(readonlyValue(model.Format.ToUpperInvariant() & "  ·  " & model.Sha256), 1, 1)
+                addCaption("任务类别（只读）", 2) : grid.Controls.Add(readonlyValue(DisplayUserModelPurpose(model) & "  [" & model.Task & "]"), 1, 2)
+                addCaption("架构", 3) : grid.Controls.Add(architectureBox, 1, 3)
+                addCaption("用途", 4) : grid.Controls.Add(purposeBox, 1, 4)
+                addCaption("模型倍率", 5) : grid.Controls.Add(scaleBox, 1, 5)
+                addCaption("输入尺寸倍数", 6) : grid.Controls.Add(multipleBox, 1, 6)
+                Dim sizeRequirement = If(model.MinimumSize > 0, "最小 " & model.MinimumSize.ToString() & " px", "无额外最小值") &
+                    If(model.Square, "；要求正方形", "") & If(String.IsNullOrWhiteSpace(model.Tiling), "", "；切片 " & model.Tiling)
+                addCaption("其他尺寸要求（只读）", 7) : grid.Controls.Add(readonlyValue(sizeRequirement), 1, 7)
+                addCaption("可用后端", 8) : grid.Controls.Add(backendList, 1, 8)
+
+                Dim hint = readonlyValue("保存前会校验模型格式、架构和后端组合；错误组合不会写入能力清单。")
+                hint.ForeColor = UiTextMuted
+                grid.Controls.Add(hint, 0, 9)
+                grid.SetColumnSpan(hint, 2)
+                Dim buttons As New FlowLayoutPanel With {
+                    .Dock = DockStyle.Fill, .FlowDirection = FlowDirection.RightToLeft,
+                    .BackColor = Color.Transparent, .WrapContents = False
+                }
+                Dim saveButton As New ModernButton With {.Text = "保存修正", .Size = New Size(130, 40)}
+                Dim cancelButton As New ModernButton With {.Text = "取消", .Size = New Size(100, 40)}
+                ConfigurePrimaryButton(saveButton)
+                ConfigureSecondaryButton(cancelButton)
+                AddHandler cancelButton.Click, Sub(sender, args) dialog.Close()
+                AddHandler saveButton.Click,
+                    Sub(sender, args)
+                        Dim selectedBackends = backendList.CheckedItems.Cast(Of Object)().Select(Function(value) value.ToString()).ToArray()
+                        Dim errorText = UpdateUserModelCapabilities(model.Id, architectureBox.Text, purposeBox.Text,
+                            Decimal.ToInt32(scaleBox.Value), Decimal.ToInt32(multipleBox.Value), selectedBackends)
+                        If errorText.Length > 0 Then
+                            MessageBox.Show(dialog, errorText, "能力修正失败", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                            Return
+                        End If
+                        dialog.DialogResult = DialogResult.OK
+                        dialog.Close()
+                    End Sub
+                buttons.Controls.Add(saveButton)
+                buttons.Controls.Add(cancelButton)
+                grid.Controls.Add(buttons, 0, 10)
+                grid.SetColumnSpan(buttons, 2)
+                dialog.Controls.Add(grid)
+                If dialog.ShowDialog(Me) = DialogResult.OK Then
+                    LoadUserModels()
+                    RefreshModels()
+                    _lblImportStatus.Text = "<font color=#3FCD87>已保存能力修正，并刷新工作台模型列表</font>"
+                End If
+            End Using
+        End Sub
+
+        Private Function UpdateUserModelCapabilities(id As String, architecture As String, purpose As String,
+                                                     scale As Integer, inputMultiple As Integer,
+                                                     backends As String()) As String
+            Dim exePath = PluginConfig.ResolveInstalledExePath(_config.ExePath)
+            If String.IsNullOrWhiteSpace(exePath) OrElse Not File.Exists(exePath) Then Return "找不到 videoenhancer.exe"
+            Try
+                Dim psi As New ProcessStartInfo With {
+                    .FileName = exePath, .UseShellExecute = False, .RedirectStandardOutput = True,
+                    .RedirectStandardError = True, .CreateNoWindow = True,
+                    .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
+                }
+                Dim arguments = New String() {"--json", "--update-user-model", id, "--user-architecture", architecture,
+                    "--user-purpose", purpose, "--user-scale", scale.ToString(), "--user-input-multiple",
+                    inputMultiple.ToString(), "--user-backends", String.Join(",", backends)}
+                For Each argument In arguments : psi.ArgumentList.Add(argument) : Next
+                Using child = Diagnostics.Process.Start(psi)
+                    If child Is Nothing Then Return "无法启动能力清单更新进程"
+                    Dim stdout = child.StandardOutput.ReadToEnd()
+                    Dim stderr = child.StandardError.ReadToEnd()
+                    child.WaitForExit(30000)
+                    If child.ExitCode <> 0 Then Return LastNonEmptyLine(If(String.IsNullOrWhiteSpace(stderr), stdout, stderr))
+                End Using
+                Return ""
+            Catch ex As Exception
+                Return ex.Message
+            End Try
+        End Function
+
+        Private Sub OnPickImportFile(sender As Object, e As EventArgs)
+            If _modelImportBusy Then Return
+            Using dialog As New OpenFileDialog With {
+                .Title = "选择要预检并导入的模型",
+                .Filter = "支持的模型|*.pth;*.pt;*.pkl;*.ckpt;*.safetensors;*.onnx;*.param;*.bin;*.zip;*.7z;*.rar;*.tar;*.gz;*.xz;*.zst|所有文件|*.*",
+                .CheckFileExists = True,
+                .Multiselect = False
+            }
+                If dialog.ShowDialog(Me) = DialogResult.OK Then SetImportSource(dialog.FileName)
+            End Using
+        End Sub
+
+        Private Sub OnPickImportFolder(sender As Object, e As EventArgs)
+            If _modelImportBusy Then Return
+            Using dialog As New FolderBrowserDialog With {.Description = "选择模型文件夹或 NCNN param/bin 目录"}
+                If dialog.ShowDialog(Me) = DialogResult.OK Then SetImportSource(dialog.SelectedPath)
+            End Using
+        End Sub
+
+        Private Sub OnModelImportDragEnter(sender As Object, e As DragEventArgs)
+            If e.Data IsNot Nothing AndAlso e.Data.GetDataPresent(DataFormats.FileDrop) Then
+                e.Effect = DragDropEffects.Copy
+            Else
+                e.Effect = DragDropEffects.None
+            End If
+        End Sub
+
+        Private Sub OnModelImportDragDrop(sender As Object, e As DragEventArgs)
+            If _modelImportBusy Then Return
+            Dim paths = TryCast(If(e.Data Is Nothing, Nothing, e.Data.GetData(DataFormats.FileDrop)), String())
+            If paths IsNot Nothing AndAlso paths.Length > 0 Then SetImportSource(paths(0))
+        End Sub
+
+        Private Sub SetImportSource(path As String)
+            _importSourcePath = If(path, "").Trim()
+            _lblImportSource.Text = "<font color=#D0D0D0>" & EscapeHtml(_importSourcePath) & "</font>"
+            _lblImportStatus.Text = "<font color=#888888>准备进行元数据与兼容性预检</font>"
+        End Sub
+
+        Private Async Sub OnImportModelClick(sender As Object, e As EventArgs)
+            If _modelImportBusy Then Return
+            If String.IsNullOrWhiteSpace(_importSourcePath) Then
+                _lblImportStatus.Text = "<font color=#E0A45C>请先选择要导入的模型、文件夹或压缩包</font>"
+                Return
+            End If
+            If Not File.Exists(_config.ExePath) Then
+                ShowStatus("请先指定 videoenhancer.exe", True)
+                Return
+            End If
+            _modelImportBusy = True
+            _btnImportModel.Text = "正在预检并导入…"
+            _lblImportStatus.Text = "<font color=#479CFF>正在安全读取模型元数据并验证能力…</font>"
+            Try
+                Dim psi As New ProcessStartInfo With {
+                    .FileName = _config.ExePath,
+                    .UseShellExecute = False,
+                    .RedirectStandardOutput = True,
+                    .RedirectStandardError = True,
+                    .CreateNoWindow = True,
+                    .StandardOutputEncoding = Encoding.UTF8,
+                    .StandardErrorEncoding = Encoding.UTF8
+                }
+                psi.ArgumentList.Add("--json")
+                psi.ArgumentList.Add("--import-model")
+                psi.ArgumentList.Add(_importSourcePath)
+                Using child = Diagnostics.Process.Start(psi)
+                    If child Is Nothing Then Throw New InvalidOperationException("无法启动模型导入进程")
+                    Dim stdoutTask As Task(Of String) = child.StandardOutput.ReadToEndAsync()
+                    Dim stderrTask As Task(Of String) = child.StandardError.ReadToEndAsync()
+                    Await child.WaitForExitAsync()
+                    Dim stdout = Await stdoutTask
+                    Dim stderr = Await stderrTask
+                    Dim jsonLine = stdout.Replace(Convert.ToChar(13).ToString(), "").
+                        Split(New Char() {Convert.ToChar(10)}, StringSplitOptions.RemoveEmptyEntries).
+                        LastOrDefault(Function(line) line.Trim().StartsWith("["c))
+                    Dim results As List(Of ModelImportResponse) = Nothing
+                    If Not String.IsNullOrWhiteSpace(jsonLine) Then
+                        results = JsonSerializer.Deserialize(Of List(Of ModelImportResponse))(jsonLine.Trim(),
+                            New JsonSerializerOptions With {.PropertyNameCaseInsensitive = True})
+                    End If
+                    Dim resultItems = If(results, New List(Of ModelImportResponse)())
+                    Dim succeeded = resultItems.Where(Function(item) item.Success).Count()
+                    Dim failed = resultItems.Where(Function(item) Not item.Success).Count()
+                    If succeeded > 0 Then
+                        RefreshModels()
+                        LoadUserModels()
+                        Dim first = results.First(Function(item) item.Success)
+                        _lblImportStatus.Text = "<font color=#3FCD87>已导入 " & succeeded.ToString() & " 个模型：" &
+                            EscapeHtml(first.Architecture) & "，可用后端 " & EscapeHtml(String.Join(" / ", first.Backends)) & "</font>"
+                        ShowStatus("模型已安装到 models\User，并刷新工作台模型列表", False)
+                    End If
+                    If failed > 0 OrElse succeeded = 0 Then
+                        Dim failure = If(results, New List(Of ModelImportResponse)()).FirstOrDefault(Function(item) Not item.Success)
+                        Dim message = If(failure IsNot Nothing, failure.Error, LastNonEmptyLine(stderr))
+                        _lblImportStatus.Text = "<font color=#EB5D5D>预检未通过：" & EscapeHtml(message) & "</font>"
+                        ShowStatus("模型导入失败：" & message, True)
+                    End If
+                End Using
+            Catch ex As Exception
+                _lblImportStatus.Text = "<font color=#EB5D5D>导入失败：" & EscapeHtml(ex.Message) & "</font>"
+                ShowStatus("模型导入失败：" & ex.Message, True)
+            Finally
+                _modelImportBusy = False
+                _btnImportModel.Text = "预检并导入模型"
+            End Try
+        End Sub
+
         Private Sub BuildMarkdownPage(page As Panel, markdown As String)
             page.Dock = DockStyle.Fill
             page.BackColor = Color.Transparent
@@ -5179,15 +5930,16 @@ Namespace videoenhancer
                 _engine.PreviewVisible = (_tabs.SelectedIndex = 1)
             End If
             If _tabs.SelectedIndex = 5 Then
-                EnsureMarkdownPage(_pageModelInfo)
-            ElseIf _tabs.SelectedIndex = 6 Then
                 EnsureMarkdownPage(_pageTutorial)
             End If
             ' 切换页面时清除底部状态提示
             ClearStatus()
-            _btnCleanArchives.Visible = (_tabs.SelectedIndex = 3)
-            If _tabs.SelectedIndex = 3 Then
+            _btnCleanArchives.Visible = (_tabs.SelectedIndex = 2)
+            If _tabs.SelectedIndex = 2 Then
                 LoadDownloadModels(False)
+            End If
+            If _tabs.SelectedIndex = 4 Then
+                LoadUserModels()
             End If
         End Sub
 
@@ -5562,7 +6314,8 @@ Namespace videoenhancer
             _cmbSceneThreshold.Enabled = _config.Enabled AndAlso _config.InterpEnabled
             Dim tileBackend = String.Equals(_config.Backend, "ncnn", StringComparison.OrdinalIgnoreCase) OrElse
                 String.Equals(_config.Backend, "cuda", StringComparison.OrdinalIgnoreCase) OrElse
-                String.Equals(_config.Backend, "tensorrt", StringComparison.OrdinalIgnoreCase)
+                String.Equals(_config.Backend, "tensorrt", StringComparison.OrdinalIgnoreCase) OrElse
+                String.Equals(_config.Backend, "onnx", StringComparison.OrdinalIgnoreCase)
             _cmbTileSize.Enabled = _config.Enabled AndAlso _config.UpscaleEnabled AndAlso tileBackend
         End Sub
 

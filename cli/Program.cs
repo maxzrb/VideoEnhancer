@@ -39,6 +39,7 @@ internal static class Program
     private const string Embedded7ZipResource = "VideoEnhancer.Embedded.7za.exe";
     private const string EmbeddedOrderedBackendResource = "VideoEnhancer.Embedded.rve-ordered-backend.py";
     private const string EmbeddedInterpolationInspectorResource = "VideoEnhancer.Embedded.inspect_interpolation_models.py";
+    private const string EmbeddedUpscaleInspectorResource = "VideoEnhancer.Embedded.inspect_upscale_models.py";
     private const string EmbeddedRifeTensorRTPrepareResource = "VideoEnhancer.Embedded.prepare_rife_tensorrt.py";
     private const int InterpolationCapabilityCacheVersion = 1;
     private const string DefaultModelScopeDataset = "AerithDream/VideoEnhancer-Models";
@@ -74,11 +75,14 @@ internal static class Program
     private static string TensorRTValidatorScript => Path.Combine(CoreRoot, "python", "backend", "validate_tensorrt_engines.py");
     private static string TensorRTConverterScript => Path.Combine(CoreRoot, "python", "backend", "convert_tensorrt.py");
     private static string InterpolationInspectorScript => Path.Combine(CoreRoot, "python", "backend", "inspect_interpolation_models.py");
+    private static string UpscaleInspectorScript => Path.Combine(CoreRoot, "python", "backend", "inspect_upscale_models.py");
     private static string RifeTensorRTPrepareScript => Path.Combine(CoreRoot, "python", "backend", "prepare_rife_tensorrt.py");
     private static string FfmpegExe => Path.Combine(CoreRoot, "bin", "ffmpeg", "ffmpeg.exe");
     private static string FfprobeExe => Path.Combine(CoreRoot, "bin", "ffmpeg", "ffprobe.exe");
     private static string ModelsDir => Path.Combine(CoreRoot, "models");
     private static string FrameInterpolationDir => Path.Combine(ModelsDir, "Frame-Interpolation");
+    private static string UserInterpolationDir => Path.Combine(ModelsDir, "User", "Interpolation");
+    private static string UserRestorationDir => Path.Combine(ModelsDir, "User", "Restoration");
     private static string LegacyRifeDir => Path.Combine(ModelsDir, "RIFE");
     private static string TensorRTCacheDir => Path.Combine(ModelsDir, "TensorRT-Cache");
     private static string SceneDetectModel => FindNcnnModelFolder("EfficientNet-SceneDetect")
@@ -381,6 +385,9 @@ internal static class Program
         public bool ShowHelp;
         public bool ShowVersion;
         public bool ListModels;
+        public bool ListModelCatalog;
+        public bool ListInterpModelCatalog;
+        public bool ListUserModels;
         public bool CheckOnly;
         public bool DebugSplit;
         public bool Json;
@@ -415,6 +422,14 @@ internal static class Program
         public bool ListBackends;
         public bool ValidateEngines;
         public string InspectInterpModel = "";
+        public string InspectUpscaleModel = "";
+        public string ImportModel = "";
+        public string UpdateUserModel = "";
+        public string UserArchitecture = "";
+        public string UserPurpose = "";
+        public string UserScale = "";
+        public string UserInputMultiple = "";
+        public string UserBackends = "";
         public string PrepareInterpEngine = "";
         public string PrepareWidth = "1920";
         public string PrepareHeight = "1080";
@@ -584,8 +599,8 @@ internal static class Program
             return Fail("-scene-threshold 必须是官方 0-10 标尺中的大于 0 数字，当前值：" + o.SceneThreshold);
         if (!int.TryParse(o.TileSize, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tileSize) || tileSize < 0 || (tileSize > 0 && tileSize < 32))
             return Fail("-tile-size 必须是 0（RVE 默认）或不小于 32 的整数，当前值：" + o.TileSize);
-        if (tileSize > 0 && o.Backend is not ("ncnn" or "cuda" or "tensorrt"))
-            return Fail("-tile-size 仅支持 NCNN、CUDA/PyTorch 和 TensorRT；当前后端 " + o.Backend + " 不使用该参数");
+        if (tileSize > 0 && o.Backend is not ("ncnn" or "cuda" or "tensorrt" or "onnx"))
+            return Fail("-tile-size 仅支持 NCNN、CUDA/PyTorch、TensorRT 和 ONNX；当前后端 " + o.Backend + " 不使用该参数");
 
         // 在线列表只读取远端元数据，不依赖本地核心目录。必须在配置校验前处理，
         // 否则无效的 core-path 会被界面误报为“当前无网络”。
@@ -647,6 +662,21 @@ internal static class Program
             return ExtractWith7Zip(archive, output);
         }
 
+        if (!string.IsNullOrWhiteSpace(o.InspectUpscaleModel))
+        {
+            return InspectUpscaleModel(o.InspectUpscaleModel);
+        }
+
+        if (!string.IsNullOrWhiteSpace(o.ImportModel))
+        {
+            return ImportModels(o.ImportModel, o.Json);
+        }
+
+        if (!string.IsNullOrWhiteSpace(o.UpdateUserModel))
+        {
+            return UpdateUserModel(o);
+        }
+
         if (!string.IsNullOrWhiteSpace(o.InspectInterpModel))
         {
             return InspectInterpolationModel(o.InspectInterpModel);
@@ -666,6 +696,21 @@ internal static class Program
         if (o.ListModels)
         {
             return ListModels(o.Json, o.Backend);
+        }
+
+        if (o.ListModelCatalog)
+        {
+            return ListModelCatalog(o.Json, o.Backend, interpolation: false);
+        }
+
+        if (o.ListInterpModelCatalog)
+        {
+            return ListModelCatalog(o.Json, o.InterpBackend, interpolation: true);
+        }
+
+        if (o.ListUserModels)
+        {
+            return ListUserModels(o.Json);
         }
 
         if (o.ListInterpModels)
@@ -768,7 +813,17 @@ internal static class Program
                 var engineScale = int.TryParse(requestedScale, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedScale)
                     ? parsedScale
                     : 0;
-                model = EnsureTensorRtEngine(model, inputResolution.Item1, inputResolution.Item2, stopWatcher, tileSize, engineScale);
+                var engineWidth = inputResolution.Item1;
+                var engineHeight = inputResolution.Item2;
+                if (ModelCapabilityCatalog.TryGet(model, ModelsDir, out var engineCapability)
+                    && engineCapability.InputMultiple > 1)
+                {
+                    engineWidth = (engineWidth + engineCapability.InputMultiple - 1)
+                        / engineCapability.InputMultiple * engineCapability.InputMultiple;
+                    engineHeight = (engineHeight + engineCapability.InputMultiple - 1)
+                        / engineCapability.InputMultiple * engineCapability.InputMultiple;
+                }
+                model = EnsureTensorRtEngine(model, engineWidth, engineHeight, stopWatcher, tileSize, engineScale);
                 if (model.Length == 0) return stopWatcher?.IsStopRequested() == true ? 130 : 1;
             }
         }
@@ -898,6 +953,15 @@ internal static class Program
                 case "--search-models":
                     o.ListModels = true;
                     break;
+                case "--list-model-catalog":
+                    o.ListModelCatalog = true;
+                    break;
+                case "--list-interp-model-catalog":
+                    o.ListInterpModelCatalog = true;
+                    break;
+                case "--list-user-models":
+                    o.ListUserModels = true;
+                    break;
                 case "--json":
                     o.Json = true;
                     break;
@@ -913,6 +977,30 @@ internal static class Program
                     break;
                 case "--inspect-interp-model":
                     o.InspectInterpModel = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--inspect-upscale-model":
+                    o.InspectUpscaleModel = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--import-model":
+                    o.ImportModel = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--update-user-model":
+                    o.UpdateUserModel = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--user-architecture":
+                    o.UserArchitecture = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--user-purpose":
+                    o.UserPurpose = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--user-scale":
+                    o.UserScale = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--user-input-multiple":
+                    o.UserInputMultiple = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--user-backends":
+                    o.UserBackends = TakeValue(args, ref i, name, inlineValue);
                     break;
                 case "--prepare-interp-engine":
                     o.PrepareInterpEngine = TakeValue(args, ref i, name, inlineValue);
@@ -2056,9 +2144,11 @@ internal static class Program
         try
         {
             InstallEmbeddedBackendScript(EmbeddedInterpolationInspectorResource, InterpolationInspectorScript);
+            InstallEmbeddedBackendScript(EmbeddedUpscaleInspectorResource, UpscaleInspectorScript);
             InstallEmbeddedBackendScript(EmbeddedRifeTensorRTPrepareResource, RifeTensorRTPrepareScript);
             EnsureGmfssModelTypeCompatibility();
             EnsureGimmModelCompatibility();
+            EnsurePytorchUpscaleCompatibility();
             EnsureOnnxModelCompatibility();
         }
         catch (Exception ex)
@@ -2235,7 +2325,7 @@ internal static class Program
             "FP32 兼容模式必须关闭 autocast");
     }
 
-    /// <summary>修补当前 RVE 2.4 ONNX 倍率解析，使其支持模型库使用的末尾 -2x.onnx 命名。</summary>
+    /// <summary>修补当前 RVE 2.4 ONNX 加载器的倍率解析与动态输入尺寸兼容性。</summary>
     private static void EnsureOnnxModelCompatibility()
     {
         var loader = Path.Combine(CoreRoot, "python", "backend", "src", "onnx", "UpscaleONNX.py");
@@ -2244,12 +2334,178 @@ internal static class Program
         var hasUtf8Bom = bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble);
         var text = Encoding.UTF8.GetString(bytes, hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0,
             bytes.Length - (hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0));
+        const string legacyAutoTile =
+            "        if self.tilesize == 0:\r\n" +
+            "            self.tilesize = max(0, int(os.environ.get(\"VIDEOENHANCER_ONNX_TILE_SIZE\", \"0\")))\r\n";
+        const string legacyAutoTileLf =
+            "        if self.tilesize == 0:\n" +
+            "            self.tilesize = max(0, int(os.environ.get(\"VIDEOENHANCER_ONNX_TILE_SIZE\", \"0\")))\n";
+        if (text.Contains(legacyAutoTile, StringComparison.Ordinal)
+            || text.Contains(legacyAutoTileLf, StringComparison.Ordinal))
+        {
+            text = text.Replace(legacyAutoTile, string.Empty, StringComparison.Ordinal)
+                .Replace(legacyAutoTileLf, string.Empty, StringComparison.Ordinal);
+            File.WriteAllText(loader, text, new UTF8Encoding(hasUtf8Bom));
+            return;
+        }
         const string oldValue = "    name = os.path.basename(modelPath).lower()";
         const string newValue = "    name = os.path.splitext(os.path.basename(modelPath))[0].lower()";
-        if (text.Contains(newValue, StringComparison.Ordinal)
-            || !text.Contains(oldValue, StringComparison.Ordinal)) return;
-        File.WriteAllText(loader, text.Replace(oldValue, newValue, StringComparison.Ordinal),
-            new UTF8Encoding(hasUtf8Bom));
+        if (!text.Contains(newValue, StringComparison.Ordinal)
+            && text.Contains(oldValue, StringComparison.Ordinal))
+        {
+            text = text.Replace(oldValue, newValue, StringComparison.Ordinal);
+        }
+
+        const string marker = "VIDEOENHANCER_ONNX_INPUT_MULTIPLE";
+        if (!text.Contains(marker, StringComparison.Ordinal))
+        {
+            const string oldInit =
+                "        self.tilesize = max(0, int(tilesize or 0))\n" +
+                "        self.gpu_id = gpu_id";
+            const string newInit =
+                "        self.tilesize = max(0, int(tilesize or 0))\n" +
+                "        # 已知窗口注意力模型通过环境变量声明固有输入尺寸约束。\n" +
+                "        self.input_multiple = max(1, int(os.environ.get(\"VIDEOENHANCER_ONNX_INPUT_MULTIPLE\", \"1\")))\n" +
+                "        self.gpu_id = gpu_id";
+            const string oldRun =
+                "    def _run(self, image: np.ndarray) -> np.ndarray:\n" +
+                "        output = self.inference_session.run(None, {self.input_name: self._prepare_input(image)})[0]\n" +
+                "        return self._normalise_output(output)\n\n" +
+                "    def _run_static_tiled";
+            const string newRun =
+                "    def _run(self, image: np.ndarray) -> np.ndarray:\n" +
+                "        output = self.inference_session.run(None, {self.input_name: self._prepare_input(image)})[0]\n" +
+                "        return self._normalise_output(output)\n\n" +
+                "    def _run_padded(self, image: np.ndarray) -> np.ndarray:\n" +
+                "        height, width = image.shape[:2]\n" +
+                "        multiple = self.input_multiple\n" +
+                "        pad_h = (-height) % multiple\n" +
+                "        pad_w = (-width) % multiple\n" +
+                "        if pad_h or pad_w:\n" +
+                "            mode = \"reflect\" if height > 1 and width > 1 else \"edge\"\n" +
+                "            image = np.pad(image, ((0, pad_h), (0, pad_w), (0, 0)), mode=mode)\n" +
+                "        output = self._run(image)\n" +
+                "        return output[: height * self.scale, : width * self.scale]\n\n" +
+                "    def _run_dynamic_tiled(self, image: np.ndarray) -> np.ndarray:\n" +
+                "        height, width = image.shape[:2]\n" +
+                "        multiple = self.input_multiple\n" +
+                "        core = max(multiple, self.tilesize - self.tilesize % multiple)\n" +
+                "        overlap = max(self.tile_pad, multiple)\n" +
+                "        result = np.empty((height * self.scale, width * self.scale, 3), dtype=np.uint8)\n" +
+                "        for y in range(0, height, core):\n" +
+                "            for x in range(0, width, core):\n" +
+                "                actual_h = min(core, height - y)\n" +
+                "                actual_w = min(core, width - x)\n" +
+                "                y0, x0 = max(0, y - overlap), max(0, x - overlap)\n" +
+                "                y1 = min(height, y + actual_h + overlap)\n" +
+                "                x1 = min(width, x + actual_w + overlap)\n" +
+                "                upscaled = self._run_padded(image[y0:y1, x0:x1])\n" +
+                "                sy, sx = (y - y0) * self.scale, (x - x0) * self.scale\n" +
+                "                cropped = upscaled[sy:sy + actual_h * self.scale, sx:sx + actual_w * self.scale]\n" +
+                "                result[y * self.scale:(y + actual_h) * self.scale, x * self.scale:(x + actual_w) * self.scale] = cropped\n" +
+                "        return result\n\n" +
+                "    def _run_static_tiled";
+            const string oldCall =
+                "        if self.model_width is None or (\n" +
+                "            image.shape[1] == self.model_width and image.shape[0] == self.model_height\n" +
+                "        ):\n" +
+                "            output = self._run(image)\n" +
+                "        else:\n" +
+                "            output = self._run_static_tiled(image)";
+            const string newCall =
+                "        if self.model_width is None:\n" +
+                "            output = self._run_dynamic_tiled(image) if self.tilesize > 0 else self._run_padded(image)\n" +
+                "        elif image.shape[1] == self.model_width and image.shape[0] == self.model_height:\n" +
+                "            output = self._run(image)\n" +
+                "        else:\n" +
+                "            output = self._run_static_tiled(image)";
+
+            var normalized = text.Replace("\r\n", "\n");
+            if (normalized.Contains(oldInit, StringComparison.Ordinal)
+                && normalized.Contains(oldRun, StringComparison.Ordinal)
+                && normalized.Contains(oldCall, StringComparison.Ordinal))
+            {
+                normalized = normalized.Replace(oldInit, newInit, StringComparison.Ordinal)
+                    .Replace(oldRun, newRun, StringComparison.Ordinal)
+                    .Replace(oldCall, newCall, StringComparison.Ordinal);
+                var newline = text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+                text = normalized.Replace("\n", newline);
+            }
+        }
+
+        var original = Encoding.UTF8.GetString(bytes, hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0,
+            bytes.Length - (hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0));
+        if (!text.Equals(original, StringComparison.Ordinal))
+        {
+            File.WriteAllText(loader, text, new UTF8Encoding(hasUtf8Bom));
+        }
+    }
+
+    /// <summary>让 PyTorch/TensorRT 超分对模型声明的输入倍数统一补边并裁回原尺寸。</summary>
+    private static void EnsurePytorchUpscaleCompatibility()
+    {
+        var loader = Path.Combine(CoreRoot, "python", "backend", "src", "pytorch", "UpscaleTorch.py");
+        if (!File.Exists(loader)) return;
+        var bytes = File.ReadAllBytes(loader);
+        var hasUtf8Bom = bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble);
+        var text = Encoding.UTF8.GetString(bytes, hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0,
+            bytes.Length - (hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0));
+        if (text.Contains("VIDEOENHANCER_UPSCALE_INPUT_MULTIPLE", StringComparison.Ordinal)) return;
+
+        var newline = text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var normalized = text.Replace("\r\n", "\n");
+        const string oldInit =
+            "        self.tilesize = tilesize\n" +
+            "        self.tile = [self.tilesize, self.tilesize]";
+        const string newInit =
+            "        self.tilesize = tilesize\n" +
+            "        # CLI 的本地能力清单为已知模型声明真实的输入尺寸倍数。\n" +
+            "        self.input_multiple = max(1, int(os.environ.get(\"VIDEOENHANCER_UPSCALE_INPUT_MULTIPLE\", \"1\")))\n" +
+            "        self.tile = [self.tilesize, self.tilesize]";
+        const string oldModulo =
+            "            match self.scale:\n" +
+            "                case 1:\n" +
+            "                    modulo = 4\n" +
+            "                case 2:\n" +
+            "                    modulo = 2\n" +
+            "                case _:\n" +
+            "                    modulo = 1";
+        const string newModulo =
+            "            match self.scale:\n" +
+            "                case 1:\n" +
+            "                    modulo = 4\n" +
+            "                case 2:\n" +
+            "                    modulo = 2\n" +
+            "                case _:\n" +
+            "                    modulo = 1\n" +
+            "            modulo = math.lcm(modulo, self.input_multiple)";
+        const string oldInference =
+            "            if not self.use_tiling:\n" +
+            "                output = self.upscale_model_wrapper(image_tensor)\n" +
+            "            else:\n" +
+            "                output = self.renderTiledImage(image_tensor)";
+        const string newInference =
+            "            if not self.use_tiling:\n" +
+            "                original_h, original_w = image_tensor.shape[-2:]\n" +
+            "                pad_h = (-original_h) % self.input_multiple\n" +
+            "                pad_w = (-original_w) % self.input_multiple\n" +
+            "                if pad_h or pad_w:\n" +
+            "                    image_tensor = F.pad(image_tensor, (0, pad_w, 0, pad_h), \"replicate\")\n" +
+            "                output = self.upscale_model_wrapper(image_tensor)\n" +
+            "                output = output[:, :, : original_h * self.scale, : original_w * self.scale]\n" +
+            "            else:\n" +
+            "                output = self.renderTiledImage(image_tensor)";
+
+        if (!normalized.Contains(oldInit, StringComparison.Ordinal)
+            || !normalized.Contains(oldModulo, StringComparison.Ordinal)
+            || !normalized.Contains(oldInference, StringComparison.Ordinal))
+        {
+            return;
+        }
+        normalized = normalized.Replace(oldInit, newInit, StringComparison.Ordinal)
+            .Replace(oldModulo, newModulo, StringComparison.Ordinal)
+            .Replace(oldInference, newInference, StringComparison.Ordinal);
+        File.WriteAllText(loader, normalized.Replace("\n", newline), new UTF8Encoding(hasUtf8Bom));
     }
 
     private static int DownloadWithAria(string url, string destination, bool printComplete = true)
@@ -2306,7 +2562,7 @@ internal static class Program
         }
     }
 
-    private static int ExtractWith7Zip(string archive, string outputDirectory)
+    private static int ExtractWith7Zip(string archive, string outputDirectory, bool printComplete = true)
     {
         try
         {
@@ -2337,7 +2593,7 @@ internal static class Program
                 return Fail("7-Zip-zstd 解压失败，退出码：" + process.ExitCode, 1);
             }
             _ = stdout.GetAwaiter().GetResult();
-            Console.WriteLine("EXTRACT_COMPLETE|" + outputDirectory);
+            if (printComplete) Console.WriteLine("EXTRACT_COMPLETE|" + outputDirectory);
             return 0;
         }
         catch (Exception ex)
@@ -2477,7 +2733,7 @@ internal static class Program
     }
 
     /// <summary>解析模型路径：完整路径 / models 下相对路径 / 模型名；省略时用默认模型。</summary>
-    /// <remarks>cuda 接受 .pth/.pt/.pkl；tensorrt 接受 PTH 源模型或预制 .engine；ncnn 接受含 .param/.bin 的模型文件夹。</remarks>
+    /// <remarks>cuda 接受 PTH/PT/PKL/CKPT/safetensors；tensorrt 接受可转换源权重；ncnn 接受含 .param/.bin 的模型文件夹。</remarks>
     private static string ResolveModel(string requested, string backend)
     {
         var candidates = new List<string>();
@@ -2567,7 +2823,7 @@ internal static class Program
         Console.Error.WriteLine("[错误] 未找到可用模型：" + (string.IsNullOrWhiteSpace(requested) ? DefaultModel : requested));
         if (backend == "cuda" || backend == "tensorrt" || backend == "onnx" || backend == "flashvsr" || backend == "basicvsrpp")
         {
-            Console.Error.WriteLine(backend == "basicvsrpp" ? "[提示] BasicVSR++ 后端需要 models\\BasicVSR++ 下的官方 .pth，或包含 config.py/chkpts.pth 的优化目录。" : backend == "tensorrt" ? "[提示] TensorRT 后端需要 PTH 源模型或预制 .engine；PTH 会按当前设备和输入尺寸自动编译。" : backend == "onnx" ? "[提示] ONNX 后端需要 models 或其子目录下的 .onnx 放大模型。" : "[提示] CUDA 后端需要 models 或其子目录下的 .pth/.pt/.pkl 放大模型。");
+            Console.Error.WriteLine(backend == "basicvsrpp" ? "[提示] BasicVSR++ 后端需要 models\\BasicVSR++ 下的官方 .pth，或包含 config.py/chkpts.pth 的优化目录。" : backend == "tensorrt" ? "[提示] TensorRT 后端需要可转换的源权重，并按当前设备和输入尺寸自动编译。" : backend == "onnx" ? "[提示] ONNX 后端需要 models 或其子目录下的 .onnx 放大模型。" : "[提示] CUDA 后端需要 models 或其子目录下的 .pth/.pt/.pkl/.ckpt/.safetensors 放大模型。");
             var pth = backend == "basicvsrpp" ? DiscoverBasicVsrPlusPlusModels() : backend == "tensorrt" ? DiscoverTensorRTSelectableModels() : backend == "onnx" ? DiscoverOnnxModels() : DiscoverUpscalePthModels();
             if (pth.Count > 0)
             {
@@ -2579,7 +2835,7 @@ internal static class Program
             }
             else
             {
-                Console.Error.WriteLine(backend == "tensorrt" ? "[提示] models 及其子目录下未找到 PTH 源模型或 .engine 文件。" : backend == "onnx" ? "[提示] models 及其子目录下未找到 .onnx 放大模型文件。" : "[提示] models 及其子目录下未找到 .pth 放大模型文件。");
+                Console.Error.WriteLine(backend == "tensorrt" ? "[提示] models 及其子目录下未找到可转换的源权重。" : backend == "onnx" ? "[提示] models 及其子目录下未找到 .onnx 放大模型文件。" : "[提示] models 及其子目录下未找到可用的 PyTorch/safetensors 放大模型文件。");
             }
             Console.Error.WriteLine("[提示] 用法：-backend " + backend + " -modelpath <模型名>");
         }
@@ -2595,8 +2851,19 @@ internal static class Program
         return "";
     }
 
-    /// <summary>是否为 PyTorch 可加载的模型文件（.pth/.pt/.pkl）。</summary>
+    /// <summary>是否为当前图像超分加载器可读取的权重文件。</summary>
     private static bool IsPthModelFile(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return ext.Equals(".pth", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".pt", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".pkl", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".ckpt", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".safetensors", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>当前 RIFE/GMFSS/GIMM 检测器明确支持的补帧权重格式。</summary>
+    private static bool IsInterpolationWeightFile(string path)
     {
         var ext = Path.GetExtension(path);
         return ext.Equals(".pth", StringComparison.OrdinalIgnoreCase)
@@ -2624,19 +2891,31 @@ internal static class Program
     private static bool IsBasicVsrPlusPlusModelDirectory(string path) =>
         Directory.Exists(path)
         && File.Exists(Path.Combine(path, "config.py"))
-        && File.Exists(Path.Combine(path, "chkpts.pth"))
-        && IsInBasicVsrPlusPlusDirectory(path);
+        && File.Exists(Path.Combine(path, "chkpts.pth"));
 
     private static bool IsBasicVsrPlusPlusModel(string path) =>
         IsBasicVsrPlusPlusModelDirectory(path)
-        || (File.Exists(path) && IsPthModelFile(path) && IsInBasicVsrPlusPlusDirectory(path));
+        || (File.Exists(path) && Path.GetExtension(path).Equals(".pth", StringComparison.OrdinalIgnoreCase)
+            && IsInBasicVsrPlusPlusDirectory(path));
 
     private static string BasicVsrPlusPlusScale(string path) =>
         IsBasicVsrPlusPlusModelDirectory(path) ? "1" : "4";
 
-    /// <summary>从模型文件夹名解析放大倍率（RealESRGAN-AnimeVideoV3-2x → 2）。</summary>
+    /// <summary>优先查询内置能力清单；未知模型才从文件名保守解析倍率。</summary>
     private static string? DetectScale(string modelFolder)
     {
+        if (ModelCapabilityCatalog.TryGet(modelFolder, ModelsDir, out var capability))
+        {
+            return capability.Scale.ToString(CultureInfo.InvariantCulture);
+        }
+        if (IsBasicVsrPlusPlusModel(modelFolder))
+        {
+            return BasicVsrPlusPlusScale(modelFolder);
+        }
+        if (IsFlashVsrModelDirectory(modelFolder))
+        {
+            return "4";
+        }
         var name = Path.GetFileName(modelFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         var stem = Path.GetFileNameWithoutExtension(name);
         // RealESRGAN AnimeVideo v3 的官方文件名没有倍率后缀，但模型原生输出为 4 倍。
@@ -2828,7 +3107,7 @@ internal static class Program
         {
             args.Add("--upscale_model");
             args.Add(modelFolder);
-            if (tileSize > 0 && backend is ("ncnn" or "cuda" or "tensorrt"))
+            if (tileSize > 0 && backend is ("ncnn" or "cuda" or "tensorrt" or "onnx"))
             {
                 args.Add("--tilesize");
                 args.Add(tileSize.ToString(CultureInfo.InvariantCulture));
@@ -2896,6 +3175,8 @@ internal static class Program
         if (!Path.IsPathRooted(raw))
         {
             candidates.Add(Path.Combine(FrameInterpolationDir, raw));
+            candidates.Add(Path.Combine(ModelsDir, raw));
+            candidates.Add(Path.Combine(UserInterpolationDir, raw));
             candidates.Add(Path.Combine(LegacyRifeDir, raw));
         }
 
@@ -2903,7 +3184,7 @@ internal static class Program
         {
             if (backend == "cuda")
             {
-                if (File.Exists(candidate) && IsPthModelFile(candidate)
+                if (File.Exists(candidate) && IsInterpolationWeightFile(candidate)
                     && InspectInterpolationCapabilities(new[] { candidate })
                         .TryGetValue(Path.GetFullPath(candidate), out var capability)
                     && string.IsNullOrWhiteSpace(capability.Error) && capability.Cuda)
@@ -2986,7 +3267,7 @@ internal static class Program
     /// <summary>发现补帧模型，并兼容读取旧 models\RIFE 目录。</summary>
     private static List<string> DiscoverInterpModels(string backend)
     {
-        var roots = new[] { FrameInterpolationDir, LegacyRifeDir }
+        var roots = new[] { FrameInterpolationDir, UserInterpolationDir, LegacyRifeDir }
             .Where(Directory.Exists)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -3033,6 +3314,10 @@ internal static class Program
         {
             relative = Path.GetRelativePath(FrameInterpolationDir, path);
         }
+        else if (IsPathUnder(path, UserInterpolationDir))
+        {
+            relative = Path.GetRelativePath(ModelsDir, path);
+        }
         else if (IsPathUnder(path, LegacyRifeDir))
         {
             relative = Path.GetRelativePath(LegacyRifeDir, path);
@@ -3052,7 +3337,7 @@ internal static class Program
     /// <summary>只有 RIFE 权重具备当前 RVE 后端的 TensorRT 自动构建实现。</summary>
     private static bool IsRifeInterpolationSource(string path)
     {
-        if (!File.Exists(path) || !IsPthModelFile(path)) return false;
+        if (!File.Exists(path) || !IsInterpolationWeightFile(path)) return false;
         var capabilities = InspectInterpolationCapabilities(new[] { path });
         return capabilities.TryGetValue(Path.GetFullPath(path), out var capability)
             && string.IsNullOrWhiteSpace(capability.Error)
@@ -3222,6 +3507,108 @@ internal static class Program
             "\"tensorrt\":" + capability.TensorRT.ToString().ToLowerInvariant() + "," +
             "\"error\":" + JsonString(capability.Error) + "}");
         return string.IsNullOrWhiteSpace(capability.Error) ? 0 : 2;
+    }
+
+    private static int InspectUpscaleModel(string requested)
+    {
+        var path = Path.GetFullPath(requested.Trim().Trim('"'));
+        var manager = new ModelImportManager(ModelsDir, PythonExe, UpscaleInspectorScript, InterpolationInspectorScript);
+        var inspection = manager.Inspect(path);
+        WriteInspectionJson(inspection);
+        return string.IsNullOrWhiteSpace(inspection.Error) ? 0 : 2;
+    }
+
+    private static int ImportModels(string requested, bool json)
+    {
+        var source = Path.GetFullPath(requested.Trim().Trim('"'));
+        string? extractionRoot = null;
+        try
+        {
+            if (File.Exists(source) && IsModelArchive(source))
+            {
+                extractionRoot = Path.Combine(Path.GetTempPath(), "videoenhancer-model-import-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(extractionRoot);
+                if (ExtractWith7Zip(source, extractionRoot, printComplete: false) != 0)
+                    return 1;
+                source = extractionRoot;
+            }
+            var manager = new ModelImportManager(ModelsDir, PythonExe, UpscaleInspectorScript, InterpolationInspectorScript);
+            var results = manager.Import(source);
+            if (json)
+                WriteImportResultsJson(results);
+            else
+                foreach (var result in results)
+                    if (result.Success)
+                        Console.WriteLine("[已导入] " + result.Id + "  " + string.Join('/', result.Backends));
+                    else
+                        Console.Error.WriteLine("[失败] " + result.Source + "：" + result.Error);
+            return results.Count > 0 && results.All(result => result.Success) ? 0 : 2;
+        }
+        finally
+        {
+            if (extractionRoot is not null && Directory.Exists(extractionRoot))
+            {
+                try { Directory.Delete(extractionRoot, recursive: true); }
+                catch { }
+            }
+        }
+    }
+
+    private static bool IsModelArchive(string path) =>
+        new[] { ".zip", ".7z", ".rar", ".tar", ".gz", ".xz", ".zst" }
+            .Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
+    private static void WriteInspectionJson(ModelImportInspection item)
+    {
+        using var writer = new Utf8JsonWriter(Console.OpenStandardOutput());
+        writer.WriteStartObject();
+        writer.WriteString("path", item.Path);
+        writer.WriteString("format", item.Format);
+        writer.WriteString("task", item.Task);
+        writer.WriteString("architecture", item.Architecture);
+        writer.WriteString("purpose", item.Purpose);
+        writer.WriteNumber("scale", item.Scale);
+        writer.WriteNumber("inputChannels", item.InputChannels);
+        writer.WriteNumber("outputChannels", item.OutputChannels);
+        writer.WriteNumber("inputMultiple", item.InputMultiple);
+        writer.WriteNumber("minimumSize", item.MinimumSize);
+        writer.WriteBoolean("square", item.Square);
+        writer.WriteBoolean("supportsHalf", item.SupportsHalf);
+        writer.WriteBoolean("supportsBfloat16", item.SupportsBFloat16);
+        writer.WriteString("tiling", item.Tiling);
+        writer.WriteStartArray("backends");
+        foreach (var backend in item.Backends) writer.WriteStringValue(backend);
+        writer.WriteEndArray();
+        writer.WriteString("error", item.Error);
+        writer.WriteEndObject();
+        writer.Flush();
+        Console.WriteLine();
+    }
+
+    private static void WriteImportResultsJson(IReadOnlyList<ModelImportResult> results)
+    {
+        using var writer = new Utf8JsonWriter(Console.OpenStandardOutput());
+        writer.WriteStartArray();
+        foreach (var item in results)
+        {
+            writer.WriteStartObject();
+            writer.WriteBoolean("success", item.Success);
+            writer.WriteString("source", item.Source);
+            writer.WriteString("id", item.Id);
+            writer.WriteString("installedPath", item.InstalledPath);
+            writer.WriteString("task", item.Task);
+            writer.WriteString("architecture", item.Architecture);
+            writer.WriteString("purpose", item.Purpose);
+            writer.WriteNumber("scale", item.Scale);
+            writer.WriteStartArray("backends");
+            foreach (var backend in item.Backends) writer.WriteStringValue(backend);
+            writer.WriteEndArray();
+            writer.WriteString("error", item.Error);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.Flush();
+        Console.WriteLine();
     }
 
     private static int PrepareRifeTensorRTEngine(string requested, int width, int height, bool staticShape)
@@ -3865,6 +4252,16 @@ internal static class Program
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
         // 先超后补的同后端包装器需要导入核心后端目录中的 src 包。
         psi.Environment["VIDEOENHANCER_BACKEND_DIR"] = Path.GetDirectoryName(BackendScript)!;
+        if (ModelCapabilityCatalog.TryGet(model, ModelsDir, out var capability))
+        {
+            psi.Environment["VIDEOENHANCER_UPSCALE_INPUT_MULTIPLE"] =
+                capability.InputMultiple.ToString(CultureInfo.InvariantCulture);
+            if (backend == "onnx")
+            {
+                psi.Environment["VIDEOENHANCER_ONNX_INPUT_MULTIPLE"] =
+                    capability.InputMultiple.ToString(CultureInfo.InvariantCulture);
+            }
+        }
         foreach (var a in backendArgs)
         {
             psi.ArgumentList.Add(a);
@@ -4626,14 +5023,14 @@ internal static class Program
             : isTensorRT
             ? "可用放大模型（TensorRT，PTH 首次使用自动构建本机 Engine）："
             : isOnnx ? "可用放大模型（ONNX Runtime，递归扫描 models 的 .onnx 文件）："
-            : isCuda ? "可用放大模型（CUDA，递归扫描 models 的 .pth/.pt/.pkl 文件，不含补帧目录）："
+            : isCuda ? "可用放大模型（CUDA，递归扫描 models 的 .pth/.pt/.pkl/.ckpt/.safetensors 文件，不含补帧目录）："
             : "可用放大模型（NCNN，递归扫描 models 中含 .param/.bin 的文件夹，不含补帧目录）：");
         if (models.Count == 0)
         {
             Console.WriteLine(isTensorRT
                 ? "  (未找到任何 PTH 源模型或预制 .engine 文件)"
                 : isOnnx ? "  (未找到任何 .onnx 模型文件)"
-                : isCuda ? "  (未找到任何 .pth/.pt/.pkl 模型文件；CUDA 放大需要 models 下的 .pth 模型)"
+                : isCuda ? "  (未找到任何 PyTorch/safetensors 模型文件)"
                 : "  (未找到任何含 .param/.bin 的模型文件夹)");
             return 0;
         }
@@ -4645,6 +5042,187 @@ internal static class Program
         return 0;
     }
 
+    private static int ListUserModels(bool json)
+    {
+        var models = UserModelCatalog.Load(ModelsDir)
+            .OrderBy(item => item.Task, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Architecture, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(item => item.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        if (!json)
+        {
+            foreach (var item in models)
+                Console.WriteLine($"{item.Id}  {item.Architecture}  {item.Scale}x  [{string.Join(",", item.Backends)}]");
+            return 0;
+        }
+        WriteUserModelsJson(models);
+        return 0;
+    }
+
+    private static int UpdateUserModel(Options options)
+    {
+        if (!int.TryParse(options.UserScale, NumberStyles.Integer, CultureInfo.InvariantCulture, out var scale))
+            return Fail("--update-user-model 需要 --user-scale <整数>");
+        if (!int.TryParse(options.UserInputMultiple, NumberStyles.Integer, CultureInfo.InvariantCulture, out var inputMultiple))
+            return Fail("--update-user-model 需要 --user-input-multiple <整数>");
+        if (string.IsNullOrWhiteSpace(options.UserArchitecture))
+            return Fail("--update-user-model 需要 --user-architecture <架构>");
+        if (string.IsNullOrWhiteSpace(options.UserBackends))
+            return Fail("--update-user-model 需要 --user-backends <逗号分隔列表>");
+        try
+        {
+            var updated = UserModelCatalog.UpdateCapabilities(
+                ModelsDir, options.UpdateUserModel, options.UserArchitecture, options.UserPurpose,
+                scale, inputMultiple, options.UserBackends.Split(',', StringSplitOptions.RemoveEmptyEntries));
+            if (options.Json) WriteUserModelsJson([updated]);
+            else Console.WriteLine("已更新用户模型能力：" + updated.Id);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            return Fail("更新用户模型能力失败：" + ex.Message);
+        }
+    }
+
+    private static void WriteUserModelsJson(IEnumerable<UserModelRecord> models)
+    {
+        using var writer = new Utf8JsonWriter(Console.OpenStandardOutput());
+        writer.WriteStartArray();
+        foreach (var item in models)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", item.Id);
+            writer.WriteString("displayName", item.DisplayName);
+            writer.WriteString("relativePath", item.RelativePath);
+            writer.WriteString("task", item.Task);
+            writer.WriteString("architecture", item.Architecture);
+            writer.WriteString("purpose", item.Purpose);
+            writer.WriteString("format", item.Format);
+            writer.WriteNumber("scale", item.Scale);
+            writer.WriteNumber("inputMultiple", item.InputMultiple);
+            writer.WriteNumber("minimumSize", item.MinimumSize);
+            writer.WriteBoolean("square", item.Square);
+            writer.WriteString("tiling", item.Tiling);
+            writer.WriteString("sha256", item.Sha256);
+            writer.WriteNumber("size", item.Size);
+            writer.WriteString("importedAtUtc", item.ImportedAtUtc);
+            writer.WriteStartArray("backends");
+            foreach (var backend in item.Backends) writer.WriteStringValue(backend);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.Flush();
+        Console.WriteLine();
+    }
+
+    private sealed class ModelListCatalogEntry
+    {
+        public string Id { get; init; } = "";
+        public string DisplayName { get; init; } = "";
+        public string Architecture { get; init; } = "";
+        public string Purpose { get; init; } = "";
+        public int Scale { get; init; }
+        public string Source { get; init; } = "";
+        public string[] Backends { get; init; } = [];
+    }
+
+    private static int ListModelCatalog(bool json, string backend, bool interpolation)
+    {
+        var paths = interpolation
+            ? DiscoverInterpModels(backend)
+            : backend == "basicvsrpp" ? DiscoverBasicVsrPlusPlusModels()
+            : backend == "flashvsr" ? DiscoverFlashVsrModels()
+            : backend == "cuda" ? DiscoverUpscalePthModels()
+            : backend == "tensorrt" ? DiscoverTensorRTSelectableModels()
+            : backend == "onnx" ? DiscoverOnnxModels()
+            : DiscoverModelFolders();
+        var userModels = UserModelCatalog.Load(ModelsDir);
+        var entries = new List<ModelListCatalogEntry>();
+        foreach (var path in paths)
+        {
+            var id = interpolation ? InterpModelDisplayName(path) : UpscaleModelDisplayName(path, backend);
+            var user = userModels.FirstOrDefault(item =>
+                UserModelCatalog.NormalizeRelativePath(item.RelativePath, ModelsDir)
+                    .Equals(UserModelCatalog.NormalizeRelativePath(path, ModelsDir), StringComparison.OrdinalIgnoreCase));
+            var normalizedPath = UserModelCatalog.NormalizeRelativePath(path, ModelsDir);
+            if (user is null && normalizedPath.StartsWith("User/", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (user is not null && !string.IsNullOrWhiteSpace(backend)
+                && !user.Backends.Contains(backend, StringComparer.OrdinalIgnoreCase))
+                continue;
+            ModelCapability? builtIn = null;
+            if (user is null && ModelCapabilityCatalog.TryGet(path, ModelsDir, out var capability)) builtIn = capability;
+            var architecture = user?.Architecture ?? builtIn?.Architecture ?? InferArchitecture(id, interpolation);
+            var purpose = user?.Purpose ?? (interpolation ? "Interpolation" : "SR");
+            var scale = user?.Scale ?? builtIn?.Scale ?? (int.TryParse(DetectScale(path), out var detected) ? detected : 0);
+            var backends = user?.Backends ?? builtIn?.Backends ?? [backend];
+            entries.Add(new ModelListCatalogEntry
+            {
+                Id = id,
+                DisplayName = ModelBaseName(path),
+                Architecture = architecture,
+                Purpose = purpose,
+                Scale = scale,
+                Source = user is not null ? "user" : builtIn is not null ? "builtin" : "discovered",
+                Backends = backends,
+            });
+        }
+        entries = entries.OrderBy(item => item.Architecture, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(item => item.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToList();
+        if (!json)
+        {
+            foreach (var group in entries.GroupBy(item => item.Architecture))
+            {
+                Console.WriteLine(group.Key + "：");
+                foreach (var item in group) Console.WriteLine("  " + item.Id);
+            }
+            return 0;
+        }
+        using var writer = new Utf8JsonWriter(Console.OpenStandardOutput());
+        writer.WriteStartArray();
+        foreach (var item in entries)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", item.Id);
+            writer.WriteString("displayName", item.DisplayName);
+            writer.WriteString("architecture", item.Architecture);
+            writer.WriteString("purpose", item.Purpose);
+            writer.WriteNumber("scale", item.Scale);
+            writer.WriteString("source", item.Source);
+            writer.WriteStartArray("backends");
+            foreach (var value in item.Backends) writer.WriteStringValue(value);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.Flush();
+        Console.WriteLine();
+        return 0;
+    }
+
+    private static string InferArchitecture(string id, bool interpolation)
+    {
+        var normalized = id.Replace('\\', '/');
+        if (normalized.StartsWith("User/", StringComparison.OrdinalIgnoreCase))
+        {
+            var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length >= 3) return segments[2];
+        }
+        foreach (var architecture in new[]
+        {
+            "RealESRGAN", "RealHatGAN", "ESRGAN", "SPANPlus", "SPAN", "SwinIR", "RealCUGAN",
+            "AnimeSR", "CRAFT", "DITN", "MoSR", "RIFE", "GMFSS", "GIMM"
+        })
+            if (normalized.Contains(architecture, StringComparison.OrdinalIgnoreCase)) return architecture;
+        if (interpolation)
+        {
+            var first = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(first)) return first;
+        }
+        return "其他模型";
+    }
+
     private static List<string> DiscoverModelFolders()
     {
         if (!Directory.Exists(ModelsDir))
@@ -4653,6 +5231,7 @@ internal static class Program
         }
         return Directory.GetDirectories(ModelsDir, "*", SearchOption.AllDirectories)
             .Where(p => !IsInInterpolationDirectory(p))
+            .Where(p => !IsInRestorationDirectory(p))
             .Where(IsNcnnModelFolder)
             .Where(p => !ModelBaseName(p).Equals("EfficientNet-SceneDetect", StringComparison.OrdinalIgnoreCase))
             .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase)
@@ -4667,10 +5246,11 @@ internal static class Program
             return new List<string>();
         }
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var pattern in new[] { "*.pth", "*.pt", "*.pkl" })
+        foreach (var pattern in new[] { "*.pth", "*.pt", "*.pkl", "*.ckpt", "*.safetensors" })
         {
             foreach (var f in Directory.GetFiles(ModelsDir, pattern, SearchOption.AllDirectories)
-                         .Where(p => !IsInInterpolationDirectory(p) && !IsInFlashVsrDirectory(p) && !IsInBasicVsrPlusPlusDirectory(p)))
+                         .Where(p => !IsInInterpolationDirectory(p) && !IsInRestorationDirectory(p)
+                             && !IsInFlashVsrDirectory(p) && !IsInBasicVsrPlusPlusDirectory(p)))
             {
                 set.Add(f);
             }
@@ -4708,6 +5288,7 @@ internal static class Program
         if (!Directory.Exists(ModelsDir)) return new List<string>();
         return Directory.GetFiles(ModelsDir, "*.onnx", SearchOption.AllDirectories)
             .Where(p => !IsInInterpolationDirectory(p))
+            .Where(p => !IsInRestorationDirectory(p))
             .OrderBy(p => p, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 
@@ -4766,7 +5347,9 @@ internal static class Program
     }
 
     private static bool IsInInterpolationDirectory(string path) =>
-        IsPathUnder(path, FrameInterpolationDir) || IsInLegacyRifeDirectory(path);
+        IsPathUnder(path, FrameInterpolationDir) || IsPathUnder(path, UserInterpolationDir) || IsInLegacyRifeDirectory(path);
+
+    private static bool IsInRestorationDirectory(string path) => IsPathUnder(path, UserRestorationDir);
 
     private static bool IsInLegacyRifeDirectory(string path)
     {
@@ -4782,7 +5365,8 @@ internal static class Program
         var root = Path.GetFullPath(Path.Combine(ModelsDir, "BasicVSR++"))
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
-        return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+        return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase)
+            || HasModelPackageAncestor(path, IsBasicVsrPlusPlusModelDirectory);
     }
 
     private static bool IsInFlashVsrDirectory(string path)
@@ -4790,7 +5374,22 @@ internal static class Program
         var root = Path.GetFullPath(Path.Combine(ModelsDir, "FlashVSR"))
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
-        return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase);
+        return Path.GetFullPath(path).StartsWith(root, StringComparison.OrdinalIgnoreCase)
+            || HasModelPackageAncestor(path, IsFlashVsrModelDirectory);
+    }
+
+    private static bool HasModelPackageAncestor(string path, Func<string, bool> predicate)
+    {
+        var directory = File.Exists(path) ? Path.GetDirectoryName(Path.GetFullPath(path)) : Path.GetFullPath(path);
+        var modelsRoot = Path.GetFullPath(ModelsDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        while (!string.IsNullOrWhiteSpace(directory)
+               && directory.StartsWith(modelsRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            if (predicate(directory)) return true;
+            if (directory.Equals(modelsRoot, StringComparison.OrdinalIgnoreCase)) break;
+            directory = Path.GetDirectoryName(directory);
+        }
+        return false;
     }
 
     private static string? FindNcnnModelFolder(string modelName)
@@ -4841,6 +5440,7 @@ internal static class Program
         writer.WriteLine("  videoenhancer.exe --image-input <图片> --image-output <文件夹> -backend onnx -modelpath <模型>");
         writer.WriteLine("  videoenhancer.exe --image-folder <文件夹> --image-output-original -modelpath <模型>");
         writer.WriteLine("  videoenhancer.exe --list-download-models --json");
+        writer.WriteLine("  videoenhancer.exe --import-model <模型文件、目录或压缩包> --json");
         writer.WriteLine("  videoenhancer.exe --clean-download-archives");
         writer.WriteLine("  videoenhancer.exe --download-model <镜像相对路径>");
         writer.WriteLine("  videoenhancer.exe --backend-status --json");
@@ -4873,11 +5473,11 @@ internal static class Program
         writer.WriteLine("  -interp-backend <ncnn|cuda|tensorrt>  可选的独立补帧后端；RIFE 实际支持 NCNN、CUDA/PyTorch、TensorRT");
         writer.WriteLine("  -scene-threshold <N>  转场检测阈值（RVE 官方外部 0-10 标尺；数值越低越敏感，默认 4）");
         writer.WriteLine("  -dynamic-optical-flow  开启 RIFE 动态光流尺度（仅 CUDA/PyTorch 补帧有效）");
-        writer.WriteLine("  -tile-size <N>  超分分块边长（0 为 RVE 默认；至少 32；仅 NCNN/CUDA/TensorRT）");
+        writer.WriteLine("  -tile-size <N>  超分分块边长（0 为 RVE 默认；至少 32；支持 NCNN/CUDA/TensorRT/ONNX）");
         writer.WriteLine("  -backend <ncnn|cuda|tensorrt|onnx|flashvsr|basicvsrpp>  超分推理后端；");
         writer.WriteLine("        basicvsrpp 支持官方 x4 PTH，及 config.py/chkpts.pth 的 1x 优化目录；");
         writer.WriteLine("        所有后端均递归扫描 models 子目录；Frame-Interpolation 仅用于补帧；");
-        writer.WriteLine("        cuda 使用 .pth/.pt/.pkl；tensorrt 接受 PTH 或 .engine，缺少缓存时会自动构建；");
+        writer.WriteLine("        cuda 使用 .pth/.pt/.pkl/.ckpt/.safetensors；tensorrt 接受可转换权重，缺少缓存时会自动构建；");
         writer.WriteLine("        TensorRT 缓存名包含 GPU、TensorRT 版本、输入尺寸和源模型摘要；onnx 使用 .onnx；");
         writer.WriteLine("        超分与补帧可同时指定；同一后端逐帧执行，跨后端才使用 FFV1 无损中间视频；");
         writer.WriteLine("        SDR 内部为 8-bit RGB；PQ/HLG 使用 16-bit RGB，且仅支持 CUDA/PyTorch 或 TensorRT");
@@ -4887,6 +5487,11 @@ internal static class Program
         writer.WriteLine("  --list-models, --search-models  列出可用的放大模型并退出（默认 ncnn 文件夹）");
         writer.WriteLine("        各后端均递归列出 models 子目录中的对应放大模型（排除补帧目录）；");
         writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）");
+        writer.WriteLine("  --list-model-catalog / --list-interp-model-catalog  输出带架构、倍率、来源和后端能力的结构化模型清单");
+        writer.WriteLine("  --list-user-models --json  输出用户导入模型的完整能力清单");
+        writer.WriteLine("  --inspect-upscale-model <权重>  安全预检 PTH/PT/CKPT/safetensors/ONNX 的架构、倍率和尺寸能力");
+        writer.WriteLine("  --import-model <路径>  预检文件、目录或压缩包，通过后原子安装到 models\\User 并登记能力清单");
+        writer.WriteLine("  --update-user-model <ID>  配合 --user-* 参数校验并修正用户模型能力");
         writer.WriteLine("  --list-interp-models  列出 models\\Frame-Interpolation 下可用的补帧模型并退出");
         writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）；");
         writer.WriteLine("        加 -interp-backend cuda 列出全部 PyTorch 权重，tensorrt 只列 RIFE 权重；旧 RIFE 兼容读取");
@@ -4948,8 +5553,8 @@ internal static class Program
         writer.WriteLine();
         writer.WriteLine("说明：本工具是 Video Enhancer GUI 的 rve-backend 命令行中转器，后端逻辑");
         writer.WriteLine("与 GUI 完全一致（ncnn 后端、场景检测、倍率自动识别等）。");
-        writer.WriteLine("  · 放大模型递归扫描 models：NCNN 取 .param/.bin 文件夹，CUDA 取 .pth/.pt/.pkl，");
-        writer.WriteLine("    TensorRT 取 PTH 源模型或预制 .engine，并把自动构建结果写入 models\\TensorRT-Cache；");
+        writer.WriteLine("  · 放大模型递归扫描 models：NCNN 取 .param/.bin 文件夹，CUDA 取 .pth/.pt/.pkl/.ckpt/.safetensors，");
+        writer.WriteLine("    TensorRT 取可转换源权重，并把自动构建结果写入 models\\TensorRT-Cache；");
         writer.WriteLine("    models\\Frame-Interpolation 独立保留给补帧模型，旧 models\\RIFE 兼容读取；");
         writer.WriteLine("    （rve-backend 的 spandrel/InterpolateRIFE 加载）。");
     }

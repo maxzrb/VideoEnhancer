@@ -1,17 +1,23 @@
 # Project Status
 
-Last updated: 2026-08-25 18:34
+Last updated: 2026-08-26 01:57
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 维护已发布的 1.1.0；下一步按实际用户反馈继续验证固定子目录更新与模型来源清单。
-- Current state: 用户明确授权在不升版本号的前提下覆盖刚发布的 1.1.0。模型下载页 Backend 最新状态上浮已修复，README 已补充全部当前模型家族的作者、原始出处/可追溯来源和授权边界。覆盖后的 `v1.1.0` 功能提交为 `46d7a02`，`main` 在其上追加发布记录；GitHub、ModelScope Releases、ModelScope Models 三处 EXE 回读均为 17,549,975 字节、SHA-256 `6420df26aac81dd10285e5e79c7d561928ec15d9a259c7a67f97d842d943d3c0`。Backend 2026.08.25.1 审计 unchanged，未上传后端资产。
+- Current objective: 正式发布 VideoEnhancer 1.1.1 及 Backend 2026.08.26.1。
+- Current state: 1.1.1 发布候选、后端完整包和增量包均已完成；全部发布门禁通过，等待提交和双源上传。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 让用户在其他设备从三源任一入口重新下载或检查更新，确认命中覆盖后的 1.1.0；后续发布避免再次覆盖同一版本。
+- Next recommended step: 提交并推送 1.1.1，上传 Backend 2026.08.26.1、GitHub Release 与 ModelScope 资产并回读核验。
 
 ## Active TODO
+
+- [ ] Task: 内置模型能力清单并修复尺寸依赖。
+  - Owner: Codex
+  - Status: 实现与 GPU/CPU 探针验证完成，等待提交；插件源码已改但本机缺少构建所需的 `FFmpegFreeUI.dll`/`LakeUI.dll` 临时引用目录。
+  - Relevant files: `cli/model-capabilities.json`, `cli/ModelCapabilityCatalog.cs`, `cli/Program.cs`, `cli/VideoEnhancer.csproj`, `cli/tests/test_model_capabilities.py`, `VideoEnhancerPlugin/PluginPanel.vb`
+  - Notes/blockers: 93 项清单覆盖 ncnn/cuda/tensorrt/onnx/flashvsr/basicvsrpp 的 21/42/36/28/1/1 项；RealHatGAN 1920x1080 在固定 512/256 块下于 6GB 显存 OOM，128 块实验通过但按用户要求仅作为测试记录，不进入能力清单或默认值。
 
 - [ ] Task: 发布独立子目录布局版本 1.1.0。
   - Owner: Codex
@@ -135,6 +141,8 @@ Updated by: Codex
   - Relevant files: `preview/1.9.6-preview.1/src/VideoEnhancerPlugin/PluginConfig.vb`, `PluginPanel.vb`, `QueueHook.vb`, `cli/Program.cs`
 
 ## Recently Completed
+
+- 2026-08-25 20:16: 完成当前 93 个模型的输入尺寸依赖调查与能力清单接入；ONNX 奇数尺寸探针覆盖 28 项，PTH 奇数尺寸探针覆盖 42 项；修补后的 RealHatGAN 35x33、50x47 CUDA 通过，1920x1080 单帧在本机实验性 128 分块下输出尺寸正确。默认分块未写死。
 
 - 2026-08-25 00:35: RTX 3060 代表模型矩阵收口：578 项中 576 通过、2 项 FlashVSR + GIMM 因 6GB OOM 跳过、0 功能失败；BasicVSR++ 跨后端入口修复后 12/12 组合通过，正式 EXE 与发布产物哈希一致。
 
@@ -1263,3 +1271,20 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Attribution: 根 README 新增模型来源与致谢表，覆盖当前 129 个超分与 22 个补帧可选条目所属的全部模型家族，列出原作者、原项目/可追溯来源和授权边界；无法确认原始正式发布页的 BHI、RealHatGAN 等条目明确标为待核实。README 中 27 个外部链接全部返回 HTTP 200。
 - Verification: Backend 2026.08.25.1 干净基线与真实安装目录审计为 0 add/replace/delete；插件/CLI 正式构建通过，安装器五类场景和更新器七类场景全部通过，实机 `--check` 全通过。覆盖后 GitHub、ModelScope Releases、ModelScope Models 三处 EXE 均为 17,549,975 字节、SHA-256 `6420df26aac81dd10285e5e79c7d561928ec15d9a259c7a67f97d842d943d3c0`；GitHub/ModelScope `stable.json` 均为 962 字节、SHA-256 `ee32dd5492f1851076c351c2a21375385e0d74fdf40a107c31ea5597991260ae`。未制作或上传 Backend 包、补丁或 channel。
 - Git status: 发布记录将在本条后单独提交并推送；完成后应保持工作树干净。后续正式发布不应再次覆盖同一版本，除非用户再次明确授权。
+
+### 2026-08-25 20:16 - Codex
+
+- Objective: 接入本地模型能力清单，修复用户的 RealHatGAN ONNX `Reshape` 非整除尺寸错误，并移除选择补帧倍率后要求手动指定帧率的提示窗；随后按用户要求调查全部现有模型的尺寸依赖。
+- Capability catalog: 新增嵌入式 `cli/model-capabilities.json` 与 trim-safe `ModelCapabilityCatalog.cs`，包含 93 个唯一模型 ID，覆盖实际清单 ncnn/cuda/tensorrt/onnx/flashvsr/basicvsrpp 的 21/42/36/28/1/1 项且 0 missing。倍率解析对已知模型优先查询清单，未知自定义模型保留保守文件名回退；TensorRT 缓存名可映射回源 PTH 条目。
+- Size research: 28 个 ONNX 文件完成图输入检查与 32x32、35x33、50x47 推理探针；6 个 SwinIR 是固定输入并由现有静态分块处理，18 个动态模型接受奇数尺寸，只有 4 个 RealHatGAN 要求宽高为 16 的倍数。42 个 PTH 权重完成 35x33/50x47 探针；确认 AnimeSR 为 4 倍数，`APISR-RRDB 2x` 与两个 `AniScale2-ESRGAN 2x` 为 2 倍数，其他架构在 float32 下无固有尺寸倍数问题。RIFE/GMFSS/GIMM 与 NCNN RIFE 源码已确认内置 32/64 补边裁剪。
+- Backend fix: CLI 首次运行保守修补 RVE `UpscaleONNX.py` 与 `UpscaleTorch.py`。动态 ONNX 和 PyTorch 对清单声明的倍数补边，推理后裁回原始倍率尺寸；TensorRT Engine 构建尺寸同步向上对齐。RealHatGAN 35x33、50x47 CUDA 输出精确通过；AnimeSR 35x33 得到 140x132，RRDB 2x 得到 70x66。1920x1080 RealHatGAN 在固定 512/256 分块时于 6GB RTX 3060 OOM，实验性 128 分块输出 3840x2160、耗时 94.625 秒；用户明确要求能力清单和默认值不得记录该机器安全值，因此 `preferredTileSize` 已完全移除，默认继续跟随后端自动/0。
+- UI: `PluginPanel.vb` 的倍率选择事件只保存 `InterpFactor`，不再弹出“前往视频参数-画面帧手动指定帧率”；相关旧提示字符串已不存在。
+- Verification: CLI Release build 和单文件 trimmed publish 均成功，仅 2 个既有 Windows CA1416 警告；能力清单 unittest 3/3、JSON 解析、Python `py_compile`、`git diff --ignore-space-at-eol --check` 均通过。插件构建未完成：先前使用的 `%TEMP%\FFmpegFreeUI.6.1.39.extracted` 已被清理，本机当前找不到编译所需 `FFmpegFreeUI.dll` 与 `LakeUI.dll`；源码改动简单且已静态核对，但不能声称 DLL 已验证。
+- Files/Git: 修改 `VideoEnhancerPlugin/PluginPanel.vb`、`cli/Program.cs`、`cli/VideoEnhancer.csproj`、`docs/codex/STATUS.md`、`version/工作进度.md`；新增 `cli/ModelCapabilityCatalog.cs`、`cli/model-capabilities.json`、`cli/tests/test_model_capabilities.py`。分支 `main` 基于 `26c795c`，未提交、未推送、未发布，版本仍为 1.1.0。
+
+### 2026-08-26 01:57 - Codex
+
+- Objective: 按用户授权准备正式发布 1.1.1，整合模型导入、能力清单、二级菜单、尺寸兼容和 ONNX 分块修复。
+- Backend: 相对 2026.08.25.1 为 1 新增、2 替换、0 删除，版本递增至 2026.08.26.1；完整包含 29,708 个受管文件、6,261,278,626 字节，压缩后 3,070,513,730 字节，已独立解压逐文件复验；增量补丁含 3 项操作。
+- Verification: CLI/插件/单文件构建通过；Python/契约测试 16/16、RVE 有序管线 6/6、Backend 事务 6/6、发布门禁 5/5、安装器五类和更新器七类场景全部通过。本地安装 EXE/DLL 与正式候选一致，已导入 ONNX 用户模型可出现在 ONNX 模型目录中。
+- Git/release: 当前待创建发布提交、推送 main/tag，并上传 Backend、GitHub 与 ModelScope 资产。

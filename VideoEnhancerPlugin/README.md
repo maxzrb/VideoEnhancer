@@ -20,11 +20,11 @@
 
 ## 使用
 
-页面采用 LakeUI `ModernTabControl` 四分栏（顶栏标签），顶部「插件总开关」只作用于
-「超分主界面」页；「实时预览」「高级功能」「模型转换器」页即使关闭插件总开关也能使用。
+页面采用 LakeUI `ModernTabControl` 六个顶栏标签；「对比工具」和独立「模型指南」已经移除，
+当前顺序为超分工作台、实时预览、模型下载、模型转换、模型导入、使用教程。
 
 ```text
-┌ 超分主界面 │ 实时预览 │ 高级功能 │ 模型转换器 ┐
+┌ 超分工作台 │ 实时预览 │ 模型下载 │ 模型转换 │ 模型导入 │ 使用教程 ┐
 │                                  │
 │ [插件总开关]  BooleanSwitch       │
 │ [超分开关] BooleanSwitch          │
@@ -49,14 +49,11 @@
 2. 「超分开关」（BooleanSwitch）——打开时启用放大（需先开启插件总开关，可与补帧组合）；
    右侧「选择推理方式」支持 `NCNN (Vulkan)`（默认）、`CUDA (PyTorch)`、
    `TensorRT (NVIDIA)` 和 `ONNX Runtime`；
-   「放大模型」下拉框：首次展开会调用 `videoenhancer.exe --search-models`
-   读取 models 目录可用模型并缓存（CUDA 时为 `models` 下的 `.pth/.pt/.pkl` 模型）；
-   选择的模型写入插件配置。
+   「放大模型」使用 LakeUI 原生二级菜单，调用 `--list-model-catalog` 获取结构化能力，
+   按“架构大类 → 具体模型”显示；配置仍保存稳定的 models 相对路径。
 3. 「补帧开关」（BooleanSwitch）——打开时启用 RIFE、GIMM-VFI 或 GMFSS 补帧，可与超分组合；
-   「补帧模型」下拉框：首次展开会调用 `videoenhancer.exe --list-interp-models`
-   读取 `models\Frame-Interpolation` 下的补帧模型（如 `RIFE/rife-v4.25`；CUDA/TensorRT 时为 RIFE 权重名）；旧 `models\RIFE` 继续兼容；
-   「补帧倍率」下拉框（2/3/4/8 倍）选择后弹窗提示：请前往「视频参数-画面帧」页面
-   指定帧率为原视频的 X 倍；倍率作为 `-interp-factor` 传给 videoenhancer.exe。
+   「补帧模型」同样使用结构化二级菜单，按 RIFE、GMFSS、GIMM 等架构分组；
+   「补帧倍率」下拉框（2/3/4/8 倍）直接保存并作为 `-interp-factor` 传给 videoenhancer.exe，不再弹出手动帧率提示。
 
 ### 实时预览
 
@@ -84,7 +81,9 @@
 - 说明文字：「处理速度较慢时，可能存在预览停顿」。
 - 本页不依赖插件总开关；页面不可见时轮询自动暂停（消除切页动画卡顿）。
 
-### 高级功能
+### 历史对比工具（当前版本已移除）
+
+以下内容仅记录旧版本曾提供的四宫格对比功能；当前插件不再显示或提供该页面。
 
 - 「制作四宫格比对视频」`ModernButton`：打开独立二级窗口 `QuadGridForm`
   （不依赖 FFmpegFreeUI 主界面），支持拖入/浏览 1-4 个视频。
@@ -119,6 +118,14 @@
 - 可选择或直接拖入 `.pth/.pt/.pkl`。页面会读取权重内部结构：普通 `.pth` 放大模型调用 `convert_tensorrt.py`，RIFE 权重调用独立的 flow/encode TensorRT 构建流程，不能互相混用。
 - 放大 Engine 输出到 `models\TensorRT-Personalized`；RIFE Engine 缓存在权重旁，并按分辨率、显卡和 TensorRT 运行时隔离。转换进度会实时显示在页面中。
 - 页面说明 TensorRT 的推理效率优势、离线转换特性，以及 Engine 应在实际使用设备上重新编译。
+
+### 模型导入
+
+- 支持选择或拖入 PTH、PT、PKL、CKPT、safetensors、ONNX、NCNN param/bin 文件夹，以及 ZIP、7Z、RAR 等压缩包。
+- 导入前在临时区预检架构、用途、倍率、通道、输入尺寸要求、精度和后端能力，并按 SHA-256 去重；失败文件不会进入正式模型列表。
+- 通过后事务安装到 `models\User\Upscale`、`Interpolation` 或 `Restoration`，并写入 `models\User\model-catalog.json`。普通 1x 修复模型暂不混入超分下拉栏。
+- 工作台只显示与当前后端匹配的用户模型；用户模型和内置模型使用同一套 LakeUI 二级架构菜单。
+- 已导入模型以 LakeUI 列表展示；双击模型会展开两列能力编辑器，可修正架构、用途、倍率、输入尺寸倍数与后端。文件路径、格式和 SHA-256 保持只读，修正后立即刷新工作台下拉列表。
 
 ### 队列执行流程
 

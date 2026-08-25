@@ -43,15 +43,20 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 - `-interp-backend <ncnn|cuda|tensorrt>`：独立补帧后端；NCNN 使用 Vulkan 模型目录，CUDA/PyTorch 使用权重文件，TensorRT 从 RIFE 权重自动构建 Engine。GIMM-VFI 与 GMFSS 选择后会自动切换到 CUDA。
 - `-scene-threshold <N>`：转场检测阈值，使用 RVE 官方外部 0-10 标尺，默认 4；数值越低越敏感，越容易跳过转场处的插帧，直接透传给 RVE。
 - `-dynamic-optical-flow`：开启动态光流尺度，仅 CUDA/PyTorch RIFE 有效；TensorRT 会由 RVE 自动禁用。
-- `-tile-size <N>`：超分分块边长，0 表示 RVE 默认处理（不按显存自动试探）；显式值是输入帧边长，用于降低峰值显存但会增加处理时间。支持 NCNN、CUDA/PyTorch、TensorRT；ONNX 和 FlashVSR 不使用该参数。
+- `-tile-size <N>`：超分分块边长，0 表示 RVE 默认处理（不按显存自动试探）；显式值是输入帧边长，用于降低峰值显存但会增加处理时间。支持 NCNN、CUDA/PyTorch、TensorRT 和动态输入 ONNX；FlashVSR 不使用该参数。
 - `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内逐帧执行，只进行一次最终编码且不产生整段中间视频；跨后端时才使用无损 RGB FFV1 中间视频（SDR `gbrp10le`，HDR `gbrp16le`），任务结束后自动清理。当前 RVE 的 SDR 内部帧为 8-bit `rgb24`，最终输出指定 10-bit 像素格式不代表 10-bit 模型推理。
 - 位深与 HDR：PQ/HLG HDR 使用 16-bit `rgb48le`，且只允许 CUDA/PyTorch 或 TensorRT；NCNN、ONNX、FlashVSR 遇到 HDR 会明确报错，避免静默降为 SDR。
 - `-backend <ncnn|cuda|tensorrt|onnx|flashvsr>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
-  放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），
+  放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl/.ckpt/.safetensors` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），
   补帧模型使用 `models\Frame-Interpolation` 下的 `.pth/.pt/.pkl` 文件；超分与补帧可独立使用。
   `tensorrt` 的超分只选择 PTH 源模型，任务启动时按当前 GPU、输入宽高、输出倍率、分块、精度及转换器版本自动生成或复用 `models\TensorRT-Cache` 中的 Engine；不再使用远端预置 `.engine`。补帧只选择 RIFE 权重并自动生成 flow/encode Engine，权重或运行时变化会使用新缓存，加载失败会删除成对缓存后自动重建。NCNN 使用递归发现的 `.param/.bin` 模型文件夹。放大模型列表统一以相对 `models` 的路径显示。
 - `-no-upscale`：不放大（仅补帧模式，需配合 `-interp-model`）。
 - `--inspect-interp-model <权重>`：读取 `.pth/.pt/.pkl` 内部结构并输出架构及 CUDA/TensorRT 能力 JSON，不用文件扩展名或目录名猜测。
+- `--inspect-upscale-model <权重>`：安全读取 PTH/PT/CKPT/safetensors 或 ONNX，输出架构、用途、倍率、输入尺寸和后端能力。
+- `--import-model <文件、目录或压缩包>`：预检模型并计算 SHA-256；通过后事务安装到 `models\User`，同时生成用户能力清单。支持 PyTorch/safetensors、ONNX、NCNN param+bin 及 ZIP/7Z/RAR 等压缩包；失败模型不会进入工作台下拉栏。
+- `--list-model-catalog` / `--list-interp-model-catalog`：按当前后端输出结构化模型列表，包含稳定 ID、架构大类、倍率、来源和后端能力，供 LakeUI 二级模型菜单使用。
+- `--list-user-models --json`：输出用户模型的完整能力清单，供模型导入页列表使用。
+- `--update-user-model <ID>`：与 `--user-architecture`、`--user-purpose`、`--user-scale`、`--user-input-multiple`、`--user-backends` 配合修正自动识别结果；写入前会校验格式、任务和后端组合。
 - `--prepare-interp-engine <RIFE 权重> --prepare-width <宽> --prepare-height <高>`：调用 RVE 的真实 RIFE flow/encode 路径预构建 TensorRT Engine；可加 `--prepare-static-shape`。该命令不经过单帧超分转换器。
 - `-ffmpeg-settings`：FFmpeg 编码参数片段，**最后一个参数是输出文件路径**（无 `-o`），末尾 `-y` 表示覆盖。
   - 自动处理：`-map` 流映射会被移除（后端写进程自带映射），`-map_metadata 0` / `-map_chapters 0` 改写为 `1`；

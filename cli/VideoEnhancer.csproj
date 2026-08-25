@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>videoenhancer</AssemblyName>
     <RootNamespace>VideoEnhancer</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <!-- 单文件自包含发布：双击后安装到 3FUI\Plugin\videoenhancer 子目录 -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
@@ -38,8 +38,12 @@
                       LogicalName="VideoEnhancer.Embedded.rve-ordered-backend.py" />
     <EmbeddedResource Include="embedded-tools\inspect_interpolation_models.py"
                       LogicalName="VideoEnhancer.Embedded.inspect_interpolation_models.py" />
+    <EmbeddedResource Include="embedded-tools\inspect_upscale_models.py"
+                      LogicalName="VideoEnhancer.Embedded.inspect_upscale_models.py" />
     <EmbeddedResource Include="embedded-tools\prepare_rife_tensorrt.py"
                       LogicalName="VideoEnhancer.Embedded.prepare_rife_tensorrt.py" />
+    <EmbeddedResource Include="model-capabilities.json"
+                      LogicalName="VideoEnhancer.Embedded.model-capabilities.json" />
   </ItemGroup>
 
 </Project>

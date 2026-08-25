@@ -47,10 +47,6 @@ Get-ChildItem $scriptDir -Filter *.vb | Sort-Object Name | ForEach-Object { $lin
 $layoutJson = Join-Path $scriptDir '..\videoenhancer-layout.json'
 if (-not (Test-Path -LiteralPath $layoutJson)) { throw "layout JSON not found: $layoutJson" }
 $lines.Add('"-resource:' + $layoutJson + ',videoenhancer-layout.json"')
-$modelImage = Join-Path $scriptDir 'assets\model-introduction.jpg'
-if (-not (Test-Path -LiteralPath $modelImage)) { throw "model introduction image not found: $modelImage" }
-$lines.Add('"-resource:' + $modelImage + ',videoenhancer-model-introduction.jpg"')
-
 $rsp = Join-Path $outDir 'vbc.rsp'
 [System.IO.File]::WriteAllLines($rsp, $lines, (New-Object System.Text.UTF8Encoding($false)))
 

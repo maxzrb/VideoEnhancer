@@ -1,17 +1,23 @@
 # Project Status
 
-Last updated: 2026-08-26 13:10
+Last updated: 2026-08-26 17:54
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 完成 VideoEnhancer 1.1.1 发布后 UI 与更新安全回归修复。
-- Current state: 模型下拉框只读、二级菜单定位和更新重启二次确认均已完成并构建；最终资产正在同步记录，Backend 2026.08.26.1 无新增变化。
+- Current objective: 为超分和补帧增加独立半精度开关，并审计全新 Windows 10 的运行依赖。
+- Current state: 两个 LakeUI 半精度开关、独立精度管线、同后端无中转组合和后端依赖自检均已实现并通过本机验证；已本地提交，不推送、不发布。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 退出并重新启动本机 3FUI，实机确认模型菜单从锚点下方展开，以及下载完成后出现默认“否”的重启安装确认框。
+- Next recommended step: 在另一台干净 Windows 10 x64 设备安装 VC++ 2015-2022 x64 运行库和当前 3FUI，再执行各后端环境检查；NVIDIA 后端需驱动 580 或更高版本。
 
 ## Active TODO
+
+- [x] Task: 增加超分/补帧独立半精度开关并完成 Windows 10 依赖审计。
+  - Owner: Codex
+  - Status: 已完成实现、实机 UI/GPU 回归、隔离安装测试和依赖自检；按用户要求只本地提交，不推送、不发布。
+  - Relevant files: `VideoEnhancerPlugin/PluginConfig.vb`, `VideoEnhancerPlugin/PluginPanel.vb`, `VideoEnhancerPlugin/QueueHook.vb`, `cli/Program.cs`, `cli/embedded-tools/rve-ordered-backend.py`, `cli/tests/test_rve_ordered_backend.py`, `README.md`
+  - Notes/blockers: `videoenhancer.exe` 为自包含单文件，无需单独安装 .NET；便携 Python/原生扩展仍要求 Microsoft VC++ 2015-2022 x64 运行库。当前 PyTorch 为 CUDA 13.0，NVIDIA 后端需要 580+ 驱动。NCNN 依赖显卡驱动的 Vulkan 运行时，不需要 Vulkan SDK。
 
 - [ ] Task: 内置模型能力清单并修复尺寸依赖。
   - Owner: Codex
@@ -1307,3 +1313,13 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - UI root cause/fix: LakeUI `ModernContextMenu.Show(Control, Point)` 会正确转换屏幕坐标，但菜单总高度超过锚点下方空间时会向上翻转；若翻转后 Top 为负则钳制到工作区顶端，因此架构列表看起来从屏幕顶端展开。新增 `FitModelMenuBelowAnchor`，按当前屏幕工作区、锚点、DPI 和架构项数量动态压缩根菜单行高，优先确保菜单从模型框下方展开；子模型菜单保持原尺寸。
 - Updater safety: 旧流程只在下载前询问一次，下载校验后直接 `StartUpdate` 并 `Application.Exit`。现改为两阶段确认：第一次只同意下载；校验通过后弹出“确认重启安装”警告框，默认按钮为“否”。拒绝时直接返回，不停止自检、不启动更新器、不退出 3FUI；只有明确选择“是”才继续关闭与重启。
 - Verification/publication: 插件与内嵌 DLL 的 1.1.1 EXE 构建成功，仅两个既有 CA1416 警告；成品反编译确认动态菜单适配在 `Show` 前调用，第二确认位于 `StopEnvironmentCheck`、`StartUpdate`、`Application.Exit` 之前。覆盖 EXE 为 16,874,426 字节、SHA-256 `bda65213b198c57da7e926ea29cc66963c73f2a09e5c2e48236ebe7b2727589a`，三处资产已上传。真实 3FUI PID 9212 正在运行，隐藏助手 PID 33816 等待宿主正常退出后替换本机 DLL/EXE。
+
+### 2026-08-26 17:54 - Codex
+
+- Objective: 按用户要求为视频超分和运动补帧分别加入“半精度推理”LakeUI 开关；默认开启表示 FP16 优先且不兼容时自动回退，关闭表示强制 FP32。两个阶段不得共用一个精度参数，同后端组合不得因此增加 FFV1 中转；同时审计全新 Windows 10 设备的依赖问题。本轮只提交、不推送、不发布。
+- Precision pipeline: 配置、队列和图片增强入口分别传递 `-upscale-precision` / `-interp-precision`。同后端两种处理顺序统一走内置有序包装器，在单 Python 进程中分别初始化两个模型并在模型边界转换张量精度；跨后端仍使用原有 FFV1 中转。SwinIR/GRL/GIMM 等已知不兼容路径继续自动固定 FP32；TensorRT 缓存键包含真实精度，强制 FP32 不会复用 FP16 Engine。
+- UI: 两个开关分别位于超分/补帧主开关右侧，只在相应模式开启且 CUDA/TensorRT 后端时可操作。首次实机截图暴露“半精度推理”使用小号说明字体且固定宽度不足；改用 11pt 正文标签、按 DPI 实测文字宽度分配至少 108px，并设置 `MiddleCenter`。高 DPI 实机截图确认两行字体、基线、完整文字和间距正确。
+- GPU verification: RTX 3060 短样本完成 CUDA 单超强制 FP32、RIFE4.25 单补自动精度、同后端先超后补（超分 auto / 补帧 FP32）和先补后超（补帧 auto / 超分 FP32），输出均为预期尺寸和 7 帧；两种组合日志显示独立精度且没有 FFV1 中间阶段。
+- Dependency audit: CLI 单文件为 `net10.0` self-contained/trimmed，不要求用户安装 .NET；插件只引用 3FUI 6.1.39 宿主程序集和 LakeUI。便携后端实测版本为 torch 2.9.0+cu130、TensorRT 10.12.0.36、ONNX Runtime 1.29.0、NCNN 1.0.20250916。新增 Windows x64/1809、MSVCP140 和当前所选后端的轻量导入/设备检查，不加载模型或 Engine；README 记录 VC++ 2015-2022 x64、CUDA 13 驱动 580+ 和 NCNN Vulkan 要求。
+- Verification: 插件构建、CLI Release/trimmed 单文件发布和 Python `py_compile` 通过，仅 2 个既有 CA1416；NCNN/CUDA/TensorRT/ONNX/FlashVSR/BasicVSR++ 六类真实依赖检查全部退出 0；安装器五场景、Backend 事务 6/6、发布门禁 5/5、有序包装器 unittest 8/8 和 `git diff --check` 通过。最终候选 DLL SHA-256 `333439cd925c0e4585bca228ddc23ba3a27a382f4551eb47fb9a1b4d299fc386`，EXE SHA-256 `876b772a1889b91f326630b90ed099f6ea4793853a75cd5de7a82f2aefc9be37`。
+- Git/local: 分支 `release/1.1.1` 无 tracking upstream，启动时 `git pull` 因此未执行同步；基线为已发布提交 `3b6473e`。真实 3FUI 当前运行中，先前已安装并目视验证同源码 UI 构建，最终候选未在宿主运行时强行覆盖。功能与记录已创建本地提交，未推送、未发布；提交完成后工作树干净。

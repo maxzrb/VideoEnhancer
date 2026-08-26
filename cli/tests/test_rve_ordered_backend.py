@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import queue
 import types
 import unittest
@@ -144,6 +145,116 @@ def make_render(interpolate_result="frame", upscale_error=None):
 
 
 class OrderedBackendTests(unittest.TestCase):
+    def test_combined_models_receive_independent_precisions_without_two_processes(self):
+        previous = {
+            name: os.environ.get(name)
+            for name in (
+                "VIDEOENHANCER_PROCESS_ORDER",
+                "VIDEOENHANCER_UPSCALE_PRECISION",
+                "VIDEOENHANCER_INTERP_PRECISION",
+            )
+        }
+        os.environ["VIDEOENHANCER_PROCESS_ORDER"] = "upscale-first"
+        os.environ["VIDEOENHANCER_UPSCALE_PRECISION"] = "float16"
+        os.environ["VIDEOENHANCER_INTERP_PRECISION"] = "float32"
+        try:
+            module = types.SimpleNamespace(SceneDetect=lambda **kwargs: object())
+
+            class Option:
+                dtype = None
+
+            class Render:
+                def __init__(self, precision="auto"):
+                    self.initial_precision = precision
+                    self.precision = precision
+                    self.width = 32
+                    self.height = 24
+                    self.upscaleTimes = 2
+                    self.setupUpscale()
+                    self.setupInterpolate()
+
+                def setupUpscale(self):
+                    self.upscale_setup_precision = self.precision
+                    self.upscaleOption = Option()
+
+                def setupInterpolate(self):
+                    self.interp_setup_precision = self.precision
+                    self.interpolateOption = Option()
+
+                def render(self):
+                    raise AssertionError("原生顺序不应在先超后补模式使用")
+
+            module.Render = Render
+            ORDERED._patch_render(module)
+            render = Render(precision="auto")
+
+            self.assertEqual("float16", render.initial_precision)
+            self.assertEqual("float16", render.upscale_setup_precision)
+            self.assertEqual("float32", render.interp_setup_precision)
+            self.assertIsInstance(render.upscaleOption, ORDERED._PrecisionAlignedUpscaler)
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+    def test_interp_first_keeps_native_render_and_uses_interp_input_precision(self):
+        previous = {
+            name: os.environ.get(name)
+            for name in (
+                "VIDEOENHANCER_PROCESS_ORDER",
+                "VIDEOENHANCER_UPSCALE_PRECISION",
+                "VIDEOENHANCER_INTERP_PRECISION",
+            )
+        }
+        os.environ["VIDEOENHANCER_PROCESS_ORDER"] = "interp-first"
+        os.environ["VIDEOENHANCER_UPSCALE_PRECISION"] = "float16"
+        os.environ["VIDEOENHANCER_INTERP_PRECISION"] = "float32"
+        try:
+            module = types.SimpleNamespace(SceneDetect=lambda **kwargs: object())
+
+            class Option:
+                dtype = None
+
+            class Render:
+                def __init__(self, precision="auto"):
+                    self.initial_precision = precision
+                    self.precision = precision
+                    self.width = 32
+                    self.height = 24
+                    self.upscaleTimes = 2
+                    self.setupUpscale()
+                    self.setupInterpolate()
+
+                def setupUpscale(self):
+                    self.upscale_setup_precision = self.precision
+                    self.upscaleOption = Option()
+
+                def setupInterpolate(self):
+                    self.interp_setup_precision = self.precision
+                    self.interpolateOption = Option()
+
+                def render(self):
+                    return "native"
+
+            original_render = Render.render
+            module.Render = Render
+            ORDERED._patch_render(module)
+            render = Render(precision="auto")
+
+            self.assertEqual("float32", render.initial_precision)
+            self.assertEqual("float16", render.upscale_setup_precision)
+            self.assertEqual("float32", render.interp_setup_precision)
+            self.assertIs(Render.render, original_render)
+            self.assertEqual("native", render.render())
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
     def test_ncnn_metadata_is_fixed_before_interpolation(self):
         render, calls, _ = make_render()
         render.render()

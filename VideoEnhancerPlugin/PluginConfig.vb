@@ -24,10 +24,14 @@ Namespace videoenhancer
         Public Property SceneDetectThreshold As Double = 4.0
         ''' <summary>超分分块边长；0 表示使用 RVE 默认处理，不按显存自动试探。</summary>
         Public Property UpscaleTileSize As Integer = 0
+        ''' <summary>超分优先使用半精度；关闭时对支持精度控制的后端强制 FP32。</summary>
+        Public Property UpscaleHalfPrecision As Boolean = True
         ''' <summary>超分推理后端：ncnn、cuda、tensorrt、onnx 或 flashvsr。</summary>
         Public Property Backend As String = "ncnn"
         ''' <summary>补帧后端：ncnn、cuda（PyTorch 权重）或 tensorrt（RIFE 权重自动构建 Engine）。</summary>
         Public Property InterpBackend As String = "ncnn"
+        ''' <summary>补帧优先使用半精度；关闭时对 CUDA/TensorRT 强制 FP32。</summary>
+        Public Property InterpHalfPrecision As Boolean = True
         ''' <summary>组合处理顺序：upscale-first（画质优先，默认）或 interp-first（速度/算力优先）。</summary>
         Public Property ProcessOrder As String = "upscale-first"
         Public Property ImageOutput As String = ""

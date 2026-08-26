@@ -42,7 +42,27 @@ def _align_interpolation_dtype(render, frame):
     tensor = frame.get_frame_tensor()
     if getattr(tensor, "dtype", None) == target_dtype:
         return frame
+    frame.dtype = str(target_dtype).replace("torch.", "")
     return frame.set_frame_tensor(tensor.to(dtype=target_dtype))
+
+
+class _PrecisionAlignedUpscaler:
+    """在进入超分模型前按模型实际 dtype 转换，避免组合阶段共享精度。"""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def __call__(self, frame):
+        target_dtype = getattr(self._inner, "dtype", None)
+        if target_dtype is not None and hasattr(frame, "get_frame_tensor"):
+            tensor = frame.get_frame_tensor()
+            if getattr(tensor, "dtype", None) != target_dtype:
+                frame.set_frame_tensor(tensor.to(dtype=target_dtype))
+            frame.dtype = str(target_dtype).replace("torch.", "")
+        return self._inner(frame)
 
 
 def _stop_after_render_error(render):
@@ -70,19 +90,36 @@ def _stop_after_render_error(render):
 def _patch_render(render_module, instance_holder=None):
     Render = render_module.Render
     original_init = Render.__init__
+    original_setup_upscale = getattr(Render, "setupUpscale", None)
     original_setup_interpolate = Render.setupInterpolate
+    process_order = os.environ.get("VIDEOENHANCER_PROCESS_ORDER", "upscale-first")
+    upscale_precision = os.environ.get("VIDEOENHANCER_UPSCALE_PRECISION", "auto")
+    interp_precision = os.environ.get("VIDEOENHANCER_INTERP_PRECISION", "auto")
 
     def capture_instance(self, *args, **kwargs):
+        if "precision" in kwargs:
+            kwargs["precision"] = upscale_precision if process_order == "upscale-first" else interp_precision
         original_init(self, *args, **kwargs)
         if instance_holder is not None:
             instance_holder["render"] = self
 
+    def setup_upscale_with_precision(self):
+        previous_precision = getattr(self, "precision", "auto")
+        self.precision = upscale_precision
+        try:
+            if original_setup_upscale is None:
+                return
+            original_setup_upscale(self)
+            self.upscaleOption = _PrecisionAlignedUpscaler(self.upscaleOption)
+        finally:
+            self.precision = previous_precision
+
     def setup_interpolate_at_upscaled_size(self):
-        # RIFE 按超分后的最终尺寸分配缓存，但转场检测仍然处理源尺寸帧。
+        # 先超后补时 RIFE 按超分后的最终尺寸分配缓存；先补后超保持源尺寸。
         original_width, original_height = self.width, self.height
         original_scene_detect = getattr(render_module, "SceneDetect", None)
 
-        if original_scene_detect is not None:
+        if process_order == "upscale-first" and original_scene_detect is not None:
             def source_sized_scene_detect(*args, **kwargs):
                 kwargs["width"] = original_width
                 kwargs["height"] = original_height
@@ -90,13 +127,17 @@ def _patch_render(render_module, instance_holder=None):
 
             render_module.SceneDetect = source_sized_scene_detect
 
-        self.width = original_width * self.upscaleTimes
-        self.height = original_height * self.upscaleTimes
+        if process_order == "upscale-first":
+            self.width = original_width * self.upscaleTimes
+            self.height = original_height * self.upscaleTimes
+        previous_precision = getattr(self, "precision", "auto")
+        self.precision = interp_precision
         try:
             original_setup_interpolate(self)
         finally:
+            self.precision = previous_precision
             self.width, self.height = original_width, original_height
-            if original_scene_detect is not None:
+            if process_order == "upscale-first" and original_scene_detect is not None:
                 render_module.SceneDetect = original_scene_detect
 
     def render_upscale_first(self):
@@ -162,8 +203,11 @@ def _patch_render(render_module, instance_holder=None):
             self.writeBuffer.writeQueue.put(None)
 
     Render.__init__ = capture_instance
+    if original_setup_upscale is not None:
+        Render.setupUpscale = setup_upscale_with_precision
     Render.setupInterpolate = setup_interpolate_at_upscaled_size
-    Render.render = render_upscale_first
+    if process_order == "upscale-first":
+        Render.render = render_upscale_first
 
 
 def main():
@@ -184,7 +228,7 @@ def main():
     render = instance_holder.get("render")
     if render is not None:
         render.renderThread.join()
-        if render._videoenhancer_render_error is not None:
+        if getattr(render, "_videoenhancer_render_error", None) is not None:
             try:
                 render.ffmpegWriteThread.join(timeout=15)
             except Exception:

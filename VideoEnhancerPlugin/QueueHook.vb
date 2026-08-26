@@ -641,7 +641,7 @@ Namespace videoenhancer
                 Dim settings = BuildFfmpegSettings(preset, input, output)
                 Dim pauseShm = "ve_plugin_pause_" & Guid.NewGuid().ToString("N")
                 Dim stopShm = "ve_plugin_stop_" & Guid.NewGuid().ToString("N")
-                Dim args = BuildCliArgs(input, output, cfg.Model, settings, pauseShm, stopShm, cfg.UpscaleEnabled, cfg.InterpModel, cfg.InterpEnabled, cfg.Backend, cfg.InterpFactor, cfg.ProcessOrder, cfg.InterpBackend, cfg.InterpDynamicScaledOpticalFlow, cfg.SceneDetectThreshold, cfg.UpscaleTileSize)
+                Dim args = BuildCliArgs(input, output, cfg.Model, settings, pauseShm, stopShm, cfg.UpscaleEnabled, cfg.InterpModel, cfg.InterpEnabled, cfg.Backend, cfg.InterpFactor, cfg.ProcessOrder, cfg.InterpBackend, cfg.InterpDynamicScaledOpticalFlow, cfg.SceneDetectThreshold, cfg.UpscaleTileSize, cfg.UpscaleHalfPrecision, cfg.InterpHalfPrecision)
                 AddQueueTask(args, Path.GetFileName(input), output, input)
                 added += 1
             Next
@@ -734,7 +734,7 @@ Namespace videoenhancer
         ' ────────────────────────── 命令构建 ──────────────────────────
 
         ''' <summary>构建 videoenhancer.exe 的参数：-i / -modelpath / -ffmpeg-settings / -pause-shm / -stop-shm / -interp-model / -no-upscale。</summary>
-        Public Shared Function BuildCliArgs(input As String, output As String, model As String, ffmpegSettings As String, Optional pauseShm As String = "", Optional stopShm As String = "", Optional upscaleOn As Boolean = True, Optional interpModel As String = "", Optional interpOn As Boolean = False, Optional backend As String = "ncnn", Optional interpFactor As Double = 2.0, Optional processOrder As String = "upscale-first", Optional interpBackend As String = "ncnn", Optional dynamicOpticalFlow As Boolean = False, Optional sceneThreshold As Double = 4.0, Optional tileSize As Integer = 0) As String
+        Public Shared Function BuildCliArgs(input As String, output As String, model As String, ffmpegSettings As String, Optional pauseShm As String = "", Optional stopShm As String = "", Optional upscaleOn As Boolean = True, Optional interpModel As String = "", Optional interpOn As Boolean = False, Optional backend As String = "ncnn", Optional interpFactor As Double = 2.0, Optional processOrder As String = "upscale-first", Optional interpBackend As String = "ncnn", Optional dynamicOpticalFlow As Boolean = False, Optional sceneThreshold As Double = 4.0, Optional tileSize As Integer = 0, Optional upscaleHalfPrecision As Boolean = True, Optional interpHalfPrecision As Boolean = True) As String
             Dim sb As New StringBuilder()
             sb.Append("-i ").Append(Arg(input))
             If upscaleOn AndAlso Not String.IsNullOrWhiteSpace(model) Then
@@ -766,6 +766,12 @@ Namespace videoenhancer
                     Dim order = If(String.Equals(processOrder, "interp-first", StringComparison.OrdinalIgnoreCase), "interp-first", "upscale-first")
                     sb.Append(" -process-order ").Append(Arg(order))
                 End If
+            End If
+            If upscaleOn Then
+                sb.Append(" -upscale-precision ").Append(If(upscaleHalfPrecision, "auto", "float32"))
+            End If
+            If interpOn Then
+                sb.Append(" -interp-precision ").Append(If(interpHalfPrecision, "auto", "float32"))
             End If
             Dim tileBackend = String.Equals(backend, "ncnn", StringComparison.OrdinalIgnoreCase) OrElse
                 String.Equals(backend, "cuda", StringComparison.OrdinalIgnoreCase) OrElse

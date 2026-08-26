@@ -414,6 +414,8 @@ internal static class Program
         public string InterpBackend = "";
         public bool HasInterpBackend;
         public string ProcessOrder = "upscale-first";
+        public string UpscalePrecision = "auto";
+        public string InterpPrecision = "auto";
         public string SceneThreshold = "4.0";
         public bool HasSceneThreshold;
         public bool DynamicOpticalFlow;
@@ -595,6 +597,10 @@ internal static class Program
         o.ProcessOrder = o.ProcessOrder.Trim().ToLowerInvariant();
         if (o.ProcessOrder is not ("upscale-first" or "interp-first"))
             return Fail("-process-order 仅支持 upscale-first 或 interp-first，当前值：" + o.ProcessOrder);
+        o.UpscalePrecision = NormalisePrecisionOption(o.UpscalePrecision, "-upscale-precision");
+        if (o.UpscalePrecision.Length == 0) return 2;
+        o.InterpPrecision = NormalisePrecisionOption(o.InterpPrecision, "-interp-precision");
+        if (o.InterpPrecision.Length == 0) return 2;
         if (!double.TryParse(o.SceneThreshold, NumberStyles.Float, CultureInfo.InvariantCulture, out var sceneThreshold) || sceneThreshold <= 0 || sceneThreshold > 10.0)
             return Fail("-scene-threshold 必须是官方 0-10 标尺中的大于 0 数字，当前值：" + o.SceneThreshold);
         if (!int.TryParse(o.TileSize, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tileSize) || tileSize < 0 || (tileSize > 0 && tileSize < 32))
@@ -823,7 +829,8 @@ internal static class Program
                     engineHeight = (engineHeight + engineCapability.InputMultiple - 1)
                         / engineCapability.InputMultiple * engineCapability.InputMultiple;
                 }
-                model = EnsureTensorRtEngine(model, engineWidth, engineHeight, stopWatcher, tileSize, engineScale);
+                model = EnsureTensorRtEngine(model, engineWidth, engineHeight, stopWatcher, tileSize, engineScale,
+                    o.UpscalePrecision);
                 if (model.Length == 0) return stopWatcher?.IsStopRequested() == true ? 130 : 1;
             }
         }
@@ -930,7 +937,7 @@ internal static class Program
         }
         return RunVideoPipeline(input, outputFile, model, customEncoder, overwrite, scale,
             o.PauseShm, stopWatcher, interpModel, interpFactor, o.Backend, o.InterpBackend, o.ProcessOrder, hdrMode,
-            o.DynamicOpticalFlow, sceneThreshold, tileSize);
+            o.DynamicOpticalFlow, sceneThreshold, tileSize, o.UpscalePrecision, o.InterpPrecision);
     }
 
     private static Options ParseArgs(string[] args)
@@ -1134,6 +1141,14 @@ internal static class Program
                 case "-process-order":
                 case "--process-order":
                     o.ProcessOrder = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "-upscale-precision":
+                case "--upscale-precision":
+                    o.UpscalePrecision = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "-interp-precision":
+                case "--interp-precision":
+                    o.InterpPrecision = TakeValue(args, ref i, name, inlineValue);
                     break;
                 case "-scene-threshold":
                 case "--scene-threshold":
@@ -2150,6 +2165,7 @@ internal static class Program
             EnsureGimmModelCompatibility();
             EnsurePytorchUpscaleCompatibility();
             EnsureOnnxModelCompatibility();
+            EnsureImagePrecisionCompatibility();
         }
         catch (Exception ex)
         {
@@ -2323,6 +2339,23 @@ internal static class Program
             "                        enabled=self.dtype != torch.float32, device_type=self.device.type\n" +
             "                    ):",
             "FP32 兼容模式必须关闭 autocast");
+    }
+
+    /// <summary>让独立图片后端沿用超分半精度开关，而不是固定使用 auto。</summary>
+    private static void EnsureImagePrecisionCompatibility()
+    {
+        if (!File.Exists(ImageBackendScript)) return;
+        var bytes = File.ReadAllBytes(ImageBackendScript);
+        var hasUtf8Bom = bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble);
+        var text = Encoding.UTF8.GetString(bytes, hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0,
+            bytes.Length - (hasUtf8Bom ? Encoding.UTF8.Preamble.Length : 0));
+        const string marker = "VIDEOENHANCER_UPSCALE_PRECISION";
+        if (text.Contains(marker, StringComparison.Ordinal)) return;
+        const string oldValue = "precision=\"auto\",";
+        if (!text.Contains(oldValue, StringComparison.Ordinal)) return;
+        var replacement = "precision=os.environ.get(\"VIDEOENHANCER_UPSCALE_PRECISION\", \"auto\"),";
+        File.WriteAllText(ImageBackendScript, text.Replace(oldValue, replacement, StringComparison.Ordinal),
+            new UTF8Encoding(hasUtf8Bom));
     }
 
     /// <summary>修补当前 RVE 2.4 ONNX 加载器的倍率解析与动态输入尺寸兼容性。</summary>
@@ -2658,7 +2691,8 @@ internal static class Program
             var imageScaleValue = int.TryParse(imageScale, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedImageScale)
                 ? parsedImageScale
                 : 0;
-            model = EnsureTensorRtEngine(model, width, height, stopWatcher: null, outputScale: imageScaleValue);
+            model = EnsureTensorRtEngine(model, width, height, stopWatcher: null, outputScale: imageScaleValue,
+                requestedPrecision: o.UpscalePrecision);
             if (model.Length == 0) return 1;
         }
 
@@ -2675,6 +2709,8 @@ internal static class Program
         };
         start.Environment["PYTHONUTF8"] = "1";
         start.Environment["PYTHONIOENCODING"] = "utf-8";
+        start.Environment["VIDEOENHANCER_UPSCALE_PRECISION"] =
+            ResolveUpscalePrecision(model, o.Backend, o.UpscalePrecision);
         start.ArgumentList.Add(ImageBackendScript);
         foreach (var input in o.ImageInputs)
         {
@@ -3066,14 +3102,8 @@ internal static class Program
     private static List<string> BuildBackendArgs(
         string input, string outputFile, string modelFolder, string customEncoder, bool overwrite, string? scale, string pauseShm,
         string? interpModel, string? interpFactor, string backend, string? backendScript = null, bool hdrMode = false,
-        bool dynamicOpticalFlow = false, double sceneThreshold = 4.0, int tileSize = 0)
+        bool dynamicOpticalFlow = false, double sceneThreshold = 4.0, int tileSize = 0, string precision = "auto")
     {
-        var modelFileName = Path.GetFileName(modelFolder);
-        var precision = backend == "cuda"
-                        && (Regex.IsMatch(modelFileName, @"SwinIR|GRL", RegexOptions.IgnoreCase)
-                            || Regex.IsMatch(Path.GetFileName(interpModel ?? ""), @"GIMM", RegexOptions.IgnoreCase))
-            ? "float32"
-            : "auto";
         var args = new List<string>
         {
             string.IsNullOrWhiteSpace(backendScript) ? BackendScript : backendScript,
@@ -3165,6 +3195,42 @@ internal static class Program
     /// <summary>未显式指定时，为补帧选择与现有模型格式匹配的后端。</summary>
     private static string DefaultInterpBackend(string upscaleBackend) =>
         upscaleBackend is "cuda" or "tensorrt" ? upscaleBackend : "ncnn";
+
+    /// <summary>规范化用户请求的推理精度；auto 表示优先半精度并保留后端回退。</summary>
+    private static string NormalisePrecisionOption(string value, string optionName)
+    {
+        var precision = (value ?? "auto").Trim().ToLowerInvariant();
+        if (precision is "auto" or "float16" or "float32") return precision;
+        Fail(optionName + " 仅支持 auto、float16 或 float32，当前值：" + value);
+        return "";
+    }
+
+    private static string PrecisionDisplayName(string precision) => precision switch
+    {
+        "float32" => "FP32（强制）",
+        "float16" => "FP16（强制）",
+        _ => "FP16 优先（不兼容时回退 FP32）",
+    };
+
+    /// <summary>超分精度独立决策：用户强制 FP32 优先，已知不兼容架构仍保持 FP32。</summary>
+    private static string ResolveUpscalePrecision(string modelPath, string backend, string requested)
+    {
+        if (requested == "float32") return "float32";
+        if (backend == "cuda" && Regex.IsMatch(ModelBaseName(modelPath), @"SwinIR|GRL", RegexOptions.IgnoreCase))
+            return "float32";
+        if (backend == "tensorrt" && Regex.IsMatch(ModelBaseName(modelPath), @"GRL", RegexOptions.IgnoreCase))
+            return "float32";
+        return requested;
+    }
+
+    /// <summary>补帧精度独立决策：GIMM 的 CUDA 路径必须使用 FP32，其他模型优先半精度。</summary>
+    private static string ResolveInterpPrecision(string? modelPath, string backend, string requested)
+    {
+        if (requested == "float32") return "float32";
+        if (backend == "cuda" && Regex.IsMatch(ModelBaseName(modelPath ?? ""), @"GIMM", RegexOptions.IgnoreCase))
+            return "float32";
+        return requested;
+    }
 
     /// <summary>解析补帧模型路径：完整路径 / Frame-Interpolation 下相对路径 / 模型名；返回空串表示失败。</summary>
     /// <remarks>新目录按后端区分 NCNN 文件夹和 PyTorch 权重；TensorRT 由 RVE 从 RIFE 权重自动构建 Engine。</remarks>
@@ -3920,18 +3986,25 @@ internal static class Program
         string input, string outputFile, string model, string customEncoder, bool overwrite, string? scale,
         string pauseShm, StopWatcher? stopWatcher, string? interpModel, string? interpFactor,
         string upscaleBackend, string interpBackend, string processOrder, bool hdrMode,
-        bool dynamicOpticalFlow, double sceneThreshold, int tileSize)
+        bool dynamicOpticalFlow, double sceneThreshold, int tileSize,
+        string requestedUpscalePrecision, string requestedInterpPrecision)
     {
         var useUpscale = !string.IsNullOrEmpty(model);
         var useInterp = interpModel is not null;
+        var upscalePrecision = ResolveUpscalePrecision(model, upscaleBackend, requestedUpscalePrecision);
+        var interpPrecision = ResolveInterpPrecision(interpModel, interpBackend, requestedInterpPrecision);
         if (!useUpscale || !useInterp)
         {
             var activeBackend = useUpscale ? upscaleBackend : interpBackend;
+            var activePrecision = useUpscale ? upscalePrecision : interpPrecision;
             var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
                 pauseShm, interpModel, interpFactor, activeBackend, hdrMode: hdrMode,
-                dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
+                dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize,
+                precision: activePrecision);
             return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
-                interpModel, interpFactor, activeBackend, pauseShm, "单阶段处理", isFinalStage: true);
+                interpModel, interpFactor, activeBackend, pauseShm, "单阶段处理", isFinalStage: true,
+                upscalePrecision: useUpscale ? upscalePrecision : null,
+                interpPrecision: useInterp ? interpPrecision : null);
         }
 
         var upscaleFirst = processOrder == "upscale-first";
@@ -3939,27 +4012,20 @@ internal static class Program
             ? "[处理顺序] 画质优先：先超分，再补帧。"
             : "[处理顺序] 速度/算力优先：先补帧，再超分。");
 
-        // 同后端的先补后超正好是 rve-backend 原生顺序，无需中间文件。
-        if (!upscaleFirst && upscaleBackend == interpBackend)
-        {
-            var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
-                pauseShm, interpModel, interpFactor, upscaleBackend, hdrMode: hdrMode,
-                dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
-            return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
-                interpModel, interpFactor, upscaleBackend, pauseShm, "先补帧，再超分", isFinalStage: true);
-        }
-
-        // 同后端的先超后补通过内置包装器在同一进程内交换帧处理顺序，
-        // 避免为了改变顺序把整段视频编码成临时文件。
-        if (upscaleFirst && upscaleBackend == interpBackend)
+        // 同后端组合统一使用内置包装器：保持单进程帧级传递，同时允许两个模型使用不同精度。
+        if (upscaleBackend == interpBackend)
         {
             var orderedBackend = EnsureEmbeddedTool(
                 EmbeddedOrderedBackendResource, "rve-ordered-backend.py");
             var args = BuildBackendArgs(input, outputFile, model, customEncoder, overwrite, scale,
                 pauseShm, interpModel, interpFactor, upscaleBackend, orderedBackend, hdrMode,
-                dynamicOpticalFlow, sceneThreshold, tileSize);
+                dynamicOpticalFlow, sceneThreshold, tileSize,
+                upscaleFirst ? upscalePrecision : interpPrecision);
             return LaunchBackend(args, input, model, outputFile, customEncoder, stopWatcher,
-                interpModel, interpFactor, upscaleBackend, pauseShm, "先超分，再补帧", isFinalStage: true);
+                interpModel, interpFactor, upscaleBackend, pauseShm,
+                upscaleFirst ? "先超分，再补帧" : "先补帧，再超分", isFinalStage: true,
+                upscalePrecision: upscalePrecision, interpPrecision: interpPrecision,
+                processOrder: processOrder);
         }
 
         var outputDir = Path.GetDirectoryName(outputFile);
@@ -3989,7 +4055,8 @@ internal static class Program
                 firstTitle = "阶段 1/2：超分";
                 firstArgs = BuildBackendArgs(input, intermediate, model, losslessEncoder, true,
                     scale, pauseShm, null, null, upscaleBackend, hdrMode: hdrMode,
-                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
+                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize,
+                    precision: upscalePrecision);
             }
             else
             {
@@ -3999,11 +4066,14 @@ internal static class Program
                 firstTitle = "阶段 1/2：补帧";
                 firstArgs = BuildBackendArgs(input, intermediate, "", losslessEncoder, true,
                     null, pauseShm, interpModel, interpFactor, interpBackend, hdrMode: hdrMode,
-                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold);
+                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold,
+                    precision: interpPrecision);
             }
             var firstExit = LaunchBackend(firstArgs, input, firstModel, intermediate, losslessEncoder,
                 stopWatcher, firstInterp, firstInterp is null ? null : interpFactor, firstBackend,
-                pauseShm, firstTitle, isFinalStage: false);
+                pauseShm, firstTitle, isFinalStage: false,
+                upscalePrecision: firstInterp is null ? upscalePrecision : null,
+                interpPrecision: firstInterp is not null ? interpPrecision : null);
             if (firstExit != 0) return firstExit;
             if (!File.Exists(intermediate) || new FileInfo(intermediate).Length == 0)
                 return Fail("第一阶段未生成有效的无损中间视频：" + intermediate, 1);
@@ -4021,7 +4091,8 @@ internal static class Program
                 secondTitle = "阶段 2/2：补帧";
                 secondArgs = BuildBackendArgs(intermediate, outputFile, "", customEncoder, overwrite,
                     null, pauseShm, interpModel, interpFactor, interpBackend, hdrMode: hdrMode,
-                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold);
+                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold,
+                    precision: interpPrecision);
             }
             else
             {
@@ -4031,11 +4102,14 @@ internal static class Program
                 secondTitle = "阶段 2/2：超分";
                 secondArgs = BuildBackendArgs(intermediate, outputFile, model, customEncoder, overwrite,
                     scale, pauseShm, null, null, upscaleBackend, hdrMode: hdrMode,
-                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize);
+                    dynamicOpticalFlow: dynamicOpticalFlow, sceneThreshold: sceneThreshold, tileSize: tileSize,
+                    precision: upscalePrecision);
             }
             return LaunchBackend(secondArgs, intermediate, secondModel, outputFile, customEncoder,
                 stopWatcher, secondInterp, secondInterp is null ? null : interpFactor, secondBackend,
-                pauseShm, secondTitle, isFinalStage: true);
+                pauseShm, secondTitle, isFinalStage: true,
+                upscalePrecision: secondInterp is null ? upscalePrecision : null,
+                interpPrecision: secondInterp is not null ? interpPrecision : null);
         }
         finally
         {
@@ -4204,7 +4278,8 @@ internal static class Program
 
     private static int LaunchBackend(
         List<string> backendArgs, string input, string model, string outputFile, string customEncoder, StopWatcher? stopWatcher,
-        string? interpModel, string? interpFactor, string backend, string pauseShm, string stageTitle, bool isFinalStage)
+        string? interpModel, string? interpFactor, string backend, string pauseShm, string stageTitle, bool isFinalStage,
+        string? upscalePrecision = null, string? interpPrecision = null, string? processOrder = null)
     {
         Console.WriteLine();
         Console.WriteLine("[阶段] " + stageTitle);
@@ -4232,6 +4307,10 @@ internal static class Program
                 Console.WriteLine("[TensorRT] RIFE 将按本阶段实际输入尺寸自动构建或复用 Engine 缓存。");
             }
         }
+        if (upscalePrecision is not null)
+            Console.WriteLine("[信息] 超分精度 : " + PrecisionDisplayName(upscalePrecision));
+        if (interpPrecision is not null)
+            Console.WriteLine("[信息] 补帧精度 : " + PrecisionDisplayName(interpPrecision));
         Console.WriteLine("[信息] 输出文件 : " + outputFile);
         Console.WriteLine("[信息] FFmpeg 参数 : " + customEncoder);
         Console.WriteLine("[信息] 正在启动 rve-backend，输出实时转发，Ctrl+C 可中止…");
@@ -4252,6 +4331,12 @@ internal static class Program
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
         // 先超后补的同后端包装器需要导入核心后端目录中的 src 包。
         psi.Environment["VIDEOENHANCER_BACKEND_DIR"] = Path.GetDirectoryName(BackendScript)!;
+        if (upscalePrecision is not null)
+            psi.Environment["VIDEOENHANCER_UPSCALE_PRECISION"] = upscalePrecision;
+        if (interpPrecision is not null)
+            psi.Environment["VIDEOENHANCER_INTERP_PRECISION"] = interpPrecision;
+        if (processOrder is not null)
+            psi.Environment["VIDEOENHANCER_PROCESS_ORDER"] = processOrder;
         if (ModelCapabilityCatalog.TryGet(model, ModelsDir, out var capability))
         {
             psi.Environment["VIDEOENHANCER_UPSCALE_INPUT_MULTIPLE"] =
@@ -4470,7 +4555,8 @@ internal static class Program
     /// 已有 Engine 会先验证；不兼容时若能找到同名 PTH，则自动重建本机缓存。
     /// </summary>
     private static string EnsureTensorRtEngine(
-        string modelPath, int inputWidth, int inputHeight, StopWatcher? stopWatcher, int tileSize = 0, int outputScale = 0)
+        string modelPath, int inputWidth, int inputHeight, StopWatcher? stopWatcher, int tileSize = 0, int outputScale = 0,
+        string requestedPrecision = "auto")
     {
         var sourcePath = modelPath;
         if (IsTensorRTEngineFile(modelPath))
@@ -4509,7 +4595,9 @@ internal static class Program
         }
 
         Directory.CreateDirectory(TensorRTCacheDir);
-        var cachePath = BuildTensorRtCachePath(sourcePath, runtime!, inputWidth, inputHeight, tileSize, outputScale);
+        var enginePrecision = TensorRtPrecisionForModel(sourcePath, requestedPrecision);
+        var cachePath = BuildTensorRtCachePath(sourcePath, runtime!, inputWidth, inputHeight, tileSize, outputScale,
+            enginePrecision);
         var mutexName = "Local\\VideoEnhancer_TRT_" + Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(cachePath))).Substring(0, 24);
         using var buildMutex = new Mutex(false, mutexName);
@@ -4548,7 +4636,7 @@ internal static class Program
                 "，分块=" + tileSize);
             EmitTensorRtProgress("超分 Engine", 0, "准备构建");
             var builtPath = RunTensorRtConverter(
-                sourcePath, inputWidth, inputHeight, outputScale, tileSize, stopWatcher);
+                sourcePath, inputWidth, inputHeight, outputScale, tileSize, stopWatcher, enginePrecision);
             if (builtPath.Length == 0) return "";
 
             var partialPath = Path.Combine(TensorRTCacheDir,
@@ -4615,15 +4703,17 @@ internal static class Program
     private const int TensorRtTilePad = 10;
 
     /// <summary>GRL 的相对位置编码在 FP16 转换时混用 Float/Half，必须构建 FP32 Engine。</summary>
-    private static string TensorRtPrecisionForModel(string sourcePath) =>
-        Regex.IsMatch(ModelBaseName(sourcePath), @"GRL", RegexOptions.IgnoreCase) ? "fp32" : "fp16";
+    private static string TensorRtPrecisionForModel(string sourcePath, string requestedPrecision = "auto") =>
+        requestedPrecision == "float32" || Regex.IsMatch(ModelBaseName(sourcePath), @"GRL", RegexOptions.IgnoreCase)
+            ? "fp32"
+            : "fp16";
 
     private static string BuildTensorRtCachePath(
-        string sourcePath, TensorRtRuntime runtime, int width, int height, int tileSize, int outputScale)
+        string sourcePath, TensorRtRuntime runtime, int width, int height, int tileSize, int outputScale,
+        string precision)
     {
         using var stream = File.OpenRead(sourcePath);
         var sourceHash = Convert.ToHexString(SHA256.HashData(stream)).Substring(0, 12).ToLowerInvariant();
-        var precision = TensorRtPrecisionForModel(sourcePath);
         var configuration = string.Join("|", new[]
         {
             runtime.GpuName, runtime.TensorRtVersion, runtime.TorchTensorRtVersion,
@@ -4668,7 +4758,8 @@ internal static class Program
 
     /// <summary>调用开发包自带转换器，并实时转发构建日志与停止请求。</summary>
     private static string RunTensorRtConverter(
-        string sourcePath, int inputWidth, int inputHeight, int outputScale, int tileSize, StopWatcher? stopWatcher)
+        string sourcePath, int inputWidth, int inputHeight, int outputScale, int tileSize, StopWatcher? stopWatcher,
+        string precision)
     {
         var buildDir = Path.Combine(TensorRTCacheDir, ".build-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(buildDir);
@@ -4703,7 +4794,7 @@ internal static class Program
         start.ArgumentList.Add("--tile-pad");
         start.ArgumentList.Add(TensorRtTilePad.ToString(CultureInfo.InvariantCulture));
         start.ArgumentList.Add("--precision");
-        start.ArgumentList.Add(TensorRtPrecisionForModel(sourcePath));
+        start.ArgumentList.Add(precision);
         start.ArgumentList.Add("--optimization-level");
         start.ArgumentList.Add(TensorRtOptimizationLevel.ToString(CultureInfo.InvariantCulture));
 
@@ -4891,6 +4982,21 @@ internal static class Program
 
         if (verbose)
         {
+            var osOk = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 17763)
+                       && RuntimeInformation.OSArchitecture == Architecture.X64;
+            Report(osOk, "Windows 运行环境",
+                RuntimeInformation.OSDescription + " / " + RuntimeInformation.OSArchitecture,
+                osOk ? "支持 Windows 10 1809 或更高版本（x64）" : "需要 Windows 10 1809 或更高版本（x64）");
+            ok &= osOk;
+
+            var vcRuntimeOk = NativeLibrary.TryLoad("msvcp140.dll", out var vcRuntimeHandle);
+            if (vcRuntimeOk) NativeLibrary.Free(vcRuntimeHandle);
+            Report(vcRuntimeOk, "VC++ 运行库", "MSVCP140.dll",
+                vcRuntimeOk
+                    ? "已可加载"
+                    : "请安装 Microsoft Visual C++ 2015-2022 x64 运行库：https://aka.ms/vc14/vc_redist.x64.exe");
+            ok &= vcRuntimeOk;
+
             var ffmpegVersion = RunProcessCapture(FfmpegExe, new[] { "-version" }, 30);
             var ffmpegFirst = ffmpegVersion.Output.Split('\n').FirstOrDefault(l => l.Contains("ffmpeg version"));
             Report(ffmpegVersion.Ok, "ffmpeg 可执行", FfmpegExe, ffmpegFirst?.Trim() ?? ffmpegVersion.Error.Trim());
@@ -4907,12 +5013,39 @@ internal static class Program
                 backendVersion.Ok ? "rve-backend v" + backendVersion.Output.Trim() : backendVersion.Error.Trim());
             ok &= backendVersion.Ok;
 
+            var backendProbe = RunBackendDependencyProbe(backend);
+            if (backendProbe is not null)
+            {
+                Report(backendProbe.Value.Ok, "推理后端依赖", backend ?? "自动",
+                    backendProbe.Value.Ok ? backendProbe.Value.Output.Trim().Replace('\n', ' ') : backendProbe.Value.Error.Trim());
+                ok &= backendProbe.Value.Ok;
+            }
+
             // 启动环境检查只验证基础组件，避免逐个加载大尺寸 TensorRT Engine。
             // Engine 兼容性仍由 --validate-engines、后端列表和实际推理路径按需检查。
         }
 
         Console.WriteLine("[环境检查] " + (ok ? "全部通过。" : "存在缺失项，请检查上方 [缺失] 标记。"));
         return ok;
+    }
+
+    /// <summary>只导入所选后端的关键模块并检查设备，不加载模型或 TensorRT Engine。</summary>
+    private static (bool Ok, string Output, string Error)? RunBackendDependencyProbe(string? backend)
+    {
+        if (string.IsNullOrWhiteSpace(backend)) return null;
+        var script = backend.ToLowerInvariant() switch
+        {
+            "ncnn" =>
+                "import ncnn, rife_ncnn_vulkan_python; print('ncnn', getattr(ncnn, '__version__', 'ok'), 'rife-ncnn ok')",
+            "cuda" or "flashvsr" or "basicvsrpp" =>
+                "import torch, torchvision; assert torch.cuda.is_available(), 'PyTorch 未检测到可用的 NVIDIA CUDA 设备，请更新显卡驱动'; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'gpu', torch.cuda.get_device_name(0))",
+            "tensorrt" =>
+                "import torch, tensorrt, torch_tensorrt; assert torch.cuda.is_available(), 'TensorRT 未检测到可用的 NVIDIA CUDA 设备，请更新显卡驱动'; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'tensorrt', tensorrt.__version__, 'gpu', torch.cuda.get_device_name(0))",
+            "onnx" =>
+                "import onnxruntime as ort; providers=ort.get_available_providers(); assert providers, 'ONNX Runtime 没有可用执行提供程序'; print('onnxruntime', ort.__version__, 'providers', ','.join(providers))",
+            _ => null,
+        };
+        return script is null ? null : RunProcessCapture(PythonExe, new[] { "-c", script }, 90);
     }
 
     /// <summary>按实际推理后端检查模型，避免 TensorRT 机器被 NCNN 文件格式误判。</summary>
@@ -5470,6 +5603,9 @@ internal static class Program
         writer.WriteLine("  -interp-factor <N>  补帧倍率（帧率倍数，默认 2，需大于 1）");
         writer.WriteLine("  -process-order <upscale-first|interp-first>  组合处理顺序；默认 upscale-first");
         writer.WriteLine("        画质优先：先超分，再补帧。速度/算力优先：先补帧，再超分。");
+        writer.WriteLine("  -upscale-precision <auto|float16|float32>  超分精度；默认 auto（FP16 优先，必要时回退）");
+        writer.WriteLine("  -interp-precision <auto|float16|float32>  补帧精度；默认 auto（FP16 优先，必要时回退）");
+        writer.WriteLine("        同后端组合也会分别应用两种精度，在内存中转换张量，不产生额外 FFV1 中间视频。");
         writer.WriteLine("  -interp-backend <ncnn|cuda|tensorrt>  可选的独立补帧后端；RIFE 实际支持 NCNN、CUDA/PyTorch、TensorRT");
         writer.WriteLine("  -scene-threshold <N>  转场检测阈值（RVE 官方外部 0-10 标尺；数值越低越敏感，默认 4）");
         writer.WriteLine("  -dynamic-optical-flow  开启 RIFE 动态光流尺度（仅 CUDA/PyTorch 补帧有效）");

@@ -136,8 +136,10 @@ Namespace videoenhancer
         Private ReadOnly _lblExe As New HtmlColorLabel()
         Private ReadOnly _lblStatus As New HtmlColorLabel()
         Private ReadOnly _switchUpscale As New LakeUI.BooleanSwitch()
+        Private ReadOnly _switchUpscaleHalf As New LakeUI.BooleanSwitch()
         Private ReadOnly _lblSwitch As New HtmlColorLabel()
         Private ReadOnly _switchInterp As New LakeUI.BooleanSwitch()
+        Private ReadOnly _switchInterpHalf As New LakeUI.BooleanSwitch()
         Private ReadOnly _lblSwitchInterp As New HtmlColorLabel()
         Private ReadOnly _cmbBackend As New ModernComboBox()
         Private ReadOnly _lblBackend As New HtmlColorLabel()
@@ -159,6 +161,8 @@ Namespace videoenhancer
         Private _syncingProcessOrder As Boolean = False
         Private _syncingSwitch As Boolean = False
         Private _syncingInterpSwitch As Boolean = False
+        Private _syncingUpscaleHalfSwitch As Boolean = False
+        Private _syncingInterpHalfSwitch As Boolean = False
         Private _modelsLoaded As Boolean = False
         Private _loadingModels As Boolean = False
         Private _interpModelsLoaded As Boolean = False
@@ -594,6 +598,26 @@ Namespace videoenhancer
             UpdateProcessOrderState()
             UpdateAdvancedControlState()
             UpdateHookState()
+        End Sub
+
+        ''' <summary>超分精度开关：开启时优先半精度，关闭时强制 FP32。</summary>
+        Private Sub OnUpscaleHalfSwitchChanged(sender As Object, e As EventArgs)
+            If _syncingUpscaleHalfSwitch Then Return
+            _config.UpscaleHalfPrecision = _switchUpscaleHalf.Checked
+            _config.Save()
+            ShowStatus(If(_switchUpscaleHalf.Checked,
+                "超分将优先使用 FP16，不兼容时自动回退 FP32",
+                "超分已强制使用 FP32"), False)
+        End Sub
+
+        ''' <summary>补帧精度开关：开启时优先半精度，关闭时强制 FP32。</summary>
+        Private Sub OnInterpHalfSwitchChanged(sender As Object, e As EventArgs)
+            If _syncingInterpHalfSwitch Then Return
+            _config.InterpHalfPrecision = _switchInterpHalf.Checked
+            _config.Save()
+            ShowStatus(If(_switchInterpHalf.Checked,
+                "补帧将优先使用 FP16，不兼容时自动回退 FP32",
+                "补帧已强制使用 FP32"), False)
         End Sub
 
         ''' <summary>按主开关 + 超分/补帧开关状态统一挂载/卸载"加入编码队列"hook。</summary>
@@ -1870,13 +1894,29 @@ Namespace videoenhancer
 
         Private Shared Function BuildOfficialModeHeader(title As String, description As String,
                                                         switchControl As LakeUI.BooleanSwitch,
-                                                        stateLabel As HtmlColorLabel) As Control
+                                                        stateLabel As HtmlColorLabel,
+                                                        Optional halfSwitch As LakeUI.BooleanSwitch = Nothing) As Control
             Dim titleLabel = CreateTextLabel(title, 12.0F, FontStyle.Regular, UiText)
             titleLabel.Margin = Padding.Empty
             titleLabel.TextAlign = ContentAlignment.MiddleLeft
             Dim titleWidth = Math.Max(84, TextRenderer.MeasureText(title, titleLabel.Font).Width + 4)
-            Dim row As New HorizontalLayoutPanel(
-                CSng(titleWidth), 10.0F, 42.0F, -1.0F, 112.0F)
+            Dim row As HorizontalLayoutPanel
+            Dim halfLabel As Label = Nothing
+            If halfSwitch Is Nothing Then
+                row = New HorizontalLayoutPanel(
+                    CSng(titleWidth), 10.0F, 42.0F, -1.0F, 112.0F)
+            Else
+                halfLabel = CreateTextLabel("半精度推理", 11.0F, FontStyle.Regular, UiTextSecondary)
+                halfLabel.AutoSize = False
+                halfLabel.AutoEllipsis = False
+                halfLabel.Dock = DockStyle.Fill
+                halfLabel.TextAlign = ContentAlignment.MiddleCenter
+                halfLabel.Margin = Padding.Empty
+                Dim halfLabelWidth = Math.Max(108,
+                    TextRenderer.MeasureText(halfLabel.Text, halfLabel.Font).Width + 14)
+                row = New HorizontalLayoutPanel(
+                    CSng(titleWidth), 10.0F, 42.0F, 18.0F, CSng(halfLabelWidth), 8.0F, 42.0F, -1.0F, 112.0F)
+            End If
             switchControl.Anchor = AnchorStyles.None
             switchControl.Margin = Padding.Empty
             Dim descriptionLabel = CreateOfficialCaption(description)
@@ -1888,8 +1928,17 @@ Namespace videoenhancer
             stateLabel.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleRight
             row.AddColumn(titleLabel, 0)
             row.AddColumn(switchControl, 2)
-            row.AddColumn(descriptionLabel, 3)
-            row.AddColumn(stateLabel, 4)
+            If halfSwitch Is Nothing Then
+                row.AddColumn(descriptionLabel, 3)
+                row.AddColumn(stateLabel, 4)
+            Else
+                halfSwitch.Anchor = AnchorStyles.None
+                halfSwitch.Margin = Padding.Empty
+                row.AddColumn(halfLabel, 4)
+                row.AddColumn(halfSwitch, 6)
+                row.AddColumn(descriptionLabel, 7)
+                row.AddColumn(stateLabel, 8)
+            End If
             Return row
         End Function
 
@@ -1982,11 +2031,14 @@ Namespace videoenhancer
                 "视频处理", "超分与补帧可同时开启；默认按画质优先先超分、再补帧"), 113, 36)
 
             ConfigureDpiSwitch(_switchUpscale)
+            ConfigureDpiSwitch(_switchUpscaleHalf)
             _switchUpscale.Checked = _config.UpscaleEnabled
+            _switchUpscaleHalf.Checked = _config.UpscaleHalfPrecision
             _switchUpscale.Enabled = _config.Enabled
             AddHandler _switchUpscale.CheckedChanged, AddressOf OnUpscaleSwitchChanged
+            AddHandler _switchUpscaleHalf.CheckedChanged, AddressOf OnUpscaleHalfSwitchChanged
             Dim upscaleHeader = BuildOfficialModeHeader(
-                "视频超分", "", _switchUpscale, _lblSwitch)
+                "视频超分", "", _switchUpscale, _lblSwitch, _switchUpscaleHalf)
             _cmbBackend.WaterText = "选择推理方式…"
             ConfigureCombo(_cmbBackend)
             _cmbBackend.Items.Add("NCNN (Vulkan)")
@@ -2018,14 +2070,17 @@ Namespace videoenhancer
             tileHint.TextAlign = ContentAlignment.BottomLeft
             tileHint.Margin = Padding.Empty
             ConfigureDpiSwitch(_switchInterp)
+            ConfigureDpiSwitch(_switchInterpHalf)
+            _switchInterpHalf.Checked = _config.InterpHalfPrecision
             If String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase) Then
                 _config.InterpEnabled = False
                 _config.InterpModel = ""
             End If
             SyncInterpSwitchFromConfig()
             AddHandler _switchInterp.CheckedChanged, AddressOf OnInterpSwitchChanged
+            AddHandler _switchInterpHalf.CheckedChanged, AddressOf OnInterpHalfSwitchChanged
             Dim interpHeader = BuildOfficialModeHeader(
-                "运动补帧", "", _switchInterp, _lblSwitchInterp)
+                "运动补帧", "", _switchInterp, _lblSwitchInterp, _switchInterpHalf)
             _cmbInterpBackend.WaterText = "选择后端…"
             ConfigureCombo(_cmbInterpBackend)
             _cmbInterpBackend.Items.Add("NCNN (Vulkan)")
@@ -3094,6 +3149,7 @@ Namespace videoenhancer
             args.Add(If(_config.ImagePng, "--image-png", "--image-source-format"))
             args.Add("-backend") : args.Add(_config.Backend)
             args.Add("-modelpath") : args.Add(_config.Model)
+            args.Add("-upscale-precision") : args.Add(If(_config.UpscaleHalfPrecision, "auto", "float32"))
 
             Dim psi As New ProcessStartInfo With {
                 .FileName = _config.ExePath, .WorkingDirectory = Path.GetDirectoryName(_config.ExePath),
@@ -6234,12 +6290,18 @@ Namespace videoenhancer
             _switchUpscale.Checked = _config.UpscaleEnabled
             _switchUpscale.Enabled = _config.Enabled
             _syncingSwitch = False
+            _syncingUpscaleHalfSwitch = True
+            _switchUpscaleHalf.Checked = _config.UpscaleHalfPrecision
+            _syncingUpscaleHalfSwitch = False
             ' 补帧开关：仅主开关开启时可操作
             If String.Equals(_config.Backend, "basicvsrpp", StringComparison.OrdinalIgnoreCase) Then
                 _config.InterpEnabled = False
                 _config.InterpModel = ""
             End If
             SyncInterpSwitchFromConfig()
+            _syncingInterpHalfSwitch = True
+            _switchInterpHalf.Checked = _config.InterpHalfPrecision
+            _syncingInterpHalfSwitch = False
             ' 推理方式 / 补帧倍率：仅主开关开启时可操作
             _syncingBackend = True
             SyncBackendCombo()
@@ -6345,6 +6407,12 @@ Namespace videoenhancer
                 String.Equals(_config.Backend, "tensorrt", StringComparison.OrdinalIgnoreCase) OrElse
                 String.Equals(_config.Backend, "onnx", StringComparison.OrdinalIgnoreCase)
             _cmbTileSize.Enabled = _config.Enabled AndAlso _config.UpscaleEnabled AndAlso tileBackend
+            Dim upscalePrecisionBackend = String.Equals(_config.Backend, "cuda", StringComparison.OrdinalIgnoreCase) OrElse
+                String.Equals(_config.Backend, "tensorrt", StringComparison.OrdinalIgnoreCase)
+            _switchUpscaleHalf.Enabled = _config.Enabled AndAlso _config.UpscaleEnabled AndAlso upscalePrecisionBackend
+            Dim interpPrecisionBackend = String.Equals(_config.InterpBackend, "cuda", StringComparison.OrdinalIgnoreCase) OrElse
+                String.Equals(_config.InterpBackend, "tensorrt", StringComparison.OrdinalIgnoreCase)
+            _switchInterpHalf.Enabled = _config.Enabled AndAlso _config.InterpEnabled AndAlso interpPrecisionBackend
         End Sub
 
         Private Sub ShowStatus(text As String, error_ As Boolean)

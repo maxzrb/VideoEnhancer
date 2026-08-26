@@ -1,12 +1,12 @@
 # Project Status
 
-Last updated: 2026-08-26 12:00
+Last updated: 2026-08-26 12:34
 Updated by: Codex
 
 ## Current Snapshot
 
 - Current objective: 完成 VideoEnhancer 1.1.1 及 Backend 2026.08.26.1 发布，并覆盖模型下拉框可编辑热修复。
-- Current state: 1.1.1、Backend 2026.08.26.1 及模型下拉框只读热修复均已发布；GitHub/ModelScope 资产和 Backend channel 回读一致。
+- Current state: 1.1.1、Backend 2026.08.26.1 及模型下拉框只读修正版均已发布；成品反编译确认最终只有 `Editable=False`，GitHub/ModelScope 资产和 Backend channel 回读一致。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
 - Next recommended step: 退出并重新启动本机 3FUI，确认所有选项型 LakeUI 下拉框只能选择、不能输入文字。
@@ -1295,3 +1295,9 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Assets: GitHub Release、ModelScope Releases 和 ModelScope Models 备用 EXE 已同步。发布后发现 LakeUI `ModernComboBox.Editable` 未显式关闭，导致模型下拉框可以输入；统一配置入口已设为 `Editable=False`，从而让模型、后端、倍率、分块等选项型下拉框与 3FUI 行为一致。
 - Verification: 热修复插件构建成功；新单文件 EXE 报告 1.1.1，安装器 fresh/legacy/transient-lock/injected-rollback/permanent-lock 场景通过。覆盖资产为 16,873,792 字节、SHA-256 `fd9adfcc8428a6a3309d52ed866b8ed3bb5ccba6754adb58e164b5b0d6bd51af`；GitHub 摘要和 ModelScope 强制回读一致。
 - Local: 真实 3FUI 进程 PID 12692 正在占用插件 DLL，已启动隐藏等待助手 PID 6980；宿主退出后自动替换本机 DLL 与 EXE，下次启动生效。后续只需做一次真实界面只读交互确认。
+
+### 2026-08-26 12:34 - Codex
+
+- Correction/root cause: 用户截图证明 12:00 的首轮热修复没有生效。直接反编译已安装插件后发现 `ConfigureCombo` 前段新增的 `Editable=False` 在同一函数后段被既有 `Editable=True` 再次覆盖；截图显示的 `Ch)` 是 `CUDA (PyTorch)` 文本获得编辑焦点后横向滚动到末尾的结果。此前关于“已修复”的结论错误。
+- Fix: 删除前段重复赋值，把原有最终赋值从 `True` 改为 `False`。插件 DLL 与内嵌 DLL 的 1.1.1 EXE 已重新构建；反编译最终成品及本机安装 DLL 的 `ConfigureCombo` 均确认只有一条 `combo.Editable = false`，不存在后续反向覆盖。
+- Publication/local: 1.1.1 GitHub Release、ModelScope Releases 和 ModelScope Models 备用 EXE 已再次覆盖。最终 EXE 为 16,873,786 字节、SHA-256 `bed5db6baa5d318d3e54fb8b8fa1a95165ef5114df5c481ce9e083594f63b1b7`；GitHub 摘要一致。本机当时已完全退出 3FUI，因此 DLL/EXE 已直接替换且与构建产物哈希一致。

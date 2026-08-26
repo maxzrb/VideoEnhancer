@@ -1556,8 +1556,6 @@ Namespace videoenhancer
             ' AutoSize=False + 最小高度：下拉框高度完全由所在单元格决定且不小于箭头区域，
             ' 与宿主一致（宿主下拉框固定 30px 高、Dock=Fill、Overlay 下拉）。
             combo.AutoSize = False
-            ' 3FUI 的选项型 ModernComboBox 只允许从列表选择；LakeUI 默认仍可能让内部文本框接收输入。
-            combo.Editable = False
             combo.MinimumSize = New Size(0, 32)
             combo.Dock = DockStyle.Fill
             combo.DropDownMode = ModernComboBox.DropDownDisplayMode.Overlay
@@ -1578,7 +1576,8 @@ Namespace videoenhancer
             combo.HoverArrowColor = UiText
             combo.BorderRadius = 10
             combo.BorderSize = 0
-            combo.Editable = True
+            ' 与 3FUI 的选项型下拉框一致：只能选择既有项目，不能自由修改文本。
+            combo.Editable = False
             combo.MaxDropDownItems = 12
             combo.DropDownBackColor = Color.FromArgb(48, 48, 48)
             combo.DropDownBorderColor = Color.Transparent

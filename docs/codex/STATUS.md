@@ -1,17 +1,23 @@
 # Project Status
 
-Last updated: 2026-08-26 17:54
+Last updated: 2026-08-26 19:02
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 为超分和补帧增加独立半精度开关，并审计全新 Windows 10 的运行依赖。
-- Current state: 两个 LakeUI 半精度开关、独立精度管线、同后端无中转组合和后端依赖自检均已实现并通过本机验证；已本地提交，不推送、不发布。
+- Current objective: 完成 VideoEnhancer 1.1.2 正式发布并记录可交接状态。
+- Current state: 1.1.2 已提交、推送到 `fork/main` 并发布到 GitHub、ModelScope Releases 和模型页备用路径；Backend 2026.08.26.1 严格审计无变化，未上传后端包。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 在另一台干净 Windows 10 x64 设备安装 VC++ 2015-2022 x64 运行库和当前 3FUI，再执行各后端环境检查；NVIDIA 后端需驱动 580 或更高版本。
+- Next recommended step: 用户可从 3FUI 检查更新升级到 1.1.2；若本机 3FUI 仍运行，退出后再验证新 EXE/DLL 和半精度开关。
 
 ## Active TODO
+
+- [x] Task: 发布 1.1.2。
+  - Owner: user / Codex
+  - Status: 已完成 GitHub、ModelScope Releases 和 ModelScope Models 备用 EXE 发布；Backend 2026.08.26.1 无变化。
+  - Relevant files: `VideoEnhancerPlugin/PluginVersion.vb`, `cli/VideoEnhancer.csproj`, `README.md`, `release/release-notes.txt`, `version/版本迭代记录.md`
+  - Verification: Release `v1.1.2` 正式、非草稿、非预发布；EXE 16,878,865 bytes，SHA-256 `da4bbd96d2f21792c1b85abb1c185e2366e766b7131d8e8f2cc2379abb754605`；stable.json 718 bytes，SHA-256 `cecb2247cf80e8ca75f8bca9817007ef5680fe79ade58c589bb8b4065bb4b55a`；GitHub 与 ModelScope 清单一致。
 
 - [x] Task: 增加超分/补帧独立半精度开关并完成 Windows 10 依赖审计。
   - Owner: Codex
@@ -1323,3 +1329,11 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Dependency audit: CLI 单文件为 `net10.0` self-contained/trimmed，不要求用户安装 .NET；插件只引用 3FUI 6.1.39 宿主程序集和 LakeUI。便携后端实测版本为 torch 2.9.0+cu130、TensorRT 10.12.0.36、ONNX Runtime 1.29.0、NCNN 1.0.20250916。新增 Windows x64/1809、MSVCP140 和当前所选后端的轻量导入/设备检查，不加载模型或 Engine；README 记录 VC++ 2015-2022 x64、CUDA 13 驱动 580+ 和 NCNN Vulkan 要求。
 - Verification: 插件构建、CLI Release/trimmed 单文件发布和 Python `py_compile` 通过，仅 2 个既有 CA1416；NCNN/CUDA/TensorRT/ONNX/FlashVSR/BasicVSR++ 六类真实依赖检查全部退出 0；安装器五场景、Backend 事务 6/6、发布门禁 5/5、有序包装器 unittest 8/8 和 `git diff --check` 通过。最终候选 DLL SHA-256 `333439cd925c0e4585bca228ddc23ba3a27a382f4551eb47fb9a1b4d299fc386`，EXE SHA-256 `876b772a1889b91f326630b90ed099f6ea4793853a75cd5de7a82f2aefc9be37`。
 - Git/local: 分支 `release/1.1.1` 无 tracking upstream，启动时 `git pull` 因此未执行同步；基线为已发布提交 `3b6473e`。真实 3FUI 当前运行中，先前已安装并目视验证同源码 UI 构建，最终候选未在宿主运行时强行覆盖。功能与记录已创建本地提交，未推送、未发布；提交完成后工作树干净。
+
+### 2026-08-26 19:02 - Codex
+
+- Release: 按用户要求升版并发布 1.1.2。`PluginVersion.vb`、`cli/VideoEnhancer.csproj`、README、Release Notes 和版本迭代记录已更新；版本提交为 `a5047c5 release: prepare 1.1.2`，已推送 `fork/main`，远端 `v1.1.2` 标签指向该提交。
+- Backend gate: 以本机受管 Python 目录的 `2026.08.26.1` 标记作为基线和候选逐文件审计，结果 `0 add / 0 replace / 0 delete`；没有制作空补丁、完整包或 channel，也没有重复上传约 3 GB 后端包。
+- Release assets: GitHub Release `v1.1.2` 已创建为正式、非草稿、非预发布；ModelScope `AerithDream/VideoEnhancer-Releases` 已同步版本化 EXE、stable.json 和 README，`AerithDream/VideoEnhancer-Models/Plugin/videoenhancer.exe` 已同步备用 EXE。EXE 16,878,865 bytes，SHA-256 `da4bbd96d2f21792c1b85abb1c185e2366e766b7131d8e8f2cc2379abb754605`；stable.json 718 bytes，SHA-256 `cecb2247cf80e8ca75f8bca9817007ef5680fe79ade58c589bb8b4065bb4b55a`。GitHub 资产摘要和 ModelScope stable.json 完全一致，模型页备用 EXE HEAD 返回 200/16,878,865 bytes。
+- Verification: 正式脚本重新完成插件/CLI 构建；2 个既有 CA1416 警告、无错误；安装器五场景、更新器 7 场景、Backend 事务 6/6、发布门禁 5/5、有序管线 8/8 和 `git diff --check` 通过。脚本中更新器故意注入的冲突/占用错误均属于预期测试输出，最终 PASS 哨兵完整出现。
+- Git/local: 当前分支 `release/1.1.2`，`fork/main` 和 `v1.1.2` 均指向 `a5047c5`；工作树在记录更新前干净，发布生成目录由 Git 忽略。当前 3FUI 进程仍可能占用本机安装 DLL，未强制关闭用户进程；用户升级时由正常更新流程处理。

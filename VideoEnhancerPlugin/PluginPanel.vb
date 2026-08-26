@@ -421,8 +421,8 @@ Namespace videoenhancer
                     Environment.NewLine & "当前版本：" & PluginVersion.Current &
                     Environment.NewLine & "更新包：" & FormatDownloadSize(manifest.Package.Size)
                 message &= Environment.NewLine & Environment.NewLine &
-                    "下载完成后将自动关闭并重启 3FUI。" & Environment.NewLine &
-                    "现在下载并安装吗？"
+                    "下载完成并校验后会再次询问是否关闭并重启 3FUI。" & Environment.NewLine &
+                    "现在下载更新包吗？"
                 If MessageBox.Show(Me, message, "发现新版本",
                         MessageBoxButtons.YesNo, MessageBoxIcon.Information,
                         MessageBoxDefaultButton.Button1) <> DialogResult.Yes Then Return
@@ -445,7 +445,19 @@ Namespace videoenhancer
                 ShowStatus("正在下载 VideoEnhancer v" & manifest.Version & "…", False)
                 Dim packagePath = Await PluginUpdater.DownloadPackageAsync(manifest,
                     Sub(percent) ShowStatus("正在下载更新：" & percent & "%", False))
-                ShowStatus("更新包校验通过，正在准备重启 3FUI…", False)
+                ShowStatus("更新包已下载并校验，等待确认安装…", False)
+                Dim restartMessage = "VideoEnhancer " & manifest.Version & " 已下载并通过校验。" &
+                    Environment.NewLine & Environment.NewLine &
+                    "现在安装会关闭并重新启动 3FUI。" & Environment.NewLine &
+                    "请先停止编码与视频处理任务，并保存尚未完成的操作。" & Environment.NewLine & Environment.NewLine &
+                    "确定现在重启并安装吗？"
+                If MessageBox.Show(Me, restartMessage, "确认重启安装",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                        MessageBoxDefaultButton.Button2) <> DialogResult.Yes Then
+                    ShowStatus("更新包已下载；已取消本次重启安装", False)
+                    Return
+                End If
+                ShowStatus("用户已确认，正在准备重启 3FUI…", False)
                 If Not StopEnvironmentCheck(10000) Then
                     Throw New InvalidOperationException("启动环境检查未能及时停止，请稍后重试")
                 End If
@@ -809,6 +821,20 @@ Namespace videoenhancer
             menu.SubMenuHorizontalOffset = 2
         End Sub
 
+        ''' <summary>按锚点下方的实际可用空间压缩根菜单，避免 LakeUI 因菜单过高而翻到屏幕顶端。</summary>
+        Private Shared Sub FitModelMenuBelowAnchor(menu As ModernContextMenu, anchor As Control)
+            If menu Is Nothing OrElse anchor Is Nothing OrElse menu.Items.Count = 0 Then Return
+            Dim popupPoint = anchor.PointToScreen(New Point(0, anchor.Height + 2))
+            Dim workingArea = Screen.FromPoint(popupPoint).WorkingArea
+            Dim dpiScale = Math.Max(1.0R, anchor.DeviceDpi / 96.0R)
+            Dim availableLogicalHeight = Math.Max(0.0R,
+                (workingArea.Bottom - popupPoint.Y - 12) / dpiScale)
+            Dim fixedLogicalHeight = menu.MenuPadding.Vertical + 4
+            Dim fittingItemHeight = CInt(Math.Floor(
+                (availableLogicalHeight - fixedLogicalHeight) / menu.Items.Count))
+            menu.ItemHeight = Math.Max(22, Math.Min(menu.ItemHeight, fittingItemHeight))
+        End Sub
+
         Private Sub ShowModelMenu(anchor As ModernComboBox, catalog As List(Of ModelCatalogItem), interpolation As Boolean)
             If catalog.Count = 0 OrElse anchor.IsDisposed Then Return
             Dim root As New ModernContextMenu()
@@ -830,6 +856,7 @@ Namespace videoenhancer
                 Next
                 root.Items.Add(New ModernContextMenu.ModernMenuItem(group.Key) With {.SubMenu = submenu, .CloseOnClick = False})
             Next
+            FitModelMenuBelowAnchor(root, anchor)
             If interpolation Then
                 _interpModelMenu = root
             Else

@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-26 12:34
+Last updated: 2026-08-26 13:10
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 完成 VideoEnhancer 1.1.1 及 Backend 2026.08.26.1 发布，并覆盖模型下拉框可编辑热修复。
-- Current state: 1.1.1、Backend 2026.08.26.1 及模型下拉框只读修正版均已发布；成品反编译确认最终只有 `Editable=False`，GitHub/ModelScope 资产和 Backend channel 回读一致。
+- Current objective: 完成 VideoEnhancer 1.1.1 发布后 UI 与更新安全回归修复。
+- Current state: 模型下拉框只读、二级菜单定位和更新重启二次确认均已完成并构建；最终资产正在同步记录，Backend 2026.08.26.1 无新增变化。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 退出并重新启动本机 3FUI，确认所有选项型 LakeUI 下拉框只能选择、不能输入文字。
+- Next recommended step: 退出并重新启动本机 3FUI，实机确认模型菜单从锚点下方展开，以及下载完成后出现默认“否”的重启安装确认框。
 
 ## Active TODO
 
@@ -1301,3 +1301,9 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Correction/root cause: 用户截图证明 12:00 的首轮热修复没有生效。直接反编译已安装插件后发现 `ConfigureCombo` 前段新增的 `Editable=False` 在同一函数后段被既有 `Editable=True` 再次覆盖；截图显示的 `Ch)` 是 `CUDA (PyTorch)` 文本获得编辑焦点后横向滚动到末尾的结果。此前关于“已修复”的结论错误。
 - Fix: 删除前段重复赋值，把原有最终赋值从 `True` 改为 `False`。插件 DLL 与内嵌 DLL 的 1.1.1 EXE 已重新构建；反编译最终成品及本机安装 DLL 的 `ConfigureCombo` 均确认只有一条 `combo.Editable = false`，不存在后续反向覆盖。
 - Publication/local: 1.1.1 GitHub Release、ModelScope Releases 和 ModelScope Models 备用 EXE 已再次覆盖。最终 EXE 为 16,873,786 字节、SHA-256 `bed5db6baa5d318d3e54fb8b8fa1a95165ef5114df5c481ce9e083594f63b1b7`；GitHub 摘要一致。本机当时已完全退出 3FUI，因此 DLL/EXE 已直接替换且与构建产物哈希一致。
+
+### 2026-08-26 13:10 - Codex
+
+- UI root cause/fix: LakeUI `ModernContextMenu.Show(Control, Point)` 会正确转换屏幕坐标，但菜单总高度超过锚点下方空间时会向上翻转；若翻转后 Top 为负则钳制到工作区顶端，因此架构列表看起来从屏幕顶端展开。新增 `FitModelMenuBelowAnchor`，按当前屏幕工作区、锚点、DPI 和架构项数量动态压缩根菜单行高，优先确保菜单从模型框下方展开；子模型菜单保持原尺寸。
+- Updater safety: 旧流程只在下载前询问一次，下载校验后直接 `StartUpdate` 并 `Application.Exit`。现改为两阶段确认：第一次只同意下载；校验通过后弹出“确认重启安装”警告框，默认按钮为“否”。拒绝时直接返回，不停止自检、不启动更新器、不退出 3FUI；只有明确选择“是”才继续关闭与重启。
+- Verification/publication: 插件与内嵌 DLL 的 1.1.1 EXE 构建成功，仅两个既有 CA1416 警告；成品反编译确认动态菜单适配在 `Show` 前调用，第二确认位于 `StopEnvironmentCheck`、`StartUpdate`、`Application.Exit` 之前。覆盖 EXE 为 16,874,426 字节、SHA-256 `bda65213b198c57da7e926ea29cc66963c73f2a09e5c2e48236ebe7b2727589a`，三处资产已上传。真实 3FUI PID 9212 正在运行，隐藏助手 PID 33816 等待宿主正常退出后替换本机 DLL/EXE。

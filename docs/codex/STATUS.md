@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-26 01:57
+Last updated: 2026-08-26 12:00
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 正式发布 VideoEnhancer 1.1.1 及 Backend 2026.08.26.1。
-- Current state: 1.1.1 发布候选、后端完整包和增量包均已完成；全部发布门禁通过，等待提交和双源上传。
+- Current objective: 完成 VideoEnhancer 1.1.1 及 Backend 2026.08.26.1 发布，并覆盖模型下拉框可编辑热修复。
+- Current state: 1.1.1、Backend 2026.08.26.1 及模型下拉框只读热修复均已发布；GitHub/ModelScope 资产和 Backend channel 回读一致。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 提交并推送 1.1.1，上传 Backend 2026.08.26.1、GitHub Release 与 ModelScope 资产并回读核验。
+- Next recommended step: 退出并重新启动本机 3FUI，确认所有选项型 LakeUI 下拉框只能选择、不能输入文字。
 
 ## Active TODO
 
@@ -1288,3 +1288,10 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Backend: 相对 2026.08.25.1 为 1 新增、2 替换、0 删除，版本递增至 2026.08.26.1；完整包含 29,708 个受管文件、6,261,278,626 字节，压缩后 3,070,513,730 字节，已独立解压逐文件复验；增量补丁含 3 项操作。
 - Verification: CLI/插件/单文件构建通过；Python/契约测试 16/16、RVE 有序管线 6/6、Backend 事务 6/6、发布门禁 5/5、安装器五类和更新器七类场景全部通过。本地安装 EXE/DLL 与正式候选一致，已导入 ONNX 用户模型可出现在 ONNX 模型目录中。
 - Git/release: 当前待创建发布提交、推送 main/tag，并上传 Backend、GitHub 与 ModelScope 资产。
+
+### 2026-08-26 12:00 - Codex
+
+- Release: 功能提交 `1a57c7f release: 1.1.1 model import and capability catalog` 已推送，`v1.1.1` GitHub Release 已创建；Backend 2026.08.26.1 按完整包、增量包、channel 顺序上传。远端 channel 的 latest/full/patch 路径、大小和 SHA-256 与本地审计全部一致。
+- Assets: GitHub Release、ModelScope Releases 和 ModelScope Models 备用 EXE 已同步。发布后发现 LakeUI `ModernComboBox.Editable` 未显式关闭，导致模型下拉框可以输入；统一配置入口已设为 `Editable=False`，从而让模型、后端、倍率、分块等选项型下拉框与 3FUI 行为一致。
+- Verification: 热修复插件构建成功；新单文件 EXE 报告 1.1.1，安装器 fresh/legacy/transient-lock/injected-rollback/permanent-lock 场景通过。覆盖资产为 16,873,792 字节、SHA-256 `fd9adfcc8428a6a3309d52ed866b8ed3bb5ccba6754adb58e164b5b0d6bd51af`；GitHub 摘要和 ModelScope 强制回读一致。
+- Local: 真实 3FUI 进程 PID 12692 正在占用插件 DLL，已启动隐藏等待助手 PID 6980；宿主退出后自动替换本机 DLL 与 EXE，下次启动生效。后续只需做一次真实界面只读交互确认。

@@ -57,6 +57,7 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 - `--list-model-catalog` / `--list-interp-model-catalog`：按当前后端输出结构化模型列表，包含稳定 ID、架构大类、倍率、来源和后端能力，供 LakeUI 二级模型菜单使用。
 - `--list-user-models --json`：输出用户模型的完整能力清单，供模型导入页列表使用。
 - `--update-user-model <ID>`：与 `--user-architecture`、`--user-purpose`、`--user-scale`、`--user-input-multiple`、`--user-backends` 配合修正自动识别结果；写入前会校验格式、任务和后端组合。
+- `--delete-user-model <ID>`：删除用户模型的安装文件/目录，并同步移除能力清单记录；插件模型导入页会在确认后调用此命令。
 - `--prepare-interp-engine <RIFE 权重> --prepare-width <宽> --prepare-height <高>`：调用 RVE 的真实 RIFE flow/encode 路径预构建 TensorRT Engine；可加 `--prepare-static-shape`。该命令不经过单帧超分转换器。
 - `-ffmpeg-settings`：FFmpeg 编码参数片段，**最后一个参数是输出文件路径**（无 `-o`），末尾 `-y` 表示覆盖。
   - 自动处理：`-map` 流映射会被移除（后端写进程自带映射），`-map_metadata 0` / `-map_chapters 0` 改写为 `1`；

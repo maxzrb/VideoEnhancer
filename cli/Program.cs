@@ -427,6 +427,7 @@ internal static class Program
         public string InspectUpscaleModel = "";
         public string ImportModel = "";
         public string UpdateUserModel = "";
+        public string DeleteUserModel = "";
         public string UserArchitecture = "";
         public string UserPurpose = "";
         public string UserScale = "";
@@ -681,6 +682,11 @@ internal static class Program
         if (!string.IsNullOrWhiteSpace(o.UpdateUserModel))
         {
             return UpdateUserModel(o);
+        }
+
+        if (!string.IsNullOrWhiteSpace(o.DeleteUserModel))
+        {
+            return DeleteUserModel(o);
         }
 
         if (!string.IsNullOrWhiteSpace(o.InspectInterpModel))
@@ -993,6 +999,9 @@ internal static class Program
                     break;
                 case "--update-user-model":
                     o.UpdateUserModel = TakeValue(args, ref i, name, inlineValue);
+                    break;
+                case "--delete-user-model":
+                    o.DeleteUserModel = TakeValue(args, ref i, name, inlineValue);
                     break;
                 case "--user-architecture":
                     o.UserArchitecture = TakeValue(args, ref i, name, inlineValue);
@@ -5217,6 +5226,31 @@ internal static class Program
         }
     }
 
+    private static int DeleteUserModel(Options options)
+    {
+        try
+        {
+            var deleted = UserModelCatalog.Delete(ModelsDir, options.DeleteUserModel);
+            if (options.Json)
+            {
+                using var writer = new Utf8JsonWriter(Console.OpenStandardOutput());
+                writer.WriteStartObject();
+                writer.WriteBoolean("deleted", true);
+                writer.WriteString("id", deleted.Id);
+                writer.WriteEndObject();
+                writer.Flush();
+                Console.WriteLine();
+            }
+            else
+                Console.WriteLine("已删除用户模型：" + deleted.Id);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            return Fail("删除用户模型失败：" + ex.Message);
+        }
+    }
+
     private static void WriteUserModelsJson(IEnumerable<UserModelRecord> models)
     {
         using var writer = new Utf8JsonWriter(Console.OpenStandardOutput());
@@ -5628,6 +5662,7 @@ internal static class Program
         writer.WriteLine("  --inspect-upscale-model <权重>  安全预检 PTH/PT/CKPT/safetensors/ONNX 的架构、倍率和尺寸能力");
         writer.WriteLine("  --import-model <路径>  预检文件、目录或压缩包，通过后原子安装到 models\\User 并登记能力清单");
         writer.WriteLine("  --update-user-model <ID>  配合 --user-* 参数校验并修正用户模型能力");
+        writer.WriteLine("  --delete-user-model <ID>  删除用户模型文件、目录及其能力清单记录");
         writer.WriteLine("  --list-interp-models  列出 models\\Frame-Interpolation 下可用的补帧模型并退出");
         writer.WriteLine("        （配合 --json 输出一行 JSON 数组，供界面程序解析）；");
         writer.WriteLine("        加 -interp-backend cuda 列出全部 PyTorch 权重，tensorrt 只列 RIFE 权重；旧 RIFE 兼容读取");

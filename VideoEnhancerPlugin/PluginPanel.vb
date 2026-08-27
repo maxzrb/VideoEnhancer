@@ -8,6 +8,7 @@ Imports System.Security.Cryptography
 Imports System.Text
 Imports System.Text.Json
 Imports System.Text.RegularExpressions
+Imports System.Reflection
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
 Imports FFmpegFreeUI
@@ -31,6 +32,22 @@ Namespace videoenhancer
                 DoubleBuffered = True
                 ResizeRedraw = False
                 UpdateStyles()
+            End Sub
+        End Class
+
+        ' 关闭状态的选项框不应因鼠标滚轮经过显示区域而悄悄改变配置。
+        ' LakeUI 的下拉列表使用独立窗口，拦截这里的消息不会影响打开列表后的滚动。
+        Private NotInheritable Class WheelLockedComboBox
+            Inherits ModernComboBox
+
+            Private Const WmMouseWheel As Integer = &H20A
+            Private Const WmMouseHWheel As Integer = &H20E
+
+            Protected Overrides Sub WndProc(ByRef m As Message)
+                If m.Msg = WmMouseWheel OrElse m.Msg = WmMouseHWheel Then
+                    Return
+                End If
+                MyBase.WndProc(m)
             End Sub
         End Class
 
@@ -131,8 +148,8 @@ Namespace videoenhancer
         Private ReadOnly _btnPickExe As New ModernButton()
         Private ReadOnly _switchMaster As New LakeUI.BooleanSwitch()
         Private ReadOnly _lblMaster As New HtmlColorLabel()
-        Private ReadOnly _cmbModel As New ModernComboBox()
-        Private ReadOnly _cmbInterp As New ModernComboBox()
+        Private ReadOnly _cmbModel As New WheelLockedComboBox()
+        Private ReadOnly _cmbInterp As New WheelLockedComboBox()
         Private ReadOnly _lblExe As New HtmlColorLabel()
         Private ReadOnly _lblStatus As New HtmlColorLabel()
         Private ReadOnly _switchUpscale As New LakeUI.BooleanSwitch()
@@ -141,15 +158,15 @@ Namespace videoenhancer
         Private ReadOnly _switchInterp As New LakeUI.BooleanSwitch()
         Private ReadOnly _switchInterpHalf As New LakeUI.BooleanSwitch()
         Private ReadOnly _lblSwitchInterp As New HtmlColorLabel()
-        Private ReadOnly _cmbBackend As New ModernComboBox()
+        Private ReadOnly _cmbBackend As New WheelLockedComboBox()
         Private ReadOnly _lblBackend As New HtmlColorLabel()
-        Private ReadOnly _cmbInterpBackend As New ModernComboBox()
-        Private ReadOnly _cmbFactor As New ModernComboBox()
-        Private ReadOnly _cmbDynamicOpticalFlow As New ModernComboBox()
-        Private ReadOnly _cmbSceneThreshold As New ModernComboBox()
-        Private ReadOnly _cmbTileSize As New ModernComboBox()
+        Private ReadOnly _cmbInterpBackend As New WheelLockedComboBox()
+        Private ReadOnly _cmbFactor As New WheelLockedComboBox()
+        Private ReadOnly _cmbDynamicOpticalFlow As New WheelLockedComboBox()
+        Private ReadOnly _cmbSceneThreshold As New WheelLockedComboBox()
+        Private ReadOnly _cmbTileSize As New WheelLockedComboBox()
         Private ReadOnly _lblFactor As New HtmlColorLabel()
-        Private ReadOnly _cmbProcessOrder As New ModernComboBox()
+        Private ReadOnly _cmbProcessOrder As New WheelLockedComboBox()
         Private ReadOnly _lblProcessOrder As New HtmlColorLabel()
         Private _syncingMaster As Boolean = False
         Private _syncingBackend As Boolean = False
@@ -175,6 +192,7 @@ Namespace videoenhancer
         Private ReadOnly _interpModelCatalog As New List(Of ModelCatalogItem)()
         Private _modelMenu As ModernContextMenu
         Private _interpModelMenu As ModernContextMenu
+        Private _modelMenuToolTipController As ModelMenuToolTipController
         Private _uiReady As Boolean = False
         ' ── 选项卡分栏：超分主界面 / 实时预览 / 高级功能 / 模型转换器 ──
         Private ReadOnly _tabs As New ModernTabControl()
@@ -197,8 +215,8 @@ Namespace videoenhancer
         Private ReadOnly _switchImageOriginal As New LakeUI.BooleanSwitch()
         Private ReadOnly _switchImagePng As New LakeUI.BooleanSwitch()
         Private ReadOnly _txtImageOutput As New ModernTextBox()
-        Private ReadOnly _cmbImageSuffix As New ModernComboBox()
-        Private ReadOnly _cmbImageFormat As New ModernComboBox()
+        Private ReadOnly _cmbImageSuffix As New WheelLockedComboBox()
+        Private ReadOnly _cmbImageFormat As New WheelLockedComboBox()
         Private ReadOnly _lblImageInputs As New HtmlColorLabel()
         Private ReadOnly _lblImageOutput As New HtmlColorLabel()
         Private ReadOnly _lblImageProgress As New HtmlColorLabel()
@@ -210,9 +228,9 @@ Namespace videoenhancer
         Private _imageCompleteReceived As Boolean
         ' ── 实时预览页 ──
         Private ReadOnly _picPreview As New PictureBox()          ' 原生 .NET 图片控件（修复预览不切换）
-        Private ReadOnly _cmbTask As New ModernComboBox()         ' 多任务选择
+        Private ReadOnly _cmbTask As New WheelLockedComboBox()         ' 多任务选择
         Private ReadOnly _lblTask As New HtmlColorLabel()
-        Private ReadOnly _cmbRate As New ModernComboBox()
+        Private ReadOnly _cmbRate As New WheelLockedComboBox()
         Private ReadOnly _lblPreviewTitle As New HtmlColorLabel()
         Private ReadOnly _lblPreviewStatus As New HtmlColorLabel()
         Private ReadOnly _lblPreviewNote As New HtmlColorLabel()
@@ -236,6 +254,8 @@ Namespace videoenhancer
         Private ReadOnly _lblImportSource As New HtmlColorLabel()
         Private ReadOnly _lblImportStatus As New HtmlColorLabel()
         Private ReadOnly _importModelList As New UltraDetailListView()
+        Private _userModelContextMenu As ModernContextMenu
+        Private _contextUserModel As UserModelItem
         Private _importSourcePath As String = ""
         Private _modelImportBusy As Boolean = False
         Private _userModelsLoading As Boolean = False
@@ -301,6 +321,222 @@ Namespace videoenhancer
             Public Property Source As String = ""
             Public Property Backends As String() = Array.Empty(Of String)()
         End Class
+
+        ' ModernContextMenu 的菜单项不是 WinForms 控件，使用 LakeUI 的浮动提示窗显示当前悬停模型说明。
+        Private NotInheritable Class ModelMenuToolTipController
+            Private ReadOnly _menus As New HashSet(Of ModernContextMenu)()
+            Private ReadOnly _tooltips As Dictionary(Of ModernContextMenu.ModernMenuItem, String)
+            Private ReadOnly _timer As New Timer() With {.Interval = 100}
+            Private ReadOnly _tipForm As FloatingToolTipForm
+            Private ReadOnly _tipStyle As FloatingToolTipStyle
+            Private _hoveredItem As ModernContextMenu.ModernMenuItem
+            Private _shownItem As ModernContextMenu.ModernMenuItem
+            Private _hoverSinceUtc As DateTime
+            Private _closed As Boolean
+
+            Public Sub New(rootMenu As ModernContextMenu,
+                           owner As Control,
+                           tooltips As Dictionary(Of ModernContextMenu.ModernMenuItem, String))
+                _tooltips = If(tooltips,
+                    New Dictionary(Of ModernContextMenu.ModernMenuItem, String)())
+                _tipForm = New FloatingToolTipForm(owner)
+                RegisterMenu(rootMenu)
+                _tipStyle = New FloatingToolTipStyle() With {
+                    .Font = New Font("Microsoft YaHei UI", 9.0F, FontStyle.Regular),
+                    .BackColor = Color.FromArgb(245, 42, 42, 42),
+                    .ForeColor = UiText,
+                    .BorderColor = Color.FromArgb(96, 96, 96),
+                    .BorderSize = 1,
+                    .BorderRadius = 8,
+                    .Padding = New Padding(10, 8, 10, 8),
+                    .MaxWidth = 360
+                }
+                AddHandler _timer.Tick, AddressOf OnTimerTick
+            End Sub
+
+            Public Sub Start()
+                If _closed Then Return
+                _timer.Start()
+            End Sub
+
+            Public Sub Close()
+                If _closed Then Return
+                _closed = True
+                Try
+                    _timer.Stop()
+                    RemoveHandler _timer.Tick, AddressOf OnTimerTick
+                    _timer.Dispose()
+                Catch
+                End Try
+                HideTip()
+                Try
+                    _tipForm.Dispose()
+                Catch
+                End Try
+                Try
+                    If _tipStyle.Font IsNot Nothing Then _tipStyle.Font.Dispose()
+                Catch
+                End Try
+            End Sub
+
+            Private Sub RegisterMenu(menu As ModernContextMenu)
+                If menu Is Nothing OrElse Not _menus.Add(menu) Then Return
+                For Each item As ModernContextMenu.ModernMenuItem In menu.Items
+                    If item IsNot Nothing AndAlso item.SubMenu IsNot Nothing Then
+                        RegisterMenu(item.SubMenu)
+                    End If
+                Next
+            End Sub
+
+            Private Sub OnTimerTick(sender As Object, e As EventArgs)
+                If _closed Then Return
+                Try
+                    Dim popup As Form = Nothing
+                    Dim item As ModernContextMenu.ModernMenuItem = Nothing
+                    Dim itemBounds As Rectangle
+                    If Not TryGetHoveredItem(popup, item, itemBounds) Then
+                        ResetHover()
+                        Return
+                    End If
+
+                    Dim tooltipText As String = Nothing
+                    If Not _tooltips.TryGetValue(item, tooltipText) OrElse
+                       String.IsNullOrWhiteSpace(tooltipText) Then
+                        ResetHover()
+                        Return
+                    End If
+
+                    If Not Object.ReferenceEquals(_hoveredItem, item) Then
+                        _hoveredItem = item
+                        _shownItem = Nothing
+                        _hoverSinceUtc = DateTime.UtcNow
+                        HideTip()
+                        Return
+                    End If
+                    If Object.ReferenceEquals(_shownItem, item) Then Return
+                    If (DateTime.UtcNow - _hoverSinceUtc).TotalMilliseconds < 350 Then Return
+
+                    ShowTip(popup, itemBounds, item, tooltipText)
+                Catch
+                    ResetHover()
+                End Try
+            End Sub
+
+            Private Function TryGetHoveredItem(ByRef popup As Form,
+                                               ByRef item As ModernContextMenu.ModernMenuItem,
+                                               ByRef itemBounds As Rectangle) As Boolean
+                Dim cursorPoint As Point = Cursor.Position
+                Try
+                    For index = Application.OpenForms.Count - 1 To 0 Step -1
+                        Dim candidate = Application.OpenForms(index)
+                        If candidate Is Nothing OrElse candidate.IsDisposed OrElse Not candidate.Visible OrElse
+                           Not candidate.Bounds.Contains(cursorPoint) OrElse
+                           Not String.Equals(candidate.GetType().FullName,
+                               "LakeUI.ModernContextMenu+MenuPopupForm", StringComparison.Ordinal) Then
+                            Continue For
+                        End If
+
+                        Dim menu = GetPopupMenu(candidate)
+                        If menu Is Nothing OrElse Not _menus.Contains(menu) Then Continue For
+                        Dim location = candidate.PointToClient(cursorPoint)
+                        Dim itemIndex = GetPopupItemIndex(candidate, location)
+                        If itemIndex < 0 OrElse itemIndex >= menu.Items.Count Then Continue For
+                        Dim candidateItem = menu.Items(itemIndex)
+                        If candidateItem Is Nothing OrElse candidateItem.IsSeparator OrElse candidateItem.IsDescription Then
+                            Continue For
+                        End If
+
+                        popup = candidate
+                        item = candidateItem
+                        itemBounds = GetPopupItemBounds(candidate, itemIndex, location)
+                        Return True
+                    Next
+                Catch
+                End Try
+                Return False
+            End Function
+
+            Private Shared Function GetPopupMenu(popup As Form) As ModernContextMenu
+                Try
+                    Dim field = popup.GetType().GetField("菜单",
+                        BindingFlags.Instance Or BindingFlags.NonPublic)
+                    If field Is Nothing Then
+                        field = popup.GetType().GetFields(
+                            BindingFlags.Instance Or BindingFlags.NonPublic).
+                            FirstOrDefault(Function(candidate) GetType(ModernContextMenu).IsAssignableFrom(candidate.FieldType))
+                    End If
+                    If field Is Nothing Then Return Nothing
+                    Return TryCast(field.GetValue(popup), ModernContextMenu)
+                Catch
+                    Return Nothing
+                End Try
+            End Function
+
+            Private Shared Function GetPopupItemIndex(popup As Form, location As Point) As Integer
+                Try
+                    Dim method = popup.GetType().GetMethod("获取项目索引",
+                        BindingFlags.Instance Or BindingFlags.NonPublic)
+                    If method Is Nothing Then Return -1
+                    Dim result = method.Invoke(popup, New Object() {location, True})
+                    Return If(result Is Nothing, -1, CInt(result))
+                Catch
+                    Return -1
+                End Try
+            End Function
+
+            Private Shared Function GetPopupItemBounds(popup As Form,
+                                                       itemIndex As Integer,
+                                                       location As Point) As Rectangle
+                Try
+                    Dim field = popup.GetType().GetField("项目区域列表",
+                        BindingFlags.Instance Or BindingFlags.NonPublic)
+                    Dim areas = If(field Is Nothing, Nothing,
+                        TryCast(field.GetValue(popup), System.Collections.IList))
+                    If areas IsNot Nothing AndAlso itemIndex >= 0 AndAlso itemIndex < areas.Count AndAlso
+                       TypeOf areas(itemIndex) Is Rectangle Then
+                        Return DirectCast(areas(itemIndex), Rectangle)
+                    End If
+                Catch
+                End Try
+                Return New Rectangle(location, New Size(1, 1))
+            End Function
+
+            Private Sub ShowTip(popup As Form,
+                                itemBounds As Rectangle,
+                                item As ModernContextMenu.ModernMenuItem,
+                                text As String)
+                Dim screenBounds = popup.RectangleToScreen(itemBounds)
+                Dim workingArea = Screen.FromRectangle(screenBounds).WorkingArea
+                Dim side As FloatingToolTipSide
+                Dim anchor As Point
+                If workingArea.Right - screenBounds.Right >= 380 Then
+                    side = FloatingToolTipSide.Right
+                    anchor = New Point(screenBounds.Right,
+                                       screenBounds.Top + Math.Max(1, screenBounds.Height \ 2))
+                Else
+                    side = FloatingToolTipSide.Left
+                    anchor = New Point(screenBounds.Left,
+                                       screenBounds.Top + Math.Max(1, screenBounds.Height \ 2))
+                End If
+                _tipForm.ShowTip(text, anchor, _tipStyle, 8, side)
+                _shownItem = item
+            End Sub
+
+            Private Sub ResetHover()
+                _hoveredItem = Nothing
+                _shownItem = Nothing
+                _hoverSinceUtc = DateTime.MinValue
+                HideTip()
+            End Sub
+
+            Private Sub HideTip()
+                Try
+                    If Not _tipForm.IsDisposed Then _tipForm.Hide()
+                Catch
+                End Try
+            End Sub
+        End Class
+
         Private NotInheritable Class ModelImportResponse
             Public Property Success As Boolean
             Public Property Source As String = ""
@@ -830,7 +1066,358 @@ Namespace videoenhancer
             Return If(segments.Length > 1, segments(0), "其他模型")
         End Function
 
-        Private Shared Sub ConfigureModelMenu(menu As ModernContextMenu)
+        Private Shared Function ModelIntroduction(entry As ModelCatalogItem,
+                                                   interpolation As Boolean) As String
+            If entry Is Nothing Then Return ""
+            If interpolation Then Return InterpolationModelIntroduction(entry)
+
+            Dim modelId = If(entry.Id, "").Replace(Convert.ToChar(92), "/").Trim()
+            Dim displayName = If(entry.DisplayName, "").Trim()
+            Dim key = (modelId & " " & displayName).ToLowerInvariant()
+            Dim architecture = If(entry.Architecture, "").Trim().ToUpperInvariant()
+
+            If key.Contains("basicvsr") Then
+                Return "BasicVSR++ REDS4：利用相邻视频帧做时序复原，适合画面连续的低清视频；它不是普通单帧放大，当前不能再叠加运动补帧。"
+            End If
+            If key.Contains("flashvsr") Then
+                Return "FlashVSR：面向连续视频的时序超分模型，适合希望一次处理运动连续性与分辨率的 NVIDIA 用户；它不是普通图片模型，当前不参与通用补帧组合。"
+            End If
+
+            If key.Contains("animejanai-hd-v3.1") Then
+                Dim preset = If(key.Contains("sharp1") AndAlso key.Contains("performance"),
+                    "Sharp1 Performance：在较轻量的 Performance 配置上进一步强调边缘清晰度。",
+                    If(key.Contains("sharp1"),
+                        "Sharp1 Balanced：在 Balanced 配置上额外强调线稿和边缘。",
+                        If(key.Contains("performance"),
+                            "Performance：优先考虑处理速度和显存占用。",
+                            "Balanced：在清晰度、稳定性和资源占用之间取平衡。")))
+                Return "AnimeJaNai HD V3.1 " & preset & " 这是 2x 动漫/插画模型；干净的高清原片可优先用 Sharp1，普通素材先用 Balanced，显存紧张时选 Performance。"
+            End If
+            If key.Contains("animejanai-sd-v1beta34") Then
+                Return "AnimeJaNai SD V1 beta34 Compact strong：针对较低清晰度动漫素材做 2x 强增强；低清噪点和压缩块也可能被放大，更适合噪声较少的动漫素材。"
+            End If
+            If key.Contains("animejanai-v3") Then
+                Return "AnimeJaNai V3 HD Sharp1 Compact：2x 动漫/插画模型，Compact 版本较易运行，Sharp1 会更强调线稿边缘；原片已有噪点时先比较是否过锐。"
+            End If
+            If key.Contains("animejanai-v2") Then
+                Return "AnimeJaNai V2 Compact：2x 动漫/插画轻量模型，适合第一次测试、预览或显存较紧张的设备；想要更强边缘强调可改试 V3 Sharp1。"
+            End If
+
+            If key.Contains("anisd") Then
+                Return AniSdModelIntroduction(key, architecture)
+            End If
+
+            If key.Contains("realhatgan") Then
+                If key.Contains("x1") OrElse key.Contains("fix-only") Then
+                    Return "RealHatGAN JP Illustration x1 修复版：只修复插画纹理和边缘，不改变分辨率；适合尺寸已经够大、只想减少瑕疵的素材，输入边长需按 16 的倍数处理。"
+                End If
+                If key.Contains("universal") Then
+                    Return "RealHatGAN Universal Illustration 2x：面向不同风格插画的 2x 放大，适合不确定具体画风的二次元素材；输入边长需按 16 的倍数处理。"
+                End If
+                If key.Contains("4x") Then
+                    Return "RealHatGAN JP Illustration 4x：针对日式插画做 4x 放大，适合需要大幅放大的线稿和绘画素材；输入边长需按 16 的倍数处理，显存压力也更高。"
+                End If
+                Return "RealHatGAN JP Illustration 2x：针对日式插画做中等幅度放大，适合先保留线稿结构再增加纹理；输入边长需按 16 的倍数处理。"
+            End If
+
+            If key.Contains("animevideov3") Then
+                If key.Contains("-2x") Then
+                    Return "Real-ESRGAN AnimeVideoV3 2x：为动漫视频准备的 2x 模型，适合原片尚清楚、只需要温和放大的情况，速度和细节风险都较易控制。"
+                End If
+                If key.Contains("-3x") Then
+                    Return "Real-ESRGAN AnimeVideoV3 3x：为动漫视频准备的 3x 模型，适合 2x 不够、4x 又过大的中间需求；适合需要中等放大幅度的动漫视频。"
+                End If
+                Return "Real-ESRGAN AnimeVideoV3 4x：为动漫视频准备的 4x 模型，适合低分辨率动画需要明显放大的情况；输出像素量约为 2x 的四倍，处理更慢。"
+            End If
+            If key.Contains("general-x4v3") Then
+                Return "Real-ESRGAN General x4v3：面向真人、风景和普通网络视频的通用 4x 方案；内容类型不特殊时可优先选择，适合做通用画面放大。"
+            End If
+            If key.Contains("x4plus-anime") Then
+                Return "Real-ESRGAN x4plus Anime：动漫/插画 4x 模型，适合线稿、平涂和角色画面；如果原片压缩严重，先用较低倍率或去噪模型比较。"
+            End If
+            If key.Contains("x4-jp-illustration-fix1") Then
+                Return "Real-ESRGAN JP Illustration fix1：日式插画专用 4x ONNX 导出修正版 1，题材和倍率固定；它与 fix2 是不同导出版本，优先保留能在当前环境预检和运行的一份。"
+            End If
+            If key.Contains("x4-jp-illustration-fix2") Then
+                Return "Real-ESRGAN JP Illustration fix2：日式插画专用 4x ONNX 导出修正版 2，题材和倍率固定；若 fix1 在你的 ONNX 环境异常，可用它做替代测试。"
+            End If
+
+            If key.Contains("waifu2x") Then
+                If key.Contains("photo") Then
+                    Return "Waifu2x Photo 2x：为照片类素材准备的 2x 模型；人物、实拍和纹理照片可先选它，纯动漫线稿优先考虑普通或 Noise 版本。"
+                End If
+                If key.Contains("noise3") Then
+                    Return "Waifu2x Noise3 2x：2x 放大并使用最强一级去噪，适合噪声很重的动漫截图；细线和小字可能被抹掉，建议与 Noise2 对比。"
+                End If
+                If key.Contains("noise2") Then
+                    Return "Waifu2x Noise2 2x：2x 放大并使用中等去噪，适合有明显压缩噪点但仍要保留线稿的动漫素材。"
+                End If
+                If key.Contains("noise1") Then
+                    Return "Waifu2x Noise1 2x：2x 放大并使用轻度去噪，适合轻微噪点的动漫画面；比 Noise2 更容易保留细节。"
+                End If
+                If key.Contains("noise0") Then
+                    Return "Waifu2x Noise0 2x：2x 放大但不主动加强去噪，适合原片干净、希望尽量保留原有纹理的动漫素材。"
+                End If
+                Return "Waifu2x 2x：动漫和插画的基础 2x 放大方案；素材有噪点时再按噪声强度选择 Noise1/2/3，避免一开始就过度去噪。"
+            End If
+            If key.Contains("cugan-conservative") Then
+                Return "Real-CUGAN Conservative 2x：动漫画面的保守型 2x 放大，倾向少改动画面；适合不想出现过度锐化或新纹理的干净素材。"
+            End If
+            If key.Contains("denoiseh264") Then
+                Return "DenoiseH264 SuperUltraCompact：针对 H.264 压缩噪声的 1x 处理，不改变分辨率；适合先清理块状噪声，再交给后续放大模型。"
+            End If
+            If key.Contains("dncnn") Then
+                Return "DnCNN ColorBlind：盲去噪 1x 模型，会根据画面估计噪声强度，不改变分辨率；适合噪声来源不明的素材，但要留意细节是否被过度抹平。"
+            End If
+            If key.Contains("animesr") Then
+                Return "AnimeSR V2：动漫视频时序超分 4x 模型，利用相邻帧帮助保持动画细节连续；当前清单仅支持 CUDA，适合 NVIDIA 用户处理动漫视频。"
+            End If
+            If key.Contains("apisr-dat") Then
+                Return "APISR DAT GAN 4x：面向动漫/插画纹理恢复的 4x GAN 模型，适合希望补回细节的素材；GAN 可能生成看似合理的新纹理，建议先看脸部和文字。"
+            End If
+            If key.Contains("apisr-grl") Then
+                Return "APISR GRL GAN 4x：APISR 的 GRL 4x 纹理恢复版本，适合细节丰富的动漫/插画；更适合需要明显补回纹理的画面。"
+            End If
+            If key.Contains("apisr-rrdb") Then
+                If key.Contains("-2x") Then
+                    Return "APISR RRDB GAN 2x：温和的 2x 纹理恢复，适合原片分辨率尚可、只想补一点细节的动漫/插画。"
+                End If
+                Return "APISR RRDB GAN 4x：需要明显放大的 4x 纹理恢复版本；比 2x 更吃资源，也更容易增强细线、文字和重复纹理。"
+            End If
+            If key.Contains("aniscale2-refiner") Then
+                Return "AniScale2 Refiner 1x：只做细节修复、不改变分辨率；适合先清理或整理画面，再决定是否另做 2x 放大。"
+            End If
+            If key.Contains("aniscale2-esrgan-lite") Then
+                Return "AniScale2 ESRGAN-Lite 2x：偏轻量的动漫/插画 2x 放大，适合速度优先或显存较紧张的设备。"
+            End If
+            If key.Contains("aniscale2-esrgan") Then
+                Return "AniScale2 ESRGAN 2x：动漫/插画的常规 2x 纹理增强，适合想比轻量版获得更强细节、又不需要 4x 的素材。"
+            End If
+            If key.Contains("aniscale2-ditn") Then
+                Return "AniScale2 DITN 2x：动漫/插画 2x 细节恢复模型，适合想保留结构、减少过度锐化的素材。"
+            End If
+            If key.Contains("aniscale2-omni") Then
+                Return "AniScale2 Omni 2x：面向多种动漫/插画内容的均衡 2x 方案，适合不知道该选哪种专门风格时先做基准测试。"
+            End If
+            If key.Contains("anitoon-rplksrl") Then
+                Return "AniToon RPLKSR-L 2x：AniToon 的大模型版本，偏向保留更多动漫纹理；画质优先时使用，显存和时间开销会高于 S 版。"
+            End If
+            If key.Contains("anitoon-rplksrs") Then
+                Return "AniToon RPLKSR-S 2x：AniToon 的小模型版本，偏向速度和较低资源占用；适合预览、批量处理或显存较紧张的设备。"
+            End If
+            If key.Contains("anitoon-rplksr") Then
+                Return "AniToon RPLKSR 2x：AniToon 的标准 2x 动漫放大方案；想在速度与细节之间取中间位置时先用它。"
+            End If
+            If key.Contains("nomos8k") Then
+                If key.Contains("strong") Then
+                    Return "Nomos8k SPAN OTF strong 4x：高强度 4x 纹理恢复，适合细节缺失明显的素材；也最容易把噪声或错误纹理一起放大。"
+                End If
+                If key.Contains("weak") Then
+                    Return "Nomos8k SPAN OTF weak 4x：较温和的 4x 纹理恢复，适合画面本身较干净、希望少改动原貌的素材。"
+                End If
+                Return "Nomos8k SPAN OTF medium 4x：中等强度 4x 纹理恢复，适合在 weak 和 strong 之间取平衡；第一次使用可先从它开始。"
+            End If
+            If key.Contains("modernspanimation-v3") Then
+                Return "ModernSpanimation V3 2x：面向动漫画面和线稿的 SPAN 2x 版本；它与 V2 是不同训练版本，适合希望使用较新训练配置的动漫素材。"
+            End If
+            If key.Contains("modernspanimation-v2") Then
+                Return "ModernSpanimation V2 2x：面向动漫画面和线稿的 SPAN 2x 版本，适合希望使用 V2 训练配置的动漫素材。"
+            End If
+            If key.Contains("bhi-spanplusdynamic") Then
+                Return "BHI SpanPlus Dynamic Light 2x：轻量动态输入的 SPANPlus 2x 模型，适合希望兼顾速度与线稿细节的动漫素材。"
+            End If
+            If key.Contains("sudo-shuffle-span") Then
+                Return "Sudo-Shuffle SPAN 2x：针对插画和动漫纹理的 2x SPAN 方案，适合想保留线稿、避免过度 GAN 纹理的素材。"
+            End If
+            If key.Contains("openproteus") Then
+                Return "OpenProteus Compact i2 2x：轻量 2x 细节恢复模型，适合普通动漫/插画素材；处理速度和较低资源占用优先时可选它。"
+            End If
+            If key.Contains("ani4k-compact") Then
+                Return "Ani4K Compact 2x：面向动漫画面的轻量 2x 放大，适合先快速查看模型方向；如果细节不足，再与 AnimeJaNai 或 SPAN 版本比较。"
+            End If
+
+            If key.Contains("realplksr") OrElse key.Contains("rplksr") Then
+                If key.Contains("-l") Then
+                    Return "RealPLKSR-L 2x：较大容量的 2x 细节恢复模型，适合画面质量优先；资源紧张时改用 S 版或 Compact 版。"
+                End If
+                If key.Contains("-s") Then
+                    Return "RealPLKSR-S 2x：较小容量的 2x 细节恢复模型，适合预览和速度优先；细节要求高时可与标准版对比。"
+                End If
+                If key.Contains("dynamic") Then
+                    Return "RealPLKSR 动态输入 2x：适合尺寸不固定的视频帧，按输入内容动态处理；它偏向自然的边缘与纹理恢复。"
+                End If
+                Return "RealPLKSR 2x：动漫/插画的均衡细节恢复模型，适合想要清晰边缘但不希望使用强 GAN 风格的素材。"
+            End If
+
+            Select Case architecture
+                Case "COMPACT"
+                    Return "「" & displayName & "」是 Compact 轻量 2x 模型，适合预览、批量处理或显存有限的设备；先观察清晰度，再决定是否换更大模型。"
+                Case "CRAFT"
+                    Return "「" & displayName & "」是 CRAFT 2x 纹理恢复模型，适合动漫/插画细节；请重点检查线稿、文字和高对比边缘。"
+                Case "DAT", "DAT2"
+                    Return "「" & displayName & "」是 DAT 纹理恢复模型，适合细节丰富的动漫/插画；纹理恢复取向较积极。"
+                Case "DITN"
+                    Return "「" & displayName & "」是 DITN 2x 细节恢复模型，适合希望增强纹理但保留原结构的动漫/插画。"
+                Case "ESRGAN", "ESRGAN-LITE"
+                    Return "「" & displayName & "」是动漫/插画 2x 纹理增强模型；Lite 侧重轻量，普通版侧重更充分的细节恢复。"
+                Case "ESRGAN-REFINER"
+                    Return "「" & displayName & "」是 1x 细节修复模型，只修画面不改分辨率；适合把去噪/修复作为独立第一步。"
+                Case "GRL"
+                    Return "「" & displayName & "」是 GRL 纹理恢复模型，适合细节丰富、需要补回纹理的动漫/插画。"
+                Case "OMNISR"
+                    Return "「" & displayName & "」是均衡型 2x 细节恢复模型，适合不同内容混合的视频，第一次选择可用它做基准。"
+                Case "REAL-CUGAN"
+                    Return "「" & displayName & "」是偏保守的动漫 2x 模型，适合希望少改动原画、降低过度锐化风险的素材。"
+                Case "RRDBNET"
+                    Return "「" & displayName & "」是 RRDB 纹理恢复模型，适合普通动漫/插画放大；高倍率更适合确实需要大幅放大的素材。"
+                Case "SPAN", "SPANF3", "SPANPLUS"
+                    Return "「" & displayName & "」是 SPAN 结构与纹理恢复模型，适合线稿、平涂和动漫画面；它更强调边缘，压缩噪声严重时先做去噪测试。"
+                Case "SWINIR"
+                    Return "「" & displayName & "」是 SwinIR 细节恢复模型，适合希望结果较稳、不过分制造纹理的动漫/插画；ONNX 固定窗口版本会自动按窗口处理。"
+                Case Else
+                    Return "「" & displayName & "」当前标记为 " & If(String.IsNullOrWhiteSpace(architecture), "未知架构", architecture) & "；请根据素材题材、目标倍率和可用后端选择，适合先从默认参数开始。"
+            End Select
+        End Function
+
+        Private Shared Function InterpolationModelIntroduction(entry As ModelCatalogItem) As String
+            Dim modelId = If(entry.Id, "").Replace(Convert.ToChar(92), "/").Trim()
+            Dim displayName = If(entry.DisplayName, "").Trim()
+            Dim key = (modelId & " " & displayName).ToLowerInvariant()
+            If key.Contains("rife") Then
+                If key.Contains("heavy") Then
+                    Return "RIFE heavy：更重的通用光流补帧模型，复杂运动时可获得更充分的运动估计；速度和显存开销较高，适合显存充足且运动复杂的素材。"
+                End If
+                If key.Contains("lite") Then
+                    Return "RIFE lite：偏轻量的通用光流补帧模型，适合预览、批量处理或显存紧张的设备；复杂运动的余量小于 heavy。"
+                End If
+                If key.Contains("4.26") Then
+                    Return "RIFE v4.26：通用光流补帧模型，适合真人、动画和普通镜头；它是一次稳妥的默认起点，倍率先从 2 倍开始。"
+                End If
+                If key.Contains("4.25") Then
+                    Return "RIFE v4.25：通用光流补帧模型，适合大多数连续运动画面；快速运动或复杂遮挡的素材也可优先考虑。"
+                End If
+                Return "RIFE：通用光流补帧模型，给连续视频生成中间帧；适合真人、动漫和普通镜头，倍率通常从 2 倍开始。"
+            End If
+            If key.Contains("gmfss") Then
+                If key.Contains("anime") OrElse key.Contains("animerun") Then
+                    Return "GMFSS AnimeRun：针对动漫运动和线稿连续性的补帧模型，适合动画素材；真人视频请优先用 RIFE 或 GMFSS Base 做比较。"
+                End If
+                If key.Contains("union") Then
+                    Return "GMFSS Union：通用时序补帧模型，利用更多帧信息处理复杂运动；适合想在快速镜头中提升稳定性的 NVIDIA 用户。"
+                End If
+                Return "GMFSS Base：通用时序补帧模型，适合真人和普通连续运动；倍率从 2 倍开始更易控制计算量。"
+            End If
+            If key.Contains("gimm") Then
+                If key.Contains("lpips") Then
+                    Return "GIMM LPIPS：强调感知相似度的时序补帧模型，适合更在意运动观感的连续视频。"
+                End If
+                If key.Contains("-r") Then
+                    Return "GIMM R：时序补帧模型的 R 配置，适合希望保持运动结构连续的素材；适合连续性要求较高的画面。"
+                End If
+                If key.Contains("-f") Then
+                    Return "GIMM F：时序补帧模型的 F 配置，适合希望改善运动流畅度的素材；倍率可从 2 倍、转场阈值 4.0 开始。"
+                End If
+                Return "GIMM：时序补帧模型，适合连续运动视频；它需要 CUDA/PyTorch，适合 NVIDIA 用户处理连续运动画面。"
+            End If
+            Return "「" & displayName & "」是补帧模型，用于根据相邻帧生成中间帧；倍率通常从 2 倍开始，素材运动复杂时再提高倍率。"
+        End Function
+
+        Private Shared Function AniSdModelIntroduction(key As String, architecture As String) As String
+            Dim variantName As String
+            If key.Contains("ac-g6i2a") Then
+                variantName = "AC-G6i2a"
+            ElseIf key.Contains("ac-g6i2b") Then
+                variantName = "AC-G6i2b"
+            ElseIf key.Contains("dc") Then
+                variantName = "DC"
+            ElseIf key.Contains("db-i2") Then
+                variantName = "DB-i2"
+            ElseIf key.Contains("g6i1b") Then
+                variantName = "G6i1b"
+            ElseIf key.Contains("g6i1") Then
+                variantName = "G6i1"
+            ElseIf key.Contains("ps-g6i2") Then
+                variantName = "PS-G6i2"
+            ElseIf key.Contains("ac-") Then
+                variantName = "AC"
+            Else
+                variantName = "AniSD"
+            End If
+
+            Dim role As String
+            Select Case architecture
+                Case "COMPACT"
+                    role = "Compact 轻量版，适合预览和显存有限的设备"
+                Case "SPAN"
+                    role = "SPAN 版本，适合线稿、平涂和边缘细节"
+                Case "SWINIR"
+                    role = "SwinIR 版本，倾向稳定恢复纹理；ONNX 固定窗口版本会按窗口处理"
+                Case "CRAFT"
+                    role = "CRAFT 版本，适合细节丰富的动漫/插画"
+                Case "DAT2"
+                    role = "DAT2 版本，适合纹理复杂的动漫/插画"
+                Case "REALPLKSR"
+                    role = "RealPLKSR 版本，适合在边缘清晰与纹理自然之间取平衡"
+                Case Else
+                    role = If(String.IsNullOrWhiteSpace(architecture), "具体架构未标注", architecture & " 版本")
+            End Select
+
+            If key.Contains("-1x") Then
+                Return "AniSD " & variantName & " " & role & "，这是 1x 修复而不是放大；适合先修画面、再另选 2x/4x 模型。"
+            End If
+            If key.Contains("dynamic") Then
+                Return "AniSD " & variantName & " " & role & "，这是 2x 动态输入版本，适合尺寸不固定的视频帧；适合动漫和插画的常规放大。"
+            End If
+            If key.Contains("240x320") OrElse key.Contains("320x448") OrElse key.Contains("480x320") Then
+                Dim windowSize = If(key.Contains("240x320"), "240x320", If(key.Contains("320x448"), "320x448", "480x320"))
+                Return "AniSD " & variantName & " " & role & "，这是 2x ONNX 固定窗口 " & windowSize & " 版本；适合与对应窗口布局配合，程序会自动按窗口处理。"
+            End If
+            Return "AniSD " & variantName & " " & role & "，这是 2x 动漫/插画模型；AC、DC、DB、PS 和 G6i 代表不同训练配置，不是简单的高低档位，应按具体架构和素材特点选择。"
+        End Function
+
+        Private Shared Function ModelTooltipText(entry As ModelCatalogItem,
+                                                  interpolation As Boolean) As String
+            If entry Is Nothing Then Return ""
+            Dim lines As New List(Of String)()
+            If String.Equals(entry.Source, "builtin", StringComparison.OrdinalIgnoreCase) Then
+                lines.Add("内置模型")
+            ElseIf String.Equals(entry.Source, "user", StringComparison.OrdinalIgnoreCase) Then
+                lines.Add("用户导入模型")
+            End If
+            If Not String.IsNullOrWhiteSpace(entry.DisplayName) Then
+                lines.Add("模型：" & entry.DisplayName)
+            End If
+            lines.Add(ModelIntroduction(entry, interpolation))
+            If Not interpolation AndAlso entry.Scale > 0 Then
+                lines.Add("倍率：" & entry.Scale.ToString() & "x")
+            End If
+            If entry.Backends IsNot Nothing AndAlso entry.Backends.Length > 0 Then
+                lines.Add("支持后端：" & String.Join(" / ", entry.Backends.Select(Function(value) BackendDisplayName(value))))
+            End If
+            Return String.Join(Environment.NewLine, lines.Where(Function(line) Not String.IsNullOrWhiteSpace(line)))
+        End Function
+
+        Private Shared Function BackendDisplayName(value As String) As String
+            Select Case If(value, "").Trim().ToLowerInvariant()
+                Case "ncnn"
+                    Return "NCNN"
+                Case "cuda"
+                    Return "CUDA"
+                Case "tensorrt"
+                    Return "TensorRT"
+                Case "onnx"
+                    Return "ONNX"
+                Case "flashvsr"
+                    Return "FlashVSR"
+                Case "basicvsrpp"
+                    Return "BasicVSR++"
+                Case Else
+                    Return If(value, "").Trim()
+            End Select
+        End Function
+
+        Private Shared Sub ConfigureModelMenu(menu As ModernContextMenu,
+                                              Optional reserveIconColumn As Boolean = True)
             menu.BackColor = Color.FromArgb(42, 42, 42)
             menu.BackColor1 = Color.FromArgb(42, 42, 42)
             menu.BorderColor = Color.FromArgb(72, 72, 72)
@@ -840,6 +1427,8 @@ Namespace videoenhancer
             menu.PressedBackColor = UiAccentPressed
             menu.ArrowColor = UiTextSecondary
             menu.ItemHeight = 34
+            ' 一级分类没有勾选框或图标，关闭图标列；二级模型项保留图标列承载勾选标记。
+            menu.IconSize = If(reserveIconColumn, 24, 0)
             menu.ItemPadding = New Padding(12, 0, 12, 0)
             menu.MenuPadding = New Padding(4)
             menu.SubMenuHorizontalOffset = 2
@@ -859,14 +1448,22 @@ Namespace videoenhancer
             menu.ItemHeight = Math.Max(22, Math.Min(menu.ItemHeight, fittingItemHeight))
         End Sub
 
+        Private Sub CloseModelMenuToolTip()
+            Dim controller = _modelMenuToolTipController
+            _modelMenuToolTipController = Nothing
+            If controller IsNot Nothing Then controller.Close()
+        End Sub
+
         Private Sub ShowModelMenu(anchor As ModernComboBox, catalog As List(Of ModelCatalogItem), interpolation As Boolean)
             If catalog.Count = 0 OrElse anchor.IsDisposed Then Return
+            CloseModelMenuToolTip()
             Dim root As New ModernContextMenu()
-            ConfigureModelMenu(root)
+            ConfigureModelMenu(root, reserveIconColumn:=False)
+            Dim tooltipEntries As New Dictionary(Of ModernContextMenu.ModernMenuItem, String)()
             For Each group In catalog.GroupBy(Function(item) If(String.IsNullOrWhiteSpace(item.Architecture), "其他模型", item.Architecture)).
                     OrderBy(Function(item) item.Key, StringComparer.CurrentCultureIgnoreCase)
                 Dim submenu As New ModernContextMenu()
-                ConfigureModelMenu(submenu)
+                ConfigureModelMenu(submenu, reserveIconColumn:=True)
                 For Each entry In group.OrderBy(Function(item) item.DisplayName, StringComparer.CurrentCultureIgnoreCase)
                     Dim selectedEntry = entry
                     Dim suffix = If(entry.Scale > 0 AndAlso Not interpolation, "  · " & entry.Scale.ToString() & "x", "")
@@ -876,6 +1473,7 @@ Namespace videoenhancer
                         .CloseOnClick = True
                     }
                     AddHandler child.Click, Sub(sender, e) SetCatalogSelection(selectedEntry, interpolation, saveConfig:=True)
+                    tooltipEntries(child) = ModelTooltipText(selectedEntry, interpolation)
                     submenu.Items.Add(child)
                 Next
                 root.Items.Add(New ModernContextMenu.ModernMenuItem(group.Key) With {.SubMenu = submenu, .CloseOnClick = False})
@@ -886,6 +1484,16 @@ Namespace videoenhancer
             Else
                 _modelMenu = root
             End If
+            Dim tooltipController = New ModelMenuToolTipController(root, anchor, tooltipEntries)
+            _modelMenuToolTipController = tooltipController
+            AddHandler root.MenuClosed,
+                Sub(sender As Object, e As EventArgs)
+                    If Object.ReferenceEquals(_modelMenuToolTipController, tooltipController) Then
+                        _modelMenuToolTipController = Nothing
+                    End If
+                    tooltipController.Close()
+                End Sub
+            tooltipController.Start()
             root.Show(anchor, New Point(0, anchor.Height + 2))
         End Sub
 
@@ -1756,6 +2364,113 @@ Namespace videoenhancer
 
         ' ────────────────────────── 选项卡分栏 ──────────────────────────
 
+        Private Shared Function BeginnerTutorialMarkdown() As String
+            Return String.Join(Environment.NewLine, New String() {
+                "# 使用教程",
+                "",
+                "如果你第一次使用视频超分或补帧，请按下面的顺序一步一步来。第一次不要同时打开所有功能，先把程序路径、模型和后端对应关系设置正确，再处理完整视频。",
+                "",
+                "## 先认识这几个概念",
+                "- **视频超分**：把每一帧的宽和高放大，同时尝试补回纹理。例如 2x 是宽度和高度各变成 2 倍，最终像素数量约变成 4 倍；4x 的像素数量约是原来的 16 倍，所以更慢、更吃显存。",
+                "- **运动补帧**：在原视频帧之间生成新帧，让运动看起来更顺滑。2 倍不是增加 2 帧，而是让输出帧率约变成原来的 2 倍。",
+                "- **推理后端**：决定模型由哪套运行引擎执行，不代表画质等级。模型文件格式必须与后端匹配。",
+                "- **模型**：决定画面适合什么内容。真人、动漫、插画、去噪和时序视频模型不是一回事，模型名右侧的悬浮提示会告诉你用途、倍率和后端。",
+                "",
+                "## 第 1 步：连接处理程序",
+                "1. 在 3FUI 打开本插件的 **超分工作台**。",
+                "2. 点击 **选择处理程序**，选择插件目录下的 `videoenhancer\\videoenhancer.exe`。新布局通常是 `3FUI\\Plugin\\videoenhancer\\videoenhancer.exe`；不要选择 `videoenhancer.3fui.dll`、`FFmpegFreeUI.exe` 或模型文件。",
+                "3. 开启 **插件总开关**。如果路径正确，状态区会开始检查运行环境；请等它结束，不要在检查过程中反复切换后端。",
+                "4. 看到环境检查通过后，再开启 **视频超分** 或 **运动补帧**。如果检查失败，先看状态区的具体文字，不要直接换模型，因为程序可能连 Python、显卡驱动或后端都还没有找到。",
+                "",
+                "## 第 2 步：准备模型",
+                "### 方法 A：下载内置模型",
+                "1. 切换到 **模型下载** 页，点击 **刷新资源**。列表中的资源按用途分组，模型通常会标明 NCNN、CUDA/PyTorch、TensorRT 或 ONNX 所需格式。",
+                "2. 第一次只下载一个模型，不要点击 **下载全部**。下载并安装完成后，回到 **超分工作台**，再打开对应模型下拉框；如果列表还没有刷新，重新开启该功能或再次刷新模型。",
+                "3. 当前后端只会列出它能使用的模型。比如选了 ONNX，就应选择 ONNX 模型；选了 NCNN，就应选择带 `.param/.bin` 的模型目录；不能拿 PTH 文件硬套到 ONNX 或 NCNN。",
+                "",
+                "### 方法 B：导入自己的模型",
+                "1. 切换到 **模型导入** 页，选择模型文件或直接拖入文件、文件夹或压缩包。",
+                "2. 填写或确认任务类型、架构和倍率，然后点击 **预检并导入模型**。预检未通过时不要强行使用，先按错误文字修正格式、架构或倍率。",
+                "3. 导入成功后回到工作台，选择与导入结果显示的后端相同的后端。用户模型会和内置模型一起出现在对应的架构菜单中，并标注 `[用户]`。",
+                "",
+                "## 第 3 步：只做视频超分",
+                "### 3.1 先选推理后端",
+                "- **NCNN (Vulkan)**：不依赖 CUDA，使用显卡驱动提供的 Vulkan；适合没有 NVIDIA/CUDA 环境、想先跑通流程的人。它要使用 Param-Bin 模型目录。",
+                "- **CUDA (PyTorch)**：需要 NVIDIA 显卡和可用驱动，使用 PTH/PT/PKL 权重；模型覆盖较广。电脑有 NVIDIA 显卡时，第一次建议从它开始。",
+                "- **TensorRT (NVIDIA)**：也需要 NVIDIA 显卡；通常适合已经确认 CUDA 能正常运行、希望进一步提高速度的人。第一次使用某个模型和输入尺寸时可能要构建 Engine，请耐心等待；Engine 与显卡和输入设置有关，不能随便从别的电脑复制。",
+                "- **ONNX Runtime**：只能选择 ONNX 模型；适合已经下载或导入 ONNX 文件的情况。看到模型列表为空时，先检查文件格式和模型目录，不要把空列表当成模型损坏。",
+                "- **FlashVSR / BasicVSR++**：这是利用连续视频帧的时序超分模型，不是普通单帧放大模型。它们更适合视频素材；BasicVSR++ 当前不能再叠加运动补帧。",
+                "",
+                "### 3.2 再选放大模型",
+                "1. 点击 **放大模型**，先进入一级架构分类，再在第二级点击具体模型。鼠标停在具体模型上会显示简短说明；说明中的倍率是模型固定输出倍率，不需要另填。",
+                "2. **真人、风景、普通网络视频**：先找 `RealESRGAN-General-x4v3` 做基准。它是通用 4x，不代表任何视频都必须放大 4 倍；如果最终只需要 2x，应优先选明确标注 2x 的模型或后续调整输出尺寸。",
+                "3. **动漫视频**：先看 `RealESRGAN-AnimeVideoV3` 的 2x/3x/4x 版本；原片还清楚时从 2x 开始，低分辨率且确实需要大画面时再试 4x。",
+                "4. **动漫截图、插画、线稿**：可从 AnimeJaNai 的 Balanced、Waifu2x 或 SPAN 类模型开始。Balanced 适合普通情况，Sharp1 更强调边缘，Noise 版本按噪声强弱选择。",
+                "5. **只想去掉压缩噪声、不想放大**：选择 `DenoiseH264` 或 `DnCNN` 这类 1x 模型。1x 只修画面，不改变宽高；不要因为名称里有模型家族名就把它当成 2x/4x 放大模型。",
+                "6. 如果不确定，先看悬浮提示，再根据素材的脸部、字幕、线稿、快速运动和重复纹理选择模型；不要只按某一帧是否更锐来判断。",
+                "",
+                "### 3.3 半精度和分块怎么选",
+                "- **半精度推理**默认开启时，CUDA/TensorRT 会优先尝试 FP16，不兼容时自动回退 FP32。第一次使用保持开启即可；如果出现黑帧、花屏或模型报不支持，再关闭它强制 FP32。超分和补帧的半精度开关彼此独立。",
+                "- **超分分块尺寸**先保持 `RVE 默认（0）`。如果任务报显存不足，按 `512 px → 384 px → 256 px → 128 px` 逐级尝试；数值越小越省显存，但需要更多块，速度会变慢。不要为了追求更大的数字而忽略显存。",
+                "- FlashVSR 等不使用分块的后端会自动禁用这个选项；选项变灰是能力限制，不是故障。",
+                "",
+                "## 第 4 步：只做运动补帧",
+                "### 4.1 选择补帧后端和模型",
+                "- **NCNN**：适合不使用 CUDA 的 RIFE 模型目录。",
+                "- **CUDA**：适合 RIFE、GMFSS 和 GIMM 的 PyTorch 权重；GMFSS/GIMM 在当前程序中会使用 CUDA。",
+                "- **TensorRT**：当前主要用于 RIFE 权重自动构建 Engine；GIMM 和 GMFSS 不要强行选 TensorRT。",
+                "- 第一次使用先选通用 RIFE 和 2 倍。RIFE heavy 会消耗更多显存和时间，适合普通版本不够稳定时再试；GMFSS AnimeRun 更适合动漫运动，GMFSS Base 适合先做通用基准。",
+                "",
+                "### 4.2 补帧倍率怎么选",
+                "- `2 倍`：最稳妥的起点。例如输入 24 fps，输出约 48 fps；建议第一次使用。",
+                "- `3 倍`：适合想比 2 倍更顺滑、又不想承担 4 倍开销的情况。",
+                "- `4 倍`：适合高刷新率播放或慢动作需求，但计算量和运动错误风险都会增加。",
+                "- `8 倍`：只建议在已经确认模型、素材和显存都稳定后使用；快速运动、遮挡和镜头切换更容易出现不自然的中间帧。",
+                "选择倍率后不需要再去 3FUI 的视频参数里手动填写输出帧率；插件会把倍率交给处理程序。",
+                "",
+                "### 4.3 转场阈值怎么选",
+                "- 先使用 **标准 4.0**。阈值越低，程序越敏感，越容易在镜头切换处跳过补帧；阈值越高，程序越不敏感，可能把切换前后的画面误认为连续运动。",
+                "- 如果视频剪辑很多、转场处出现鬼影或两幅画面混在一起，改用 `2.0` 或 `3.5`；如果镜头很连续但不希望轻微变化被当成转场，可试 `6.0`。",
+                "- `1.0` 很敏感，`8.0/10.0` 很宽松。它们不是画质档位，而是转场判断灵敏度；不要为了让画面更锐而调高阈值。",
+                "",
+                "### 4.4 动态光流尺度",
+                "- 默认关闭即可。普通素材、固定机位和缓慢运动先不要改。",
+                "- CUDA 下遇到大幅运动、镜头速度变化或运动尺度差异明显时，可以开启；它会增加计算量，不保证所有素材都更好。",
+                "",
+                "## 第 5 步：同时超分和补帧时怎么选",
+                "1. 同时开启 **视频超分** 和 **运动补帧** 后，才会出现 **组合处理顺序**。第一次建议保持 **画质优先：先超分，再补帧**；先把画面放大，再在更大的画面上计算运动，便于观察细节。",
+                "2. 如果显存或速度压力较大，可以试 **速度/算力优先：先补帧，再超分**。先在较小画面上补帧，再统一放大，通常更省算力，但要留意快速运动和细线。",
+                "3. 两个阶段使用同一个后端时，程序会在一个 RVE 进程内逐帧传递，不会因为换顺序生成整段临时视频。小白优先使用同后端，例如 CUDA + CUDA。",
+                "4. 两个阶段使用不同后端时，程序会生成隐藏的 `.videoenhancer-*.mkv` 无损中间文件。它需要额外磁盘空间，4K 或高帧率视频可能很大；任务结束后会自动清理，FFV1 只是阶段间传递格式，不是最终输出格式。",
+                "5. BasicVSR++ 是时序超分特殊后端，当前不能与运动补帧组合；如果补帧开关变灰，这是设计上的能力限制。",
+                "",
+                "## 第 6 步：确认设置并加入队列",
+                "1. 确认输入视频包含你关心的内容，例如人物、字幕、细线、快速运动或镜头转场。不同内容会影响模型和参数的选择。",
+                "2. 确认插件总开关、需要的功能开关、处理程序路径、后端和模型都已选好。下拉框请用鼠标左键打开和选择；鼠标滚轮经过显示区域不会再悄悄改变单选值，打开后的列表仍可在列表区域滚动。",
+                "3. 回到 3FUI 的文件列表，点击 **加入编码队列**。插件会接管这次任务并通过 `videoenhancer.exe` 执行；处理期间不要移动或删除模型、Python 后端和输入文件。",
+                "4. 在 **实时预览** 查看处理中或已完成的画面。重点留意原片与输出的脸部、字幕、线稿、运动边缘、转场和颜色。",
+                "",
+                "## 常见问题",
+                "### 模型列表是空的",
+                "先确认 `videoenhancer.exe` 路径存在，再确认当前后端和模型格式匹配；下载或导入后回到工作台重新打开模型菜单。如果选了 BasicVSR++、FlashVSR、ONNX 等特殊后端，不要期待它显示其他后端的模型。",
+                "",
+                "### 任务报显存不足",
+                "先把超分分块调小，关闭不必要的超分/补帧阶段，补帧倍率退回 2 倍；CUDA/TensorRT 还可以暂时关闭对应的半精度开关做稳定性对比。不要一边保留 4x/8x，一边把分块调到最大。",
+                "",
+                "### 画面过锐、噪声变多或细线消失",
+                "这是模型与素材不匹配的常见表现。动漫线稿可换 Balanced、Noise0/1 或较温和的 2x 模型；噪声很重时才逐步使用 Noise2/3 或强模型。每次只改一个选项，方便判断变化原因。",
+                "",
+                "### 补帧出现鬼影或转场撕裂",
+                "先把倍率降到 2 倍，转场阈值改为 2.0/3.5，并确认素材不是大量快速剪辑。再尝试另一个补帧模型；不要只把阈值调到最大，因为过高可能让程序跨越真正的镜头切换。",
+                "",
+                "### 第一次 TensorRT 很慢",
+                "正常。TensorRT 可能正在为当前显卡、输入尺寸、倍率、分块和精度构建 Engine；后续相同设置会复用缓存。换显卡、分块、倍率或精度后，出现新的构建过程也是正常的。",
+                "",
+                "### 10-bit 输出是不是 10-bit 推理",
+                "不是。当前 RVE 的 SDR 内部帧仍是 8-bit RGB；最终选择 10-bit 输出只影响编码格式，不等于模型以 10-bit 精度推理。PQ/HLG HDR 目前只允许 CUDA/PyTorch 或 TensorRT，其他后端会明确拒绝。"
+            })
+        End Function
+
         Private Sub BuildTabs()
             _tabs.Dock = DockStyle.Fill
             _tabs.ContentBackColor = Color.Transparent
@@ -1787,28 +2502,7 @@ Namespace videoenhancer
             BuildOfficialModelDownloadPage()
             BuildOfficialConverterPage()
             BuildOfficialImporterPage()
-            BuildMarkdownPage(_pageTutorial,
-                "# 快速上手" & Environment.NewLine & Environment.NewLine &
-                "## 1. 连接处理程序" & Environment.NewLine &
-                "在 **超分主界面** 指定 `videoenhancer.exe`，然后开启插件。" & Environment.NewLine & Environment.NewLine &
-                "## 2. 选择处理模式" & Environment.NewLine &
-                "- 开启 **视频超分**，选择推理后端和放大模型。" & Environment.NewLine &
-                "- 开启 **运动补帧**，选择 RIFE 模型与倍率；可与超分同时开启。" & Environment.NewLine &
-                "- **组合处理顺序**只有在视频超分和运动补帧同时开启时才可选择；关闭任一功能后，该选项会自动变灰。" & Environment.NewLine &
-                "- **画质优先：先超分，再补帧。** 默认使用该顺序，同一后端在单进程内按帧完成。" & Environment.NewLine &
-                "- **速度/算力优先：先补帧，再超分。** 同后端时使用后端原生单程管线；先超分再补帧时使用内置帧传递包装器，均不会生成整段中间视频。" & Environment.NewLine &
-                Environment.NewLine &
-                "## 3. 同后端与跨后端" & Environment.NewLine &
-                "- 当超分后端和补帧后端相同时，两阶段在同一个 RVE 进程内逐帧传递；最终只按一次用户选择的编码器输出，不会为改变顺序生成整段临时视频。" & Environment.NewLine &
-                "- 当两者后端不同时，程序会分成两个阶段，并在输出目录生成隐藏的 `.videoenhancer-*.mkv` 临时文件。该文件使用 RGB FFV1 无损编码：SDR 为 `gbrp10le`，检测到 PQ/HLG HDR 时为 `gbrp16le`，音频和字幕直接复制。" & Environment.NewLine &
-                "- 跨后端临时文件只在阶段切换期间存在，任务成功、失败或中止后都会自动清理；处理前仍需为它预留可用磁盘空间，4K/高帧率素材会明显增大。FFV1 是阶段间的无损传递，不是最终输出编码。" & Environment.NewLine &
-                "- 当前 RVE 2.4.1 的 SDR 帧管线固定使用 8-bit `rgb24`；最终选择 `yuv420p10le` 只控制输出编码格式，不会把内部推理提升为原生 10-bit。跨后端的 `gbrp10le` FFV1 能无损保存第一阶段已经产生的帧，但不能恢复输入在读帧时丢失的 10/12-bit 精度。" & Environment.NewLine &
-                "- PQ/HLG HDR 使用 16-bit `rgb48le` 帧管线，目前只允许 CUDA/PyTorch 或 TensorRT。NCNN、ONNX 和 FlashVSR 不具备完整 HDR 帧能力，程序会明确中止，避免静默降为 SDR。" & Environment.NewLine &
-                Environment.NewLine &
-                "## 4. 加入编码队列" & Environment.NewLine &
-                "回到 3FUI 准备文件并加入队列，插件会自动通过 CLI 中转。" & Environment.NewLine & Environment.NewLine &
-                "## 5. 查看输出" & Environment.NewLine &
-                "在 **实时预览** 查看处理中或已完成的帧。")
+            BuildMarkdownPage(_pageTutorial, BeginnerTutorialMarkdown())
 
             For Each page As Panel In New Panel() {
                 _pageUpscale, _pagePreview, _pageDownloader,
@@ -4951,7 +5645,7 @@ Namespace videoenhancer
                 .TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft,
                 .Text = "<font color=#DCDCDC><b>支持格式</b></font>　" &
                         "<font color=#A8A8A8>PTH / PT / CKPT / SAFETENSORS / ONNX / NCNN PARAM+BIN / ZIP / 7Z / RAR</font><br/>" &
-                        "<font color=#888888>补帧仅接受能识别为 RIFE、GMFSS 或 GIMM 的权重；TensorRT 能力按实际架构过滤。</font>"
+                        "<font color=#888888>补帧仅接受能识别为 RIFE、GMFSS 或 GIMM 的权重；双击用户模型可修正能力，选中后按 Delete 或右键可删除。</font>"
             }
             root.Controls.Add(formats, 0, 2)
 
@@ -5035,7 +5729,7 @@ Namespace videoenhancer
             _importModelList.ScrollBarThumbColor = Color.FromArgb(72, 72, 72)
             _importModelList.ScrollBarThumbHoverColor = Color.FromArgb(104, 104, 104)
             _importModelList.Columns.AddRange(New UltraDetailListView.ListColumn() {
-                New UltraDetailListView.ListColumn("用户模型（双击修正能力）", 300),
+                New UltraDetailListView.ListColumn("用户模型（双击修正 / Delete 删除）", 300),
                 New UltraDetailListView.ListColumn("架构", 150),
                 New UltraDetailListView.ListColumn("用途", 110),
                 New UltraDetailListView.ListColumn("倍率", 70),
@@ -5043,6 +5737,9 @@ Namespace videoenhancer
                 New UltraDetailListView.ListColumn("格式", 100)
             })
             AddHandler _importModelList.ItemDoubleClick, AddressOf OnImportModelDoubleClick
+            AddHandler _importModelList.KeyDown, AddressOf OnImportModelListKeyDown
+            AddHandler _importModelList.PreviewKeyDown, AddressOf OnImportModelListPreviewKeyDown
+            AddHandler _importModelList.MouseDown, AddressOf OnImportModelListMouseDown
             AddHandler _importModelList.ClientSizeChanged,
                 Sub(sender, e)
                     If _importModelList.Columns.Count = 0 Then Return
@@ -5115,6 +5812,129 @@ Namespace videoenhancer
             If model Is Nothing Then Return
             ShowUserModelCapabilityEditor(model)
         End Sub
+
+        Private Sub OnImportModelListPreviewKeyDown(sender As Object, e As PreviewKeyDownEventArgs)
+            If e.KeyCode = Keys.Delete Then e.IsInputKey = True
+        End Sub
+
+        Private Sub OnImportModelListKeyDown(sender As Object, e As KeyEventArgs)
+            If e.KeyCode <> Keys.Delete OrElse e.Modifiers <> Keys.None Then Return
+            e.Handled = True
+            e.SuppressKeyPress = True
+            Dim item = _importModelList.SelectedItem
+            Dim model = TryCast(If(item Is Nothing, Nothing, item.Tag), UserModelItem)
+            If model Is Nothing Then Return
+            DeleteUserModelWithConfirmation(model)
+        End Sub
+
+        Private Sub OnImportModelListMouseDown(sender As Object, e As MouseEventArgs)
+            If e.Button <> MouseButtons.Right OrElse _modelImportBusy Then Return
+            Dim item = _importModelList.GetItemAt(e.X, e.Y)
+            Dim model = TryCast(If(item Is Nothing, Nothing, item.Tag), UserModelItem)
+            If model Is Nothing Then
+                CloseUserModelContextMenu()
+                Return
+            End If
+            Dim index = _importModelList.Items.IndexOf(item)
+            If index >= 0 Then _importModelList.SelectedIndex = index
+            ShowUserModelContextMenu(model, e.Location)
+        End Sub
+
+        Private Sub CloseUserModelContextMenu()
+            Dim menu = _userModelContextMenu
+            _userModelContextMenu = Nothing
+            _contextUserModel = Nothing
+            If menu IsNot Nothing Then
+                Try
+                    menu.Close()
+                Catch
+                End Try
+            End If
+        End Sub
+
+        Private Sub ShowUserModelContextMenu(model As UserModelItem, location As Point)
+            If model Is Nothing Then Return
+            CloseUserModelContextMenu()
+            Dim menu As New ModernContextMenu()
+            ConfigureModelMenu(menu, reserveIconColumn:=False)
+            Dim deleteItem As New ModernContextMenu.ModernMenuItem("删除用户模型") With {
+                .CloseOnClick = True,
+                .ForeColor = UiDanger
+            }
+            AddHandler deleteItem.Click,
+                Sub(sender As Object, e As EventArgs)
+                    Dim target = _contextUserModel
+                    CloseUserModelContextMenu()
+                    DeleteUserModelWithConfirmation(target)
+                End Sub
+            menu.Items.Add(deleteItem)
+            _contextUserModel = model
+            _userModelContextMenu = menu
+            menu.Show(_importModelList, location)
+        End Sub
+
+        Private Async Sub DeleteUserModelWithConfirmation(model As UserModelItem)
+            If model Is Nothing OrElse _modelImportBusy Then Return
+            Dim question = "确定删除用户模型“" & model.DisplayName & "”？" & Environment.NewLine &
+                "将删除 models\\User 中的安装文件/目录和能力清单记录。" & Environment.NewLine &
+                "删除后无法通过本页恢复。" & Environment.NewLine & Environment.NewLine &
+                "路径：" & model.RelativePath
+            If MessageBox.Show(Me, question, "删除用户模型", MessageBoxButtons.YesNo,
+                               MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) <> DialogResult.Yes Then Return
+
+            Dim exePath = PluginConfig.ResolveInstalledExePath(_config.ExePath)
+            If String.IsNullOrWhiteSpace(exePath) OrElse Not File.Exists(exePath) Then
+                _lblImportStatus.Text = "<font color=#EB5D5D>删除失败：找不到 videoenhancer.exe</font>"
+                Return
+            End If
+            _modelImportBusy = True
+            _lblImportStatus.Text = "<font color=#479CFF>正在删除用户模型…</font>"
+            Try
+                Dim errorText = Await Task.Run(Function() RunUserModelDelete(exePath, model.Id))
+                If errorText.Length > 0 Then
+                    _lblImportStatus.Text = "<font color=#EB5D5D>删除失败：" & EscapeHtml(errorText) & "</font>"
+                    ShowStatus("用户模型删除失败：" & errorText, True)
+                    Return
+                End If
+                RefreshModels()
+                LoadUserModels()
+                _lblImportStatus.Text = "<font color=#3FCD87>已删除用户模型，并刷新工作台模型列表</font>"
+                ShowStatus("已删除用户模型：" & model.DisplayName, False)
+            Catch ex As Exception
+                _lblImportStatus.Text = "<font color=#EB5D5D>删除失败：" & EscapeHtml(ex.Message) & "</font>"
+                ShowStatus("用户模型删除失败：" & ex.Message, True)
+            Finally
+                _modelImportBusy = False
+            End Try
+        End Sub
+
+        Private Shared Function RunUserModelDelete(exePath As String, id As String) As String
+            Try
+                Dim psi As New ProcessStartInfo With {
+                    .FileName = exePath, .UseShellExecute = False, .RedirectStandardOutput = True,
+                    .RedirectStandardError = True, .CreateNoWindow = True,
+                    .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
+                }
+                psi.ArgumentList.Add("--delete-user-model")
+                psi.ArgumentList.Add(id)
+                Using child = Diagnostics.Process.Start(psi)
+                    If child Is Nothing Then Return "无法启动用户模型删除进程"
+                    Dim stdout = child.StandardOutput.ReadToEnd()
+                    Dim stderr = child.StandardError.ReadToEnd()
+                    If Not child.WaitForExit(30000) Then
+                        Try
+                            child.Kill(entireProcessTree:=True)
+                        Catch
+                        End Try
+                        Return "用户模型删除进程超时"
+                    End If
+                    If child.ExitCode <> 0 Then Return LastNonEmptyLine(If(String.IsNullOrWhiteSpace(stderr), stdout, stderr))
+                End Using
+                Return ""
+            Catch ex As Exception
+                Return ex.Message
+            End Try
+        End Function
 
         Private Sub ShowUserModelCapabilityEditor(model As UserModelItem)
             Using dialog As New Form With {
@@ -6064,6 +6884,8 @@ Namespace videoenhancer
 
         Protected Overrides Sub Dispose(disposing As Boolean)
             If disposing Then
+                CloseModelMenuToolTip()
+                CloseUserModelContextMenu()
                 StopEnvironmentCheck(5000)
                 ' LakeUI 3.22.0 在 TabControl 隐藏时会重新显示当前绑定页。
                 ' 先解除绑定，避免父窗体销毁期间访问已经 Dispose 的 ModernPanel。

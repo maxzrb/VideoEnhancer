@@ -1,17 +1,42 @@
 # Project Status
 
-Last updated: 2026-08-26 19:02
+Last updated: 2026-08-27 18:06
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 完成 VideoEnhancer 1.1.2 正式发布并记录可交接状态。
-- Current state: 1.1.2 已提交、推送到 `fork/main` 并发布到 GitHub、ModelScope Releases 和模型页备用路径；Backend 2026.08.26.1 严格审计无变化，未上传后端包。
+- Current objective: 发布 1.1.3，包含模型导入删除、模型菜单说明、选项滚轮锁定和使用教程改动。
+- Current state: `main` 已从 `26c795c` 快进到 `30bf203`，与 `fork/main` 一致；1.1.3 版本源、Release Notes、候选 EXE/DLL 和版本记录已更新。Backend 2026.08.26.1 逐文件审计为 0 变化，CLI/插件、全量测试、安装器/更新器门禁均通过；GitHub/ModelScope 尚未上传，当前工作树待提交。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 用户可从 3FUI 检查更新升级到 1.1.2；若本机 3FUI 仍运行，退出后再验证新 EXE/DLL 和半精度开关。
+- Next recommended step: 将已核对的 1.1.3 发布提交推送到 `fork/main`，创建 GitHub Release 并同步 ModelScope，完成双源回读后再更新最终发布记录。
 
 ## Active TODO
+
+- [ ] Task: 发布 1.1.3。
+  - Owner: Codex
+  - Status: 本地候选包已生成并通过安装器/更新器门禁；Backend 2026.08.26.1 无变化，尚未创建提交、GitHub Release 或 ModelScope 同步。
+  - Relevant files: `VideoEnhancerPlugin/PluginVersion.vb`, `cli/VideoEnhancer.csproj`, `release/release-notes.txt`, `version/版本迭代记录.md`
+  - Verification: 候选 EXE 16,877,605 bytes，SHA-256 `1072597b536b14b3dc873f36a594142317bb928e3f838af0db2e8917130db81d`；`stable.json` 版本、路径、大小和哈希一致。
+
+- [x] Task: 为用户模型增加 Delete 键和右键删除。
+  - Owner: Codex
+  - Status: 已新增 `--delete-user-model`，删除前二次确认，删除成功后刷新用户清单和工作台模型菜单；CLI 隔离目录实测通过。
+  - Relevant files: `cli/UserModelCatalog.cs`, `cli/Program.cs`, `VideoEnhancerPlugin/PluginPanel.vb`, `VideoEnhancerPlugin/README.md`
+  - Verification: 全量 Python 测试 18/18；CLI 与插件构建成功；安装版 `--help` 已暴露删除参数；真实 3FUI 目录 DLL/CLI 哈希与构建产物一致。
+
+
+- [ ] Task: 在真实 3FUI 中验证模型菜单布局与悬浮提示。
+  - Owner: user / Codex
+  - Status: 源码构建、93 项内置简介覆盖、教程文案收敛、滚轮锁定控件和已安装 DLL 反射探针均通过；尚未在真实宿主中用鼠标确认提示位置、换项、关闭行为和滚轮体验。
+  - Relevant files: `VideoEnhancerPlugin/PluginPanel.vb`
+  - Notes/blockers: 当前自定义 `ModernContextMenu` 没有公开的菜单项 Tooltip 属性，提示控制器通过当前 LakeUI `MenuPopupForm` 的私有布局信息定位悬停项；滚轮锁定通过 `WheelLockedComboBox.WndProc` 拦截 `WM_MOUSEWHEEL/WM_MOUSEHWHEEL`，LakeUI 版本变化后需重新核对。
+
+- [x] Task: 排查 RVE 对 OpenModelDB 600 余个模型的支持情况。
+  - Owner: Codex
+  - Status: 已基于 OpenModelDB 官方 671 模型快照、本机 RVE/Spandrel 注册表、CLI 发现规则、RGB/ONNX 输入契约和现有代表模型运行证据完成审计。
+  - Relevant files: `docs/openmodeldb-rve-support-audit.md`, `cli/Program.cs`，安装后端 `src/pytorch/UpscaleModelWrapper.py`、`src/onnx/UpscaleONNX.py`
+  - Notes/blockers: 620 是静态兼容上限，不是 620 个权重逐一实跑；当前设备无 NVIDIA，19 个 ONNX-only 候选和大规模 TensorRT 仍需后续实机矩阵。
 
 - [x] Task: 发布 1.1.2。
   - Owner: user / Codex
@@ -154,6 +179,16 @@ Updated by: Codex
 
 ## Recently Completed
 
+- 2026-08-27 16:57: 按反馈将内置页标题改为“使用教程”，删除模型简介和教程中的短片、试片、几秒素材及 A/B 对比表述；重新构建并部署 DLL，已安装文案探针通过。
+
+- 2026-08-27 16:35: 模型提示已按具体模型和变体给出用途、倍率、资源取向与试用建议；全部 93 个内置能力条目命中专用描述规则。所有插件选项框改用 `WheelLockedComboBox`，关闭状态滚轮不再改变单选值；内置教程扩展为 5,168 字符的逐步说明。
+
+- 2026-08-27 16:05: 已将最新模型菜单插件 DLL 部署到 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll`；3FUI 主进程未运行，部署后文件为 4,635,136 bytes，SHA-256 与构建产物一致。
+
+- 2026-08-27 15:54: 一级模型分类菜单关闭无用图标列，二级模型菜单保留勾选列；内置模型项增加 LakeUI 悬浮提示，包含用途简介、倍率和支持后端。
+
+- 2026-08-25 19:46: 完成 OpenModelDB 671 个模型兼容审计：当前架构覆盖 633 个，按 RGB/格式/ONNX 契约的综合静态上限约 620 个，明确缺口 51 个；详细名单见 `docs/openmodeldb-rve-support-audit.md`。
+
 - 2026-08-25 20:16: 完成当前 93 个模型的输入尺寸依赖调查与能力清单接入；ONNX 奇数尺寸探针覆盖 28 项，PTH 奇数尺寸探针覆盖 42 项；修补后的 RealHatGAN 35x33、50x47 CUDA 通过，1920x1080 单帧在本机实验性 128 分块下输出尺寸正确。默认分块未写死。
 
 - 2026-08-25 00:35: RTX 3060 代表模型矩阵收口：578 项中 576 通过、2 项 FlashVSR + GIMM 因 6GB OOM 跳过、0 功能失败；BasicVSR++ 跨后端入口修复后 12/12 组合通过，正式 EXE 与发布产物哈希一致。
@@ -286,7 +321,7 @@ Updated by: Codex
 
 - Current known environment: Windows PowerShell，工作区 `C:\Codex Program\3fui plugin`；Git 2.55.0、.NET SDK 10.0.400、系统 Python 3.14.6、uv Python 3.13.14、FFmpeg 8.1.2、GitHub CLI 2.93.0、ModelScope CLI 1.39.1。
 - GPU: NVIDIA GeForce RTX 3060 Laptop GPU，驱动 610.88，显存 6144 MiB。3FUI 插件目录已具备当前 Python 后端和补帧模型；已完成短样本 RIFE heavy 与 GMFSS Base CUDA 实际推理，TensorRT 和完整视频仍待验证。
-- 3FUI: 安装路径 `C:\Program portable\3FUI\3FUI`，版本 6.1.39（commit `642ddf4`）；开发程序集缓存位于 `%LocalAppData%\VideoEnhancerDev\FFmpegFreeUI.6.1.39.extracted`，当前插件源码编译通过。
+- 3FUI: 安装路径 `C:\Program portable\3FUI`，版本 6.1.39（commit `642ddf4`）；实际插件目录为 `C:\Program portable\3FUI\plugin`，开发程序集缓存位于 `%LocalAppData%\VideoEnhancerDev\FFmpegFreeUI.6.1.39.extracted`，当前插件源码编译通过。
 - Authentication: GitHub CLI 已登录 `maxzrb`；ModelScope CLI 已安装并加入用户 PATH，但此设备尚未登录。不要把 Token 写入仓库。
 - Local-only note: 解析回归辅助文件 `C:\Program portable\3FUI\3FUI\plugin\videoenhancer-resolver-test.exe` 因终端安全策略拒绝删除而保留；3FUI 配置仍指向正式 `videoenhancer.exe`，不会加载该测试副本。CUDA 回归样本及 `output-gmfss-base.mkv` 位于 `%TEMP%\videoenhancer-cuda-scene-test`，同样未绕过终端策略强制清理。补帧能力缓存位于 `%LocalAppData%\VideoEnhancer\cache\interpolation-capabilities-v1.json`。
 - Recheck required before: 3FUI/LakeUI 版本变化后重新提取宿主程序集；真实 TRT 测试前确认 CUDA/TensorRT/Torch-TensorRT 与当前驱动兼容。
@@ -329,12 +364,12 @@ Updated by: Codex
 
 - Git repository: 根目录 yes
 - Branch: `main`，跟踪 `fork/main`
-- Last known commit: `7030ba1 docs: record backend upload and GPU handoff`
+- Last known commit: `30bf203 docs: record 1.1.2 release`
 - Remote topology: `fork=https://github.com/maxzrb/VideoEnhancer.git`；`origin=https://github.com/user-Wing/VideoEnhancer.git`。
-- Upstream relation: 修复前 `main` 与 `fork/main` 一致；独立维护线不直接合并或推送原作者 `origin`。
-- Uncommitted changes: `cli/Program.cs`、`docs/codex/STATUS.md`、`version/工作进度.md`。
-- Working tree clean: no，本轮模型解析修复和记录待提交。
-- Commit recommended before switching agents/devices: yes；解析修复应作为独立提交，验证后再决定是否推送 `fork/main`。不得发布 1.0.8。
+- Upstream relation: `main` 跟踪独立维护线 `fork/main`；本次仅快进同步 `fork/main`，未合并或推送原作者 `origin`。
+- Uncommitted changes: `VideoEnhancerPlugin/PluginPanel.vb`、`docs/openmodeldb-rve-support-audit.md`（未跟踪）、`docs/codex/STATUS.md`、`version/工作进度.md`。
+- Working tree clean: no；运行代码已与 `fork/main` 同步，模型菜单改动、审计文件和 HandShake 记录待提交。
+- Commit recommended before switching agents/devices: yes；建议真实 3FUI 回归后审核并将本次源码与记录作为提交推送到 `fork/main`。
 
 ## Session Log
 
@@ -1337,3 +1372,61 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Release assets: GitHub Release `v1.1.2` 已创建为正式、非草稿、非预发布；ModelScope `AerithDream/VideoEnhancer-Releases` 已同步版本化 EXE、stable.json 和 README，`AerithDream/VideoEnhancer-Models/Plugin/videoenhancer.exe` 已同步备用 EXE。EXE 16,878,865 bytes，SHA-256 `da4bbd96d2f21792c1b85abb1c185e2366e766b7131d8e8f2cc2379abb754605`；stable.json 718 bytes，SHA-256 `cecb2247cf80e8ca75f8bca9817007ef5680fe79ade58c589bb8b4065bb4b55a`。GitHub 资产摘要和 ModelScope stable.json 完全一致，模型页备用 EXE HEAD 返回 200/16,878,865 bytes。
 - Verification: 正式脚本重新完成插件/CLI 构建；2 个既有 CA1416 警告、无错误；安装器五场景、更新器 7 场景、Backend 事务 6/6、发布门禁 5/5、有序管线 8/8 和 `git diff --check` 通过。脚本中更新器故意注入的冲突/占用错误均属于预期测试输出，最终 PASS 哨兵完整出现。
 - Git/local: 当前分支 `release/1.1.2`，`fork/main` 和 `v1.1.2` 均指向 `a5047c5`；工作树在记录更新前干净，发布生成目录由 Git 忽略。当前 3FUI 进程仍可能占用本机安装 DLL，未强制关闭用户进程；用户升级时由正常更新流程处理。
+
+### 2026-08-27 15:28 - Codex
+
+- Objective: 同步远端最新独立主线，并保留此前本地 OpenModelDB 兼容审计记录。
+- Orientation: 已读取 `AGENTS.md`、`CLAUDE.md`、`docs/codex/INDEX.md`、`docs/codex/STATUS.md` 及 HandShake 启动/冲突/收尾规则；本次为 Codex 继续现有项目会话。
+- Git sync: 首次 `git pull --ff-only` 已抓取 `fork/main` 的 `30bf203`，但因本地两份记录和未跟踪审计文件未提交而中止；随后创建 `stash@{0}` 保护本地内容，快进 `26c795c..30bf203` 成功，再恢复审计文件和进度记录。未合并原作者 `origin`，未执行破坏性 Git 操作。
+- Remote changes: 同步 7 个远端提交，包含 1.1.1/1.1.2 发布记录、半精度控制及相关模型能力/用户模型目录更新；当前 `HEAD` 与 `fork/main` 均为 `30bf203`。
+- Preserved files: `docs/openmodeldb-rve-support-audit.md` 已保留；`docs/codex/STATUS.md` 与 `version/工作进度.md` 已合并本地审计摘要和本次同步记录。恢复过程中出现的 `.baiduyun.uploading.cfg` 为同步软件临时文件，复核结束时未残留。
+- Verification: 已通过 `git status --short --branch`、`git branch --show-current`、`git log -1 --oneline --decorate` 核对分支、工作树和提交；本轮未运行构建或业务测试，因为仅进行 Git 同步和文档记录整理。
+- Git status: `main` 与 `fork/main` 已同步；当前仅审计文件和两份 HandShake 记录待提交。临时保护 stash 在确认记录完整后应删除；提交前建议执行 `git diff --check`。
+- Next: 审核并提交审计文件及两份记录；实现阶段继续按审计报告处理 `.safetensors/.ckpt` 发现、元数据预检和 19 个 ONNX-only 候选。
+
+### 2026-08-27 15:54 - Codex
+
+- Objective: 按用户反馈优化模型菜单空白区域，并为内置模型补充悬浮简介。
+- Changes: `VideoEnhancerPlugin/PluginPanel.vb` 将一级 `ModernContextMenu` 的 `IconSize` 设为 `0`，二级模型菜单保留 `IconSize=24` 和 `CheckMarkSize`；新增按模型架构/名称生成简介、倍率和支持后端信息的提示文本。
+- LakeUI integration: 当前 `ModernContextMenu.ModernMenuItem` 没有公开 Tooltip 属性，因此使用 LakeUI `FloatingToolTipForm`；控制器按悬停的 `MenuPopupForm`、私有项目索引和项目区域显示对应模型提示，菜单关闭或插件销毁时释放。
+- Verification: `VideoEnhancerPlugin\build.ps1 -HostBin C:\Users\maxzr\AppData\Local\Temp\FFmpegFreeUI.6.1.39.extracted -SkipInstall` 成功；成品 DLL 探针确认一级 `IconSize=0`、二级 `IconSize=24`/`CheckMarkSize=10`，AniSD 内置项提示文本完整，提示控制器构造/关闭成功；`git diff --check` 通过。
+- Files: 修改 `VideoEnhancerPlugin/PluginPanel.vb`，并更新 `docs/codex/STATUS.md`、`version/工作进度.md`；项目版本与发布资产未变化。
+- Remaining: 尚未在真实 3FUI 中目视确认一级菜单左移、二级勾选、提示位置和菜单切换时的隐藏行为；当前 `main` 与 `fork/main` 均为 `30bf203`，工作树包含本轮源码及记录待提交。
+- Next: 用户实机回归通过后提交；若 LakeUI 升级，重新核对 `MenuPopupForm` 的悬停索引/区域成员。
+
+### 2026-08-27 16:05 - Codex
+
+- Objective: 按用户要求将模型菜单布局与悬浮提示改动放入本机 3FUI。
+- Deployment: 已把仓库构建产物 `videoenhancer.3fui.dll` 复制到实际插件目录 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll`；根目录中旧的同名 DLL 未作为当前插件目录覆盖目标。
+- Safety: 部署前确认没有 `FFmpegFreeUI.exe`/`3FUI.exe` 主进程运行，因此未强制结束用户进程。
+- Verification: 部署前源文件为 4,635,136 bytes，部署后目标文件同为 4,635,136 bytes；源/目标 SHA-256 均为 `B49BA31904E911EA04B2A5829B31528DB07D14416BF2AD6A5C5E69CDA2F4C365`。
+- Git: `main` 与 `fork/main` 仍为 `30bf203`；工作树仍包含 `VideoEnhancerPlugin/PluginPanel.vb`、OpenModelDB 审计文件和两份 HandShake 记录的未提交改动。部署目标在仓库外，不改变 Git 状态。
+- Next: 启动 3FUI，打开超分/补帧模型菜单，确认一级文字左移、二级勾选和模型提示的显示/隐藏；回归通过后审核并提交源码与记录。
+
+### 2026-08-27 16:35 - Codex
+
+- Objective: 按用户反馈完善模型说明、单选下拉框交互和内置使用教程，并把最新版本放入本机 3FUI。
+- Model descriptions: 重写 `ModelIntroduction`，按 AnimeJaNai、AniSD、RealESRGAN 各倍率/题材、RealHatGAN 输入约束、Waifu2x 去噪级别、Nomos8k 强弱、AniToon L/S、APISR、RIFE/GMFSS/GIMM 等具体模型或变体给出差异化用途和选择建议；不再使用“Real-ESRGAN 系列按名称区分用途”模板。93/93 个内置能力条目均命中专用规则。
+- Combo behavior: 新增 `WheelLockedComboBox`，所有 13 个插件选项框在关闭状态拦截垂直/水平鼠标滚轮消息；LakeUI 独立下拉列表仍可在打开后的列表窗口内滚动。覆盖推理后端、补帧后端、补帧倍率、转场阈值以及其他单选项。
+- Tutorial: 将内置“使用教程”改为 5,168 字符的小白手册，逐步说明程序路径、模型下载/导入、后端匹配、模型选择、半精度、分块、补帧倍率、转场阈值、组合顺序、试片和常见故障。
+- Verification: `VideoEnhancerPlugin\\build.ps1 -HostBin C:\\Users\\maxzr\\AppData\\Local\\Temp\\FFmpegFreeUI.6.1.39.extracted -SkipInstall` 成功；源 DLL 与实际安装 DLL 均通过反射探针，93/93 简介非空且无旧模板，教程内容完整，滚轮覆盖和 13 个字段类型正确。最新安装 DLL 为 4,658,176 bytes，SHA-256 `5FD9B0B2BF85C7B02BB5EA7C03C927707CF5EC9DD34E6B5DEB19735FF9BEAA0C`。
+- Git/local: 部署前确认 `FFmpegFreeUI.exe`/`3FUI.exe` 未运行，已直接覆盖 `C:\\Program portable\\3FUI\\plugin\\videoenhancer.3fui.dll`；`main` 与 `fork/main` 仍为 `30bf203`，工作树包含源码、OpenModelDB 审计文件和两份记录的未提交改动。
+- Next: 启动真实 3FUI 做鼠标和教程视觉回归；通过后审核并提交源码与记录，若 LakeUI 升级则重新核对菜单私有布局和滚轮消息行为。
+
+### 2026-08-27 16:57 - Codex
+
+- Objective: 按用户反馈收敛模型提示和教程措辞。
+- Changes: 将内置 Markdown 页标题从“小白使用教程”改为“使用教程”；删除模型简介和教程中的短片、试片、几秒素材、A/B 对比等建议，仅保留模型适用条件、参数含义和操作步骤。
+- Verification: 重新执行插件构建；已安装 DLL 反射探针确认教程标题为 `# 使用教程`，93 个内置模型简介均不含上述措辞，教程长度为 5,116 字符；`git diff --check` 通过。
+- Deployment: 最新 DLL 已覆盖 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll`，大小 4,657,664 bytes，SHA-256 `FBA27AC1EAA05B4D86BAE3D197B7F7B482AFEE26AFF820DAFF8EA4FCB765441D`；部署前确认 3FUI 主进程未运行。
+- Git: `main` 与 `fork/main` 仍为 `30bf203`；工作树包含 `VideoEnhancerPlugin/PluginPanel.vb`、OpenModelDB 审计文件和两份 HandShake 记录的未提交改动。
+- Next: 启动真实 3FUI 做一次菜单、滚轮和教程视觉回归；通过后审核并提交源码与记录。
+
+### 2026-08-27 17:42 - Codex
+
+- Objective: 为“模型导入”页补上用户模型删除能力。
+- Changes: `UserModelCatalog` 新增路径校验和临时目录回滚的事务式删除；CLI 新增 `--delete-user-model <ID>`；插件列表支持选中后按 `Delete`，右键显示 LakeUI “删除用户模型”菜单，确认后调用 CLI，并刷新用户模型列表、超分目录和补帧目录。导入页提示和插件 README 已同步操作方式，静态契约测试已同步更新。
+- Verification: `dotnet build cli\\VideoEnhancer.csproj -c Release --no-restore` 成功（0 错误、2 个既有 CA1416）；插件 `build.ps1 -HostBin C:\\Users\\maxzr\\AppData\\Local\\Temp\\FFmpegFreeUI.6.1.39.extracted -SkipInstall` 成功；全量 Python 测试 18/18；隔离模型目录实际删除后目录不存在、清单为空、再次列出为 `[]`；安装版 `--help` 暴露删除参数，版本为 1.1.2；`git diff --check` 通过。
+- Deployment: 执行 `cli\\build.ps1` 发布单文件 CLI，并在确认 3FUI/CLI 进程未运行后覆盖 `C:\\Program portable\\3FUI\\plugin\\videoenhancer.3fui.dll` 与 `C:\\Program portable\\3FUI\\plugin\\videoenhancer\\videoenhancer.exe`。DLL 源/目标 SHA-256 均为 `A23EBFD8A329C11A55C28DEF2BD6C7AC69D74E167D8DECE39836A8C8A58F7A7F`；CLI 源/目标均为 `5F276950F0048755B9198D4C6000190CEB9F2C6EAA4F5142CD1BA2204BBFF4EB`。
+- Git: `main` 与 `fork/main` 仍为 `30bf203`；工作树不干净，包含本轮删除功能源码/README/测试和此前的 `PluginPanel.vb`、OpenModelDB 审计文件及 HandShake 记录改动，未提交、未推送。
+- Next: 启动真实 3FUI 在模型导入页实测选中用户模型按 Delete、右键删除、取消确认、删除后工作台菜单刷新；确认后建议提交当前源码和记录。

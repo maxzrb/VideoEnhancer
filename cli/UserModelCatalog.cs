@@ -185,6 +185,123 @@ internal static class UserModelCatalog
         return record;
     }
 
+    /// <summary>删除用户模型文件及其能力清单记录；文件先移入临时目录，清单写入失败时恢复。</summary>
+    internal static UserModelRecord Delete(string modelsDirectory, string id)
+    {
+        var records = Load(modelsDirectory).ToList();
+        var record = records.FirstOrDefault(item => item.Id.Equals(id, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("未找到指定的用户模型");
+
+        var modelsRoot = Path.GetFullPath(modelsDirectory);
+        var userRoot = Path.GetFullPath(UserRoot(modelsDirectory))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var relative = NormalizeRelativePath(record.RelativePath, modelsRoot);
+        if (!relative.StartsWith("User/", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("用户模型路径不在 models\\User 目录中，已拒绝删除");
+
+        var installedPath = Path.GetFullPath(Path.Combine(
+            modelsRoot, relative.Replace('/', Path.DirectorySeparatorChar)));
+        var isDirectoryModel = record.Format.Equals("directory", StringComparison.OrdinalIgnoreCase)
+            || record.Format.Equals("ncnn", StringComparison.OrdinalIgnoreCase);
+        var modelContainer = isDirectoryModel
+            ? installedPath
+            : Path.GetDirectoryName(installedPath)!;
+        if (!IsPathInside(modelContainer, userRoot))
+            throw new InvalidOperationException("用户模型路径超出 models\\User 目录，已拒绝删除");
+
+        var containerRelative = Path.GetRelativePath(userRoot, modelContainer);
+        var containerSegments = containerRelative.Split(
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+            StringSplitOptions.RemoveEmptyEntries);
+        if (containerSegments.Length < 3 || containerSegments.Any(segment => segment == ".."))
+            throw new InvalidOperationException("用户模型路径层级异常，已拒绝删除");
+
+        var hasTarget = Directory.Exists(modelContainer) || File.Exists(modelContainer);
+        string? temporaryPath = null;
+        if (hasTarget)
+        {
+            var attributes = File.GetAttributes(modelContainer);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidOperationException("用户模型目录是符号链接或联接点，已拒绝递归删除");
+
+            temporaryPath = Path.Combine(userRoot, ".deleting-" + Guid.NewGuid().ToString("N"));
+            MovePath(modelContainer, temporaryPath);
+        }
+
+        var remaining = records.Where(item => !ReferenceEquals(item, record)).ToList();
+        try
+        {
+            Save(modelsRoot, remaining);
+        }
+        catch
+        {
+            if (temporaryPath is not null && (Directory.Exists(temporaryPath) || File.Exists(temporaryPath)))
+                MovePath(temporaryPath, modelContainer);
+            throw;
+        }
+
+        if (temporaryPath is not null)
+        {
+            try
+            {
+                DeletePath(temporaryPath);
+            }
+            catch (Exception cleanupError)
+            {
+                try
+                {
+                    Save(modelsRoot, records);
+                    if (Directory.Exists(temporaryPath) || File.Exists(temporaryPath))
+                        MovePath(temporaryPath, modelContainer);
+                }
+                catch (Exception rollbackError)
+                {
+                    throw new InvalidOperationException(
+                        "删除用户模型失败，且回滚也失败：" + rollbackError.Message, rollbackError);
+                }
+                throw new InvalidOperationException(
+                    "删除用户模型失败，模型文件可能正在使用或当前用户没有删除权限：" + cleanupError.Message,
+                    cleanupError);
+            }
+        }
+        return record;
+    }
+
+    private static bool IsPathInside(string path, string root)
+    {
+        var normalizedPath = Path.GetFullPath(path)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRoot = Path.GetFullPath(root)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void MovePath(string source, string destination)
+    {
+        if (Directory.Exists(source))
+        {
+            Directory.Move(source, destination);
+            return;
+        }
+        if (File.Exists(source))
+        {
+            File.Move(source, destination);
+            return;
+        }
+        throw new FileNotFoundException("待处理的用户模型文件不存在", source);
+    }
+
+    private static void DeletePath(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
+            return;
+        }
+        if (File.Exists(path)) File.Delete(path);
+    }
+
     private static string[] AllowedBackends(UserModelRecord record, string architecture)
     {
         var format = record.Format.ToLowerInvariant();

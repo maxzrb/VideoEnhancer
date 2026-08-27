@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-08-27 18:15
+Last updated: 2026-08-27 18:19
 Updated by: Codex
 
 ## Current Snapshot
 
 - Current objective: 完成 1.1.3 正式发布，包含模型导入删除、模型菜单说明、选项滚轮锁定和使用教程改动。
-- Current state: 1.1.3 提交 `5a7d309` 已推送到 `fork/main` 和 `fork/release/1.1.3`，GitHub `v1.1.3` Release、ModelScope Releases 稳定清单及 Models 备用 EXE 均已同步并回读一致。Backend 2026.08.26.1 逐文件审计为 0 变化，CLI/插件、全量测试、安装器/更新器门禁均通过；当前工作树待补最终发布记录。
+- Current state: 1.1.3 功能提交 `5a7d309` 和最终发布记录提交 `67c4a14` 已推送到 `fork/main` 与 `fork/release/1.1.3`，GitHub `v1.1.3` Release、ModelScope Releases 稳定清单及 Models 备用 EXE 均已同步并回读一致。Backend 2026.08.26.1 逐文件审计为 0 变化，CLI/插件、全量测试、安装器/更新器门禁均通过；本地 `main` 已对齐远端，工作树干净。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 提交最终发布记录，确认本地 `main` 与 `fork/main` 对齐并保持工作树干净；真实 3FUI 菜单鼠标交互仍由用户在本机确认。
+- Next recommended step: 用户在真实 3FUI 中确认菜单提示、二级勾选和关闭下拉框滚轮体验；如需切换工具或设备，当前提交已可直接接手。
 
 ## Active TODO
 

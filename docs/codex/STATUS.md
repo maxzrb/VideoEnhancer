@@ -1,23 +1,23 @@
 # Project Status
 
-Last updated: 2026-08-27 18:06
+Last updated: 2026-08-27 18:15
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 发布 1.1.3，包含模型导入删除、模型菜单说明、选项滚轮锁定和使用教程改动。
-- Current state: `main` 已从 `26c795c` 快进到 `30bf203`，与 `fork/main` 一致；1.1.3 版本源、Release Notes、候选 EXE/DLL 和版本记录已更新。Backend 2026.08.26.1 逐文件审计为 0 变化，CLI/插件、全量测试、安装器/更新器门禁均通过；GitHub/ModelScope 尚未上传，当前工作树待提交。
+- Current objective: 完成 1.1.3 正式发布，包含模型导入删除、模型菜单说明、选项滚轮锁定和使用教程改动。
+- Current state: 1.1.3 提交 `5a7d309` 已推送到 `fork/main` 和 `fork/release/1.1.3`，GitHub `v1.1.3` Release、ModelScope Releases 稳定清单及 Models 备用 EXE 均已同步并回读一致。Backend 2026.08.26.1 逐文件审计为 0 变化，CLI/插件、全量测试、安装器/更新器门禁均通过；当前工作树待补最终发布记录。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 将已核对的 1.1.3 发布提交推送到 `fork/main`，创建 GitHub Release 并同步 ModelScope，完成双源回读后再更新最终发布记录。
+- Next recommended step: 提交最终发布记录，确认本地 `main` 与 `fork/main` 对齐并保持工作树干净；真实 3FUI 菜单鼠标交互仍由用户在本机确认。
 
 ## Active TODO
 
-- [ ] Task: 发布 1.1.3。
+- [x] Task: 发布 1.1.3。
   - Owner: Codex
-  - Status: 本地候选包已生成并通过安装器/更新器门禁；Backend 2026.08.26.1 无变化，尚未创建提交、GitHub Release 或 ModelScope 同步。
+  - Status: 已创建提交、推送 `fork/main`、创建 GitHub Release，并同步 ModelScope Releases 与 Models 备用 EXE；Backend 2026.08.26.1 无变化。
   - Relevant files: `VideoEnhancerPlugin/PluginVersion.vb`, `cli/VideoEnhancer.csproj`, `release/release-notes.txt`, `version/版本迭代记录.md`
-  - Verification: 候选 EXE 16,877,605 bytes，SHA-256 `1072597b536b14b3dc873f36a594142317bb928e3f838af0db2e8917130db81d`；`stable.json` 版本、路径、大小和哈希一致。
+  - Verification: EXE 16,877,609 bytes，SHA-256 `16e1728a99a2ed568909bdc44df1c7df7cea7356a4135e7661e57a127859bf50`；stable.json 673 bytes，SHA-256 `0da8e3cb5e49a62b199c048a3ecac41f36d38db539c9cfdffa29c25ad3060276`；GitHub 资产摘要、ModelScope stable.json 和两处 ModelScope EXE 回读一致。
 
 - [x] Task: 为用户模型增加 Delete 键和右键删除。
   - Owner: Codex
@@ -1430,3 +1430,11 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Deployment: 执行 `cli\\build.ps1` 发布单文件 CLI，并在确认 3FUI/CLI 进程未运行后覆盖 `C:\\Program portable\\3FUI\\plugin\\videoenhancer.3fui.dll` 与 `C:\\Program portable\\3FUI\\plugin\\videoenhancer\\videoenhancer.exe`。DLL 源/目标 SHA-256 均为 `A23EBFD8A329C11A55C28DEF2BD6C7AC69D74E167D8DECE39836A8C8A58F7A7F`；CLI 源/目标均为 `5F276950F0048755B9198D4C6000190CEB9F2C6EAA4F5142CD1BA2204BBFF4EB`。
 - Git: `main` 与 `fork/main` 仍为 `30bf203`；工作树不干净，包含本轮删除功能源码/README/测试和此前的 `PluginPanel.vb`、OpenModelDB 审计文件及 HandShake 记录改动，未提交、未推送。
 - Next: 启动真实 3FUI 在模型导入页实测选中用户模型按 Delete、右键删除、取消确认、删除后工作台菜单刷新；确认后建议提交当前源码和记录。
+
+### 2026-08-27 18:15 - Codex
+
+- Objective: 正式发布 1.1.3，纳入用户模型删除、具体模型悬浮说明、关闭下拉框滚轮锁定和面向初学者的使用教程。
+- Release commit: 在 `release/1.1.3` 创建并提交 `5a7d309 release: 1.1.3`，先推送 `fork/release/1.1.3`，再将同一提交快进推送到 `fork/main`；远端 `v1.1.3` 标签指向该提交。
+- Build and gates: 官方 `release/build-modelscope-release.ps1` 以 Backend 2026.08.26.1 同目录审计，结果 `UNCHANGED`；重新完成插件/CLI 构建、全量 Python 测试 18/18、发布门禁 5/5、安装器五场景和更新器隔离测试，全部通过。构建仅有既有 2 条 CA1416 警告。
+- Assets: 发布 EXE 16,877,609 bytes，SHA-256 `16e1728a99a2ed568909bdc44df1c7df7cea7356a4135e7661e57a127859bf50`；stable.json 673 bytes，SHA-256 `0da8e3cb5e49a62b199c048a3ecac41f36d38db539c9cfdffa29c25ad3060276`。GitHub Release `https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.1.3` 为正式、非草稿、非预发布，包含版本 EXE 和 stable.json；ModelScope Releases 与 Models 备用 EXE 均上传成功，稳定 JSON、两处 EXE 的版本/路径/大小/哈希回读一致。
+- Git/worktree: 发布过程中本地 `main` 快进曾受百度同步临时占用影响，未终止同步进程；已通过远端快进完成主线发布。当前在 `release/1.1.3`，已开始补最终记录；后续需将记录提交并使本地 `main` 与 `fork/main` 对齐。真实 3FUI 鼠标交互仍待用户确认。

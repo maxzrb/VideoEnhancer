@@ -20,25 +20,10 @@ Namespace videoenhancer
     Public Class PluginPanel
         Inherits UserControl
 
-        ' 透明布局仍由 WinForms 负责尺寸计算，但在单个缓冲表面提交，
-        ' 避免窗口缩放时逐层擦除后再请求 LakeUI 背景源重画。
-        Private NotInheritable Class BufferedTableLayoutPanel
-            Inherits TableLayoutPanel
-
-            Public Sub New()
-                SetStyle(ControlStyles.SupportsTransparentBackColor Or
-                    ControlStyles.AllPaintingInWmPaint Or
-                    ControlStyles.OptimizedDoubleBuffer, True)
-                DoubleBuffered = True
-                ResizeRedraw = False
-                UpdateStyles()
-            End Sub
-        End Class
-
         ' 关闭状态的选项框不应因鼠标滚轮经过显示区域而悄悄改变配置。
         ' LakeUI 的下拉列表使用独立窗口，拦截这里的消息不会影响打开列表后的滚动。
         Private NotInheritable Class WheelLockedComboBox
-            Inherits ModernComboBox
+            Inherits LakeComboBox
 
             Private Const WmMouseWheel As Integer = &H20A
             Private Const WmMouseHWheel As Integer = &H20E
@@ -51,89 +36,11 @@ Namespace videoenhancer
             End Sub
         End Class
 
-        ' 参照 3FUI 参数页的普通 Panel 布局：正数为固定宽度，负数为剩余空间权重。
-        ' 这里只计算子控件边界，不额外创建透明绘图层。
-        Private NotInheritable Class HorizontalLayoutPanel
-            Inherits Panel
-
-            Private ReadOnly _columns As Single()
-            Private ReadOnly _columnByControl As New Dictionary(Of Control, Integer)()
-
-            Public Sub New(ParamArray columns As Single())
-                _columns = columns
-                Margin = Padding.Empty
-                Padding = Padding.Empty
-                ResizeRedraw = False
-            End Sub
-
-            Public Sub AddColumn(control As Control, columnIndex As Integer)
-                control.Dock = DockStyle.None
-                _columnByControl(control) = columnIndex
-                Controls.Add(control)
-            End Sub
-
-            Protected Overrides Sub OnLayout(levent As LayoutEventArgs)
-                MyBase.OnLayout(levent)
-                If _columns.Length = 0 Then Return
-
-                Dim fixedWidth As Single = 0
-                Dim totalWeight As Single = 0
-                For Each column In _columns
-                    If column >= 0 Then
-                        fixedWidth += column
-                    Else
-                        totalWeight += -column
-                    End If
-                Next
-
-                Dim available = Math.Max(0.0F, CSng(ClientSize.Width) - fixedWidth)
-                Dim left As Integer = 0
-                Dim widths(_columns.Length - 1) As Integer
-                For index = 0 To _columns.Length - 1
-                    Dim width = If(_columns(index) >= 0,
-                        _columns(index),
-                        If(totalWeight > 0, available * (-_columns(index)) / totalWeight, 0.0F))
-                    widths(index) = If(index = _columns.Length - 1,
-                        Math.Max(0, ClientSize.Width - left),
-                        Math.Max(0, CInt(Math.Round(width))))
-                    left += widths(index)
-                Next
-
-                left = 0
-                For index = 0 To widths.Length - 1
-                    For Each pair In _columnByControl
-                        If pair.Value <> index Then Continue For
-                        Dim margin = pair.Key.Margin
-                        If pair.Key.Anchor = AnchorStyles.None Then
-                            ' BooleanSwitch 等定尺寸控件保持 DPI 尺寸并在列内居中，避免被拉成圆形。
-                            Dim controlWidth = Math.Min(pair.Key.Width,
-                                Math.Max(0, widths(index) - margin.Horizontal))
-                            Dim controlHeight = Math.Min(pair.Key.Height,
-                                Math.Max(0, ClientSize.Height - margin.Vertical))
-                            pair.Key.SetBounds(
-                                left + Math.Max(0, (widths(index) - controlWidth) \ 2),
-                                Math.Max(0, (ClientSize.Height - controlHeight) \ 2),
-                                controlWidth,
-                                controlHeight)
-                        Else
-                            pair.Key.SetBounds(
-                                left + margin.Left,
-                                margin.Top,
-                                Math.Max(0, widths(index) - margin.Horizontal),
-                                Math.Max(0, ClientSize.Height - margin.Vertical))
-                        End If
-                    Next
-                    left += widths(index)
-                Next
-            End Sub
-        End Class
-
         ' 与官方 API 示例插件保持一致：#181818 背景、半透明灰控件、低饱和文字和单一蓝色强调。
         Private Shared ReadOnly UiCanvas As Color = Color.FromArgb(24, 24, 24)
         Private Shared ReadOnly UiSurface As Color = Color.FromArgb(40, 220, 220, 220)
         Private Shared ReadOnly UiSurfaceRaised As Color = Color.FromArgb(40, 220, 220, 220)
         Private Shared ReadOnly UiSurfaceHover As Color = Color.FromArgb(60, 220, 220, 220)
-        Private Shared ReadOnly UiStroke As Color = Color.Transparent
         Private Shared ReadOnly UiStrokeSoft As Color = Color.Transparent
         Private Shared ReadOnly UiAccent As Color = Color.FromArgb(71, 156, 255)
         Private Shared ReadOnly UiAccentHover As Color = Color.FromArgb(110, 71, 156, 255)
@@ -196,17 +103,18 @@ Namespace videoenhancer
         Private _uiReady As Boolean = False
         ' ── 选项卡分栏：超分主界面 / 实时预览 / 高级功能 / 模型转换器 ──
         Private ReadOnly _tabs As New ModernTabControl()
+        Private _upscaleRoot As ModernPanel
+        Private _upscaleRootSyncPending As Boolean
         ' 3FUI 通过字段名和控件名 ModernPanel1 绑定 LakeUI 背景穿透缓存。
         Private ReadOnly ModernPanel1 As New ModernPanel()
         Private ReadOnly _pageUpscale As New ModernPanel()
-        Private ReadOnly _pagePreview As New Panel()
-        Private ReadOnly _pageAdvanced As New Panel()
-        Private ReadOnly _pageDownloader As New Panel()
-        Private ReadOnly _pageConverter As New Panel()
-        Private ReadOnly _pageImporter As New Panel()
-        Private ReadOnly _pageTutorial As New Panel()
-        Private ReadOnly _markdownSources As New Dictionary(Of Panel, String)()
-        Private ReadOnly _markdownReady As New HashSet(Of Panel)()
+        Private ReadOnly _pagePreview As New ModernPanel()
+        Private ReadOnly _pageDownloader As New ModernPanel()
+        Private ReadOnly _pageConverter As New ModernPanel()
+        Private ReadOnly _pageImporter As New ModernPanel()
+        Private ReadOnly _pageTutorial As New ModernPanel()
+        Private ReadOnly _markdownSources As New Dictionary(Of ModernPanel, String)()
+        Private ReadOnly _markdownReady As New HashSet(Of ModernPanel)()
         ' ── 独立图片超分页（位于超分主界面内）──
         Private ReadOnly _btnImageFiles As New ModernButton()
         Private ReadOnly _btnImageFolder As New ModernButton()
@@ -220,14 +128,14 @@ Namespace videoenhancer
         Private ReadOnly _lblImageInputs As New HtmlColorLabel()
         Private ReadOnly _lblImageOutput As New HtmlColorLabel()
         Private ReadOnly _lblImageProgress As New HtmlColorLabel()
-        Private ReadOnly _imageProgress As New FluentProgressBar()
+        Private ReadOnly _imageProgress As New ExcellentProgressBar()
         Private ReadOnly _imageFiles As New List(Of String)()
         Private ReadOnly _imageFolders As New List(Of String)()
         Private _imageProcess As Process
         Private _imageRunning As Boolean
         Private _imageCompleteReceived As Boolean
         ' ── 实时预览页 ──
-        Private ReadOnly _picPreview As New PictureBox()          ' 原生 .NET 图片控件（修复预览不切换）
+        Private ReadOnly _picPreview As New PixelPictureBox()
         Private ReadOnly _cmbTask As New WheelLockedComboBox()         ' 多任务选择
         Private ReadOnly _lblTask As New HtmlColorLabel()
         Private ReadOnly _cmbRate As New WheelLockedComboBox()
@@ -235,7 +143,6 @@ Namespace videoenhancer
         Private ReadOnly _lblPreviewStatus As New HtmlColorLabel()
         Private ReadOnly _lblPreviewNote As New HtmlColorLabel()
         Private ReadOnly _lblRate As New HtmlColorLabel()
-        Private ReadOnly _lblAdvancedHint As New HtmlColorLabel()
         Private ReadOnly _btnQuad As New ModernButton()
         ' ── 模型转换器页 ──
         Private ReadOnly _lblConvertInput As New HtmlColorLabel()
@@ -581,6 +488,10 @@ Namespace videoenhancer
         Public Sub New(config As PluginConfig, Optional previewOnly As Boolean = False)
             _config = config
             Current = Me
+            If Not LakeUiV51Available() Then
+                InitializeCompatibilityErrorUi()
+                Return
+            End If
             InitializeUi()
             If previewOnly Then
                 _uiReady = True
@@ -663,9 +574,7 @@ Namespace videoenhancer
                 message &= Environment.NewLine & Environment.NewLine &
                     "下载完成并校验后会再次询问是否关闭并重启 3FUI。" & Environment.NewLine &
                     "现在下载更新包吗？"
-                If MessageBox.Show(Me, message, "发现新版本",
-                        MessageBoxButtons.YesNo, MessageBoxIcon.Information,
-                        MessageBoxDefaultButton.Button1) <> DialogResult.Yes Then Return
+                If Not ShowLakeConfirm(Me, message, "发现新版本", defaultYes:=True) Then Return
                 userAccepted = True
 
                 Dim installedExe = PluginConfig.ResolveInstalledExePath(_config.ExePath)
@@ -691,9 +600,7 @@ Namespace videoenhancer
                     "现在安装会关闭并重新启动 3FUI。" & Environment.NewLine &
                     "请先停止编码与视频处理任务，并保存尚未完成的操作。" & Environment.NewLine & Environment.NewLine &
                     "确定现在重启并安装吗？"
-                If MessageBox.Show(Me, restartMessage, "确认重启安装",
-                        MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
-                        MessageBoxDefaultButton.Button2) <> DialogResult.Yes Then
+                If Not ShowLakeConfirm(Me, restartMessage, "确认重启安装", defaultYes:=False) Then
                     ShowStatus("更新包已下载；已取消本次重启安装", False)
                     Return
                 End If
@@ -1052,6 +959,41 @@ Namespace videoenhancer
             If targetCatalog.Count > 0 Then
                 ShowStatus("已读取 " & targetCatalog.Count.ToString() & " 个" & If(interpolation, "补帧", "超分") & "模型，已按架构分组", False)
             End If
+        End Sub
+
+        ''' <summary>LakeUI 5.1 是本插件的最低 GPU 控件基线，允许后续 5.x 宿主版本。</summary>
+        Private Shared Function LakeUiV51Available() As Boolean
+            Try
+                Dim version = GetType(ModernPanel).Assembly.GetName().Version
+                Return version IsNot Nothing AndAlso version.Major = 5 AndAlso version.Minor >= 1
+            Catch
+                Return False
+            End Try
+        End Function
+
+        Private Sub InitializeCompatibilityErrorUi()
+            BackColor = UiCanvas
+            Dock = DockStyle.Fill
+            MinimumSize = New Size(640, 220)
+            ModernPanel1.Name = "ModernPanel1"
+            ModernPanel1.Dock = DockStyle.Fill
+            ModernPanel1.BackColor = Color.Transparent
+            ModernPanel1.BackColor1 = Color.Transparent
+            ModernPanel1.BorderSize = 0
+            Dim message As New HtmlColorLabel With {
+                .Dock = DockStyle.Fill,
+                .BackColor = Color.Transparent,
+                .BackColor1 = Color.Transparent,
+                .BorderSize = 0,
+                .Padding = New Padding(24),
+                .Font = New Font("Microsoft YaHei UI", 12.0F, FontStyle.Regular),
+                .ForeColor = UiDanger,
+                .TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft,
+                .Text = "<font color=#EB5D5D><b>无法加载视频超分插件</b></font><br/>" &
+                        "<font color=#C0C0C0>需要升级 3FUI/LakeUI 5.1 或更高版本后才能继续使用。</font>"
+            }
+            ModernPanel1.Controls.Add(message)
+            Controls.Add(ModernPanel1)
         End Sub
 
         Private Shared Function FallbackArchitecture(modelId As String) As String
@@ -2059,21 +2001,11 @@ Namespace videoenhancer
         ' ────────────────────────── UI ──────────────────────────
 
         Private Shared Function CreateTextLabel(text As String, fontSize As Single, style As FontStyle,
-                                                color As Color) As Label
-            Return New Label() With {
+                                                 color As Color) As LakeTextLabel
+            Return New LakeTextLabel() With {
                 .Text = text, .ForeColor = color, .BackColor = Color.Transparent,
                 .Font = New Font("Microsoft YaHei UI", fontSize, style),
-                .TextAlign = ContentAlignment.MiddleLeft, .AutoEllipsis = True
-            }
-        End Function
-
-        Private Shared Function CreateHtmlTextLabel(text As String, fontSize As Single, style As FontStyle,
-                                                    color As Color) As HtmlColorLabel
-            Return New HtmlColorLabel() With {
-                .Text = text, .ForeColor = color, .BackColor = Color.Transparent,
-                .BackColor1 = Color.Transparent, .BorderSize = 0,
-                .Font = New Font("Microsoft YaHei UI", fontSize, style),
-                .TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft, .AutoSize = False
+                .TextAlign = ContentAlignment.MiddleLeft, .AutoSize = False
             }
         End Function
 
@@ -2097,12 +2029,15 @@ Namespace videoenhancer
         End Function
 
         Private Shared Function CreateOfficialField(caption As String, editor As Control,
-                                                     Optional rightMargin As Integer = 12) As Control
-            Dim layout As New Panel With {
+                                                      Optional rightMargin As Integer = 12) As Control
+            Dim layout As New ModernPanel With {
                 .Margin = New Padding(0, 0, rightMargin, 0),
-                .Padding = Padding.Empty
+                .Padding = Padding.Empty,
+                .BackColor = Color.Transparent,
+                .BackColor1 = Color.Transparent,
+                .BorderSize = 0
             }
-            Dim label = CreateTextLabel(caption, 9.0F, FontStyle.Regular, UiTextMuted)
+            Dim label As LakeTextLabel = CreateTextLabel(caption, 9.0F, FontStyle.Regular, UiTextMuted)
             label.Dock = DockStyle.None
             label.Margin = New Padding(2, 0, 2, 0)
             label.TextAlign = ContentAlignment.BottomLeft
@@ -2123,43 +2058,12 @@ Namespace videoenhancer
             Return layout
         End Function
 
-        Private Shared Function CreateOfficialCaption(text As String, Optional color As Color = Nothing) As Label
+        Private Shared Function CreateOfficialCaption(text As String, Optional color As Color = Nothing) As LakeTextLabel
             Dim actualColor = If(color = Nothing, UiTextMuted, color)
             Dim label = CreateTextLabel(text, 9.0F, FontStyle.Regular, actualColor)
             label.Dock = DockStyle.Fill
             label.Margin = Padding.Empty
             Return label
-        End Function
-
-        Private Shared Function CreatePageHeader(symbol As String, title As String, subtitle As String) As FluentCardPanel
-            Dim header As New FluentCardPanel() With {
-                .Dock = DockStyle.Top, .Height = 82,
-                .FillColor = UiSurface, .StrokeColor = UiStrokeSoft, .CornerRadius = 12
-            }
-            Dim iconBack As New FluentCardPanel() With {
-                .Location = New Point(18, 17), .Size = New Size(48, 48),
-                .FillColor = Color.FromArgb(34, UiAccent), .StrokeColor = Color.FromArgb(88, UiAccent),
-                .CornerRadius = 12
-            }
-            Dim icon As Label = CreateTextLabel(symbol, 15.0F, FontStyle.Bold, UiAccent)
-            icon.Dock = DockStyle.Fill
-            icon.TextAlign = ContentAlignment.MiddleCenter
-            iconBack.Controls.Add(icon)
-            Dim titleLabel As HtmlColorLabel = CreateHtmlTextLabel(title, 13.0F, FontStyle.Bold, UiText)
-            titleLabel.Location = New Point(82, 14)
-            titleLabel.Size = New Size(660, 30)
-            titleLabel.Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
-            Dim subtitleLabel As Label = CreateTextLabel(subtitle, 9.0F, FontStyle.Regular, UiTextSecondary)
-            subtitleLabel.Location = New Point(82, 43)
-            subtitleLabel.Size = New Size(900, 24)
-            subtitleLabel.Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right
-            header.Controls.AddRange(New Control() {iconBack, titleLabel, subtitleLabel})
-            AddHandler header.Resize,
-                Sub(sender, e)
-                    titleLabel.Width = Math.Max(220, header.ClientSize.Width - titleLabel.Left - 20)
-                    subtitleLabel.Width = Math.Max(220, header.ClientSize.Width - subtitleLabel.Left - 20)
-                End Sub
-            Return header
         End Function
 
         Private Shared Sub ConfigurePrimaryButton(button As ModernButton)
@@ -2211,6 +2115,28 @@ Namespace videoenhancer
             button.PressedBackColor2 = Color.FromArgb(80, 220, 220, 220)
         End Sub
 
+        ''' <summary>插件确认提示统一使用 LakeUI 5.1 消息框；系统文件选择器仍保留原生对话框。</summary>
+        Friend Shared Function ShowLakeConfirm(owner As IWin32Window, prompt As String, title As String,
+                                                Optional defaultYes As Boolean = False) As Boolean
+            Dim buttons As New List(Of ExMsgBoxModule.ExMsgBoxButton)()
+            If defaultYes Then
+                buttons.Add(New ExMsgBoxModule.ExMsgBoxButton("是", True))
+                buttons.Add(New ExMsgBoxModule.ExMsgBoxButton("否", False))
+            Else
+                buttons.Add(New ExMsgBoxModule.ExMsgBoxButton("否", False))
+                buttons.Add(New ExMsgBoxModule.ExMsgBoxButton("是", True))
+            End If
+            Dim result = ExMsgBoxModule.ExMsgBox(prompt, buttons, title, 0, owner)
+            Return result = If(defaultYes, 0, 1)
+        End Function
+
+        Friend Shared Sub ShowLakeInfo(owner As IWin32Window, prompt As String, title As String)
+            Dim buttons As New List(Of ExMsgBoxModule.ExMsgBoxButton) From {
+                New ExMsgBoxModule.ExMsgBoxButton("确定", True)
+            }
+            ExMsgBoxModule.ExMsgBox(prompt, buttons, title, 0, owner)
+        End Sub
+
         Private Shared Sub ConfigureCombo(combo As ModernComboBox)
             ' AutoSize=False + 最小高度：下拉框高度完全由所在单元格决定且不小于箭头区域，
             ' 与宿主一致（宿主下拉框固定 30px 高、Dock=Fill、Overlay 下拉）。
@@ -2221,7 +2147,9 @@ Namespace videoenhancer
             combo.Font = New Font("Microsoft YaHei UI", 10.0F)
             combo.ForeColor = UiText
             combo.WaterTextForeColor = UiTextMuted
-            combo.Padding = New Padding(10, 0, 10, 0)
+            ' 组合框右侧由 LakeUI 固定保留箭头区域；缩小左右内边距，避免窄列中
+            ' 选项文本在箭头前被截断，同时仍保留足够的视觉留白。
+            combo.Padding = New Padding(6, 0, 6, 0)
             combo.BackColor1 = UiSurfaceRaised
             combo.BackColor2 = UiSurfaceRaised
             combo.HoverBackColor1 = UiSurfaceHover
@@ -2297,7 +2225,7 @@ Namespace videoenhancer
             ModernPanel1.BackColor1 = Color.Transparent
             ModernPanel1.BorderSize = 0
             ModernPanel1.BorderRadius = 0
-            Dim root As New BufferedTableLayoutPanel With {
+            Dim root As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 1,
                 .RowCount = 2,
@@ -2315,9 +2243,9 @@ Namespace videoenhancer
             Finally
                 _tabs.ResumeLayout(False)
             End Try
-            root.Controls.Add(_tabs, 0, 0)
+            root.AddAt(_tabs, 0, 0)
 
-            Dim sectionStatus As New BufferedTableLayoutPanel With {
+            Dim sectionStatus As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 3,
                 .RowCount = 1,
@@ -2335,14 +2263,14 @@ Namespace videoenhancer
             _lblStatus.ForeColor = UiTextMuted
             _lblStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _lblStatus.Text = "<font color=#888888>就绪</font>"
-            sectionStatus.Controls.Add(_lblStatus, 0, 0)
+            sectionStatus.AddAt(_lblStatus, 0, 0)
             _btnCheckUpdates.Text = "检查更新 v" & PluginVersion.Current
             _btnCheckUpdates.Dock = DockStyle.Fill
             _btnCheckUpdates.AutoSize = False
             _btnCheckUpdates.Margin = New Padding(12, 4, 0, 4)
             ConfigureSecondaryButton(_btnCheckUpdates)
             AddHandler _btnCheckUpdates.Click, AddressOf OnCheckUpdates
-            sectionStatus.Controls.Add(_btnCheckUpdates, 2, 0)
+            sectionStatus.AddAt(_btnCheckUpdates, 2, 0)
             _btnCleanArchives.Text = "清理临时文件"
             _btnCleanArchives.Dock = DockStyle.Fill
             _btnCleanArchives.Margin = New Padding(12, 4, 0, 4)
@@ -2356,10 +2284,13 @@ Namespace videoenhancer
             _btnCleanArchives.PressedBackColor2 = Color.FromArgb(220, 160, 36, 36)
             _btnCleanArchives.Visible = False
             AddHandler _btnCleanArchives.Click, AddressOf OnCleanDownloadArchives
-            sectionStatus.Controls.Add(_btnCleanArchives, 1, 0)
-            root.Controls.Add(sectionStatus, 0, 1)
+            sectionStatus.AddAt(_btnCleanArchives, 1, 0)
+            root.AddAt(sectionStatus, 0, 1)
             ModernPanel1.Controls.Add(root)
             Controls.Add(ModernPanel1)
+            AddHandler ClientSizeChanged, Sub(sender, e) SyncUpscaleRootBounds()
+            AddHandler Layout, Sub(sender, e) SyncUpscaleRootBounds()
+            QueueUpscaleRootBounds()
         End Sub
 
         ' ────────────────────────── 选项卡分栏 ──────────────────────────
@@ -2504,15 +2435,18 @@ Namespace videoenhancer
             BuildOfficialImporterPage()
             BuildMarkdownPage(_pageTutorial, BeginnerTutorialMarkdown())
 
-            For Each page As Panel In New Panel() {
+            For Each page As ModernPanel In New ModernPanel() {
                 _pageUpscale, _pagePreview, _pageDownloader,
                 _pageConverter, _pageImporter, _pageTutorial
             }
                 page.BackColor = Color.Transparent
-                Dim modernPage = TryCast(page, ModernPanel)
-                If modernPage IsNot Nothing Then
-                    modernPage.BackColor1 = Color.Transparent
-                End If
+                page.BackColor1 = Color.Transparent
+                ' ModernPanel 默认带 1px 灰色边框；页面根节点属于 TabControl 内容面，必须显式关闭，
+                ' 否则会在插件外沿绘制一圈亮线并遮住背景映射。
+                page.BorderColor = Color.Transparent
+                page.BorderSize = 0
+                page.BorderRadius = 0
+                page.BackgroundSource = ModernPanel1
             Next
 
             Dim tabMain As New ModernTabControl.ModernTab("超分工作台") With {.BoundControl = _pageUpscale}
@@ -2569,12 +2503,17 @@ Namespace videoenhancer
         End Sub
 
         Private Shared Function CreateOfficialSeparator() As Control
-            Dim host As New Panel With {
+            Dim host As New ModernPanel With {
                 .Margin = Padding.Empty,
-                .Padding = Padding.Empty
+                .Padding = Padding.Empty,
+                .BackColor = Color.Transparent,
+                .BackColor1 = Color.Transparent,
+                .BorderSize = 0
             }
-            Dim line As New Panel With {
-                .BackColor = Color.FromArgb(58, 220, 220, 220)
+            Dim line As New ModernPanel With {
+                .BackColor = Color.Transparent,
+                .BackColor1 = Color.FromArgb(58, 220, 220, 220),
+                .BorderSize = 0
             }
             line.Anchor = AnchorStyles.Left Or AnchorStyles.Right Or AnchorStyles.Top
             host.Controls.Add(line)
@@ -2594,21 +2533,20 @@ Namespace videoenhancer
             titleLabel.Margin = Padding.Empty
             titleLabel.TextAlign = ContentAlignment.MiddleLeft
             Dim titleWidth = Math.Max(84, TextRenderer.MeasureText(title, titleLabel.Font).Width + 4)
-            Dim row As HorizontalLayoutPanel
-            Dim halfLabel As Label = Nothing
+            Dim row As ModernHorizontalPanel
+            Dim halfLabel As LakeTextLabel = Nothing
             If halfSwitch Is Nothing Then
-                row = New HorizontalLayoutPanel(
+                row = New ModernHorizontalPanel(
                     CSng(titleWidth), 10.0F, 42.0F, -1.0F, 112.0F)
             Else
                 halfLabel = CreateTextLabel("半精度推理", 11.0F, FontStyle.Regular, UiTextSecondary)
                 halfLabel.AutoSize = False
-                halfLabel.AutoEllipsis = False
                 halfLabel.Dock = DockStyle.Fill
                 halfLabel.TextAlign = ContentAlignment.MiddleCenter
                 halfLabel.Margin = Padding.Empty
                 Dim halfLabelWidth = Math.Max(108,
                     TextRenderer.MeasureText(halfLabel.Text, halfLabel.Font).Width + 14)
-                row = New HorizontalLayoutPanel(
+                row = New ModernHorizontalPanel(
                     CSng(titleWidth), 10.0F, 42.0F, 18.0F, CSng(halfLabelWidth), 8.0F, 42.0F, -1.0F, 112.0F)
             End If
             switchControl.Anchor = AnchorStyles.None
@@ -2659,6 +2597,42 @@ Namespace videoenhancer
             AddWorkbenchControl(root, control, top, height, 0.0F, 1.0F)
         End Sub
 
+        ''' <summary>让超分页的固定内容根节点跟随宿主实际宽度变化。</summary>
+        Private Sub SyncUpscaleRootBounds()
+            Dim root = _upscaleRoot
+            If root Is Nothing OrElse root.IsDisposed OrElse
+               _pageUpscale Is Nothing OrElse _pageUpscale.IsDisposed Then Return
+            ' LakeUI 5.x 的 ModernTabControl 在宿主完成 Dock 布局前可能暂时保留
+            ' 页面旧 ClientSize；同时取页面、TabControl 和插件背景根的可用宽度，
+            ' 让后续测量能够跨过这个中间状态并覆盖到宿主真实视口。
+            Dim availableWidth = Math.Max(_pageUpscale.Width, _pageUpscale.ClientSize.Width)
+            availableWidth = Math.Max(availableWidth, Math.Max(_tabs.Width, _tabs.ClientSize.Width))
+            If ModernPanel1 IsNot Nothing AndAlso Not ModernPanel1.IsDisposed Then
+                availableWidth = Math.Max(availableWidth,
+                    ModernPanel1.ClientSize.Width - ModernPanel1.Padding.Left - ModernPanel1.Padding.Right)
+            End If
+            Dim width = Math.Max(0, availableWidth - _pageUpscale.ScrollBarWidth - 2)
+            If root.Left <> 0 OrElse root.Top <> 0 OrElse root.Width <> width OrElse root.Height <> 850 Then
+                root.SetBounds(0, 0, width, 850)
+            End If
+        End Sub
+
+        ''' <summary>在宿主完成 TabControl/插件面板布局后补一次宽度同步。</summary>
+        Private Sub QueueUpscaleRootBounds()
+            If _upscaleRoot Is Nothing OrElse _upscaleRootSyncPending OrElse IsDisposed Then Return
+            If Not IsHandleCreated Then Return
+            _upscaleRootSyncPending = True
+            Try
+                BeginInvoke(New Action(
+                    Sub()
+                        _upscaleRootSyncPending = False
+                        SyncUpscaleRootBounds()
+                    End Sub))
+            Catch
+                _upscaleRootSyncPending = False
+            End Try
+        End Sub
+
         Private Sub BuildOfficialUpscalePage()
             _pageUpscale.Dock = DockStyle.Fill
             _pageUpscale.BackColor = Color.Transparent
@@ -2678,11 +2652,13 @@ Namespace videoenhancer
             AddHandler _pageUpscale.DragEnter, AddressOf OnImageDragEnter
             AddHandler _pageUpscale.DragDrop, AddressOf OnImageDragDrop
 
-            ' 根容器保持固定内容高度并左右锚定；窗口较小时由页面滚动承载。
-            ' 宽度交给标准 Anchor 布局事务，避免尺寸事件中强制重排整棵表格树。
+            ' 根容器保持固定内容高度；窗口较小时由页面滚动承载。
+            ' 横向由一次性的宿主布局同步，避免 LakeUI 自定义 Dock/Anchor 布局重入。
+            ' 宽度由 SyncUpscaleRootBounds 明确提交；不使用 Anchor.Right，
+            ' 避免 WinForms 默认布局恢复创建时的窄尺寸。
             Dim root As New ModernPanel With {
                 .Dock = DockStyle.None,
-                .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right,
+                .Anchor = AnchorStyles.Top Or AnchorStyles.Left,
                 .AutoSize = False,
                 .MinimumSize = New Size(0, 850),
                 .Height = 850,
@@ -2696,10 +2672,18 @@ Namespace videoenhancer
                 .Padding = Padding.Empty,
                 .AllowDrop = True
             }
+            _upscaleRoot = root
+            AddHandler _pageUpscale.ClientSizeChanged, Sub(sender, e) SyncUpscaleRootBounds()
+            AddHandler _pageUpscale.SizeChanged, Sub(sender, e) SyncUpscaleRootBounds()
+            AddHandler _pageUpscale.Layout, Sub(sender, e) SyncUpscaleRootBounds()
+            AddHandler _pageUpscale.VisibleChanged, Sub(sender, e) SyncUpscaleRootBounds()
+            AddHandler _tabs.ClientSizeChanged, Sub(sender, e) SyncUpscaleRootBounds()
+            AddHandler _tabs.Layout, Sub(sender, e) SyncUpscaleRootBounds()
             AddHandler root.DragEnter, AddressOf OnImageDragEnter
             AddHandler root.DragDrop, AddressOf OnImageDragDrop
-            root.SetBounds(0, 0, Math.Max(0,
-                _pageUpscale.ClientSize.Width - _pageUpscale.ScrollBarWidth - 2), 850)
+            ' 页面第一次构建时 ClientSize 可能还是宿主的初始窄尺寸；等 TabControl
+            ' 完成布局后必须同步根面板宽度，否则所有内容会永久停留在左半边。
+            SyncUpscaleRootBounds()
 
             ConfigureDpiSwitch(_switchMaster)
             _switchMaster.Checked = _config.Enabled
@@ -2707,7 +2691,7 @@ Namespace videoenhancer
             AddWorkbenchRow(root, BuildOfficialModeHeader(
                 "插件总开关", "", _switchMaster, _lblMaster), 0, 40)
 
-            Dim exeRow As New HorizontalLayoutPanel(150.0F, 12.0F, -1.0F)
+            Dim exeRow As New ModernHorizontalPanel(150.0F, 12.0F, -1.0F)
             _btnPickExe.Text = "选择处理程序"
             _btnPickExe.Dock = DockStyle.Fill
             _btnPickExe.Margin = New Padding(0, 6, 0, 6)
@@ -2815,18 +2799,22 @@ Namespace videoenhancer
             Dim interpFlowField = CreateOfficialField("动态光流尺度", _cmbDynamicOpticalFlow)
 
             AddWorkbenchRow(root, upscaleHeader, 149, 38)
-            AddWorkbenchControl(root, upscaleBackendField, 187, 76, 0.0F, 0.46F, 0, -12)
-            AddWorkbenchControl(root, upscaleModelField, 187, 76, 0.46F, 1.0F)
+            ' 放大模型名称较长（例如 AnimeJaNai...-430K），给模型列保留更多文本区，
+            ' 避免箭头区域遮住名称末尾；后端列仍足以完整显示 TensorRT (NVIDIA)。
+            AddWorkbenchControl(root, upscaleBackendField, 187, 76, 0.0F, 0.38F, 0, -12)
+            AddWorkbenchControl(root, upscaleModelField, 187, 76, 0.38F, 1.0F)
             AddWorkbenchControl(root, upscaleTileField, 263, 70, 0.0F, 0.46F, 0, -12)
             AddWorkbenchControl(root, tileHint, 263, 70, 0.46F, 1.0F)
             AddWorkbenchRow(root, interpHeader, 345, 38)
-            AddWorkbenchControl(root, interpBackendField, 383, 76, 0.0F, 0.29F, 0, -12)
-            AddWorkbenchControl(root, interpModelField, 383, 76, 0.29F, 0.76F, 0, -12)
-            AddWorkbenchControl(root, interpFactorField, 383, 76, 0.76F, 1.0F)
-            AddWorkbenchControl(root, interpThresholdField, 459, 70, 0.0F, 0.29F, 0, -12)
-            AddWorkbenchControl(root, interpFlowField, 459, 70, 0.29F, 0.76F, 0, -12)
+            ' 补帧后端的固定选项（尤其是 TensorRT (NVIDIA)）需要在箭头区域前保留
+            ' 足够文本宽度；将窄列从 29% 调整到 34%，模型列仍保留主要空间。
+            AddWorkbenchControl(root, interpBackendField, 383, 76, 0.0F, 0.34F, 0, -12)
+            AddWorkbenchControl(root, interpModelField, 383, 76, 0.34F, 0.80F, 0, -12)
+            AddWorkbenchControl(root, interpFactorField, 383, 76, 0.80F, 1.0F)
+            AddWorkbenchControl(root, interpThresholdField, 459, 70, 0.0F, 0.34F, 0, -12)
+            AddWorkbenchControl(root, interpFlowField, 459, 70, 0.34F, 0.80F, 0, -12)
 
-            Dim orderRow As New HorizontalLayoutPanel(150.0F, -54.0F, -46.0F) With {
+            Dim orderRow As New ModernHorizontalPanel(150.0F, -54.0F, -46.0F) With {
                 .Margin = New Padding(0, 8, 0, 0)
             }
             Dim orderCaption = CreateOfficialCaption("组合处理顺序")
@@ -2857,7 +2845,7 @@ Namespace videoenhancer
             AddWorkbenchRow(root, CreateOfficialSectionHeading(
                 "图片增强", "沿用上方超分后端与模型，可选择文件、文件夹或直接拖入"), 610, 36)
 
-            Dim imageInputRow As New HorizontalLayoutPanel(
+            Dim imageInputRow As New ModernHorizontalPanel(
                 150.0F, 12.0F, 170.0F, 12.0F, -1.0F) With {
                 .AllowDrop = True
             }
@@ -2879,7 +2867,7 @@ Namespace videoenhancer
             AddHandler imageInputRow.DragDrop, AddressOf OnImageDragDrop
             AddWorkbenchRow(root, imageInputRow, 646, 54)
 
-            Dim imageOutputRow As New HorizontalLayoutPanel(170.0F, 12.0F, -1.0F)
+            Dim imageOutputRow As New ModernHorizontalPanel(170.0F, 12.0F, -1.0F)
             ConfigureImageButton(_btnImageOutput, "选择输出目录", 170)
             _btnImageOutput.Dock = DockStyle.Fill
             _btnImageOutput.Margin = New Padding(0, 6, 0, 6)
@@ -2894,7 +2882,7 @@ Namespace videoenhancer
             imageOutputRow.AddColumn(_txtImageOutput, 2)
             AddWorkbenchRow(root, imageOutputRow, 700, 54)
 
-            Dim imageOptionsRow As New HorizontalLayoutPanel(
+            Dim imageOptionsRow As New ModernHorizontalPanel(
                 82.0F, 220.0F, 20.0F, 82.0F, 220.0F, -1.0F, 16.0F, 170.0F)
 
             Dim suffixLabel = CreateOfficialCaption("命名方式")
@@ -2934,14 +2922,19 @@ Namespace videoenhancer
             imageOptionsRow.AddColumn(_btnImageStart, 7)
             AddWorkbenchRow(root, imageOptionsRow, 754, 54)
 
-            Dim progressRow As New HorizontalLayoutPanel(-1.0F, 16.0F, 300.0F)
+            Dim progressRow As New ModernHorizontalPanel(-1.0F, 16.0F, 300.0F)
             _imageProgress.Minimum = 0
             _imageProgress.Maximum = 1000
             _imageProgress.Dock = DockStyle.Fill
             _imageProgress.Margin = New Padding(0, 15, 0, 15)
             _imageProgress.TrackColor = Color.FromArgb(40, 220, 220, 220)
-            _imageProgress.ProgressColor = UiAccent
-            _imageProgress.GlowColor = Color.FromArgb(120, 204, 255)
+            _imageProgress.FillColor = UiAccent
+            _imageProgress.FillGradientColor = Color.FromArgb(120, 204, 255)
+            _imageProgress.FillGradientMode = ExcellentProgressBar.FillGradientModeEnum.WithinProgress
+            _imageProgress.BackColor1 = Color.Transparent
+            _imageProgress.BorderColor = Color.Transparent
+            _imageProgress.BorderSize = 0
+            _imageProgress.BorderRadius = 8
             _lblImageProgress.AutoSize = False
             _lblImageProgress.Dock = DockStyle.Fill
             _lblImageProgress.Margin = Padding.Empty
@@ -2953,743 +2946,9 @@ Namespace videoenhancer
 
             _pageUpscale.Controls.Add(root)
             ' 为 LakeUI 覆盖式滚动条保留绘制带，避免子窗口覆盖父面板的 GPU 滚动条。
-            root.SetBounds(0, 0, Math.Max(0,
-                _pageUpscale.ClientSize.Width - _pageUpscale.ScrollBarWidth - 2), 850)
+            SyncUpscaleRootBounds()
             UpdateModeStateLabels()
         End Sub
-
-        Private Sub BuildUpscalePage()
-            _pageUpscale.Dock = DockStyle.Fill
-            _pageUpscale.BackColor = Color.Transparent
-            _pageUpscale.Padding = New Padding(8, 14, 8, 10)
-
-            ' 固定底部处理程序条；其余区域按「状态头 → 双处理卡 → 图片工作区」排列。
-            Dim contentHost As New Panel() With {.Dock = DockStyle.Fill, .BackColor = Color.Transparent}
-            _pageUpscale.Controls.Add(contentHost)
-
-            Dim exeStrip As New FluentCardPanel() With {
-                .Dock = DockStyle.Bottom, .Height = 50,
-                .FillColor = UiSurface, .StrokeColor = UiStrokeSoft, .CornerRadius = 10,
-                .Padding = New Padding(14, 8, 8, 8)
-            }
-            Dim exeIcon As Label = CreateTextLabel("⌘", 13.0F, FontStyle.Bold, UiAccent)
-            exeIcon.Dock = DockStyle.Left
-            exeIcon.Width = 28
-            exeIcon.TextAlign = ContentAlignment.MiddleLeft
-            _btnPickExe.Text = "选择程序"
-            _btnPickExe.Size = New Size(112, 34)
-            _btnPickExe.Dock = DockStyle.Right
-            ConfigureSecondaryButton(_btnPickExe)
-            AddHandler _btnPickExe.Click, AddressOf OnPickExeClick
-            _lblExe.AutoSize = False
-            _lblExe.Dock = DockStyle.Fill
-            _lblExe.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _lblExe.ForeColor = UiTextSecondary
-            exeStrip.Controls.Add(_lblExe)
-            exeStrip.Controls.Add(_btnPickExe)
-            exeStrip.Controls.Add(exeIcon)
-            _pageUpscale.Controls.Add(exeStrip)
-
-            Dim imageSection = BuildImageUpscaleSection()
-            imageSection.Dock = DockStyle.Fill
-            contentHost.Controls.Add(imageSection)
-
-            Dim settingsHost As New Panel() With {
-                .Dock = DockStyle.Top, .Height = 218, .BackColor = Color.Transparent
-            }
-            Dim upscaleCard As New FluentCardPanel() With {
-                .FillColor = UiSurface, .StrokeColor = UiStrokeSoft, .CornerRadius = 12
-            }
-            Dim interpCard As New FluentCardPanel() With {
-                .FillColor = UiSurface, .StrokeColor = UiStrokeSoft, .CornerRadius = 12
-            }
-            settingsHost.Controls.AddRange(New Control() {upscaleCard, interpCard})
-
-            ' 视频超分卡片
-            Dim upscaleAccent As New Panel() With {
-                .BackColor = UiAccent, .Location = New Point(0, 18), .Size = New Size(4, 42)
-            }
-            Dim upscaleTitle As HtmlColorLabel = CreateHtmlTextLabel("视频超分", 12.0F, FontStyle.Bold, UiText)
-            upscaleTitle.Location = New Point(20, 7)
-            upscaleTitle.Size = New Size(250, 28)
-            Dim upscaleDesc As Label = CreateTextLabel("提升视频分辨率与细节，模型随推理后端联动。", 8.7F, FontStyle.Regular, UiTextMuted)
-            upscaleDesc.Location = New Point(20, 32)
-            upscaleDesc.Size = New Size(430, 24)
-            _lblSwitch.Text = "<font color=#7E8C9D>关闭</font>"
-            _lblSwitch.AutoSize = False
-            _lblSwitch.Size = New Size(68, 30)
-            _lblSwitch.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleRight
-            _switchUpscale.Dock = DockStyle.None
-            ConfigureDpiSwitch(_switchUpscale)
-            _switchUpscale.Checked = _config.UpscaleEnabled
-            _switchUpscale.Enabled = _config.Enabled
-            AddHandler _switchUpscale.CheckedChanged, AddressOf OnUpscaleSwitchChanged
-
-            _lblBackend.Text = "<font color=#B1BCCA>推理后端</font>"
-            _lblBackend.AutoSize = False
-            _lblBackend.Location = New Point(20, 58)
-            _lblBackend.Size = New Size(110, 24)
-            _lblBackend.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _cmbBackend.Location = New Point(20, 80)
-            _cmbBackend.Size = New Size(250, 36)
-            _cmbBackend.WaterText = "选择推理方式…"
-            ConfigureCombo(_cmbBackend)
-            _cmbBackend.Items.Add("NCNN (Vulkan)")
-            _cmbBackend.Items.Add("CUDA (PyTorch)")
-            _cmbBackend.Items.Add("TensorRT (NVIDIA)")
-            _cmbBackend.Items.Add("ONNX Runtime")
-            _cmbBackend.Items.Add("FlashVSR (NVIDIA · 视频)")
-            _cmbBackend.Items.Add("BasicVSR++ (NVIDIA · 视频)")
-            AddHandler _cmbBackend.SelectedIndexChanged, AddressOf OnBackendSelected
-
-            Dim upscaleModelLabel As Label = CreateTextLabel("放大模型", 8.7F, FontStyle.Regular, UiTextSecondary)
-            upscaleModelLabel.Location = New Point(20, 121)
-            upscaleModelLabel.Size = New Size(120, 24)
-            _cmbModel.Location = New Point(20, 144)
-            _cmbModel.Size = New Size(420, 36)
-            _cmbModel.WaterText = "点击选择放大模型…"
-            ConfigureCombo(_cmbModel)
-            AddHandler _cmbModel.DropDownOpened, AddressOf OnModelDropDownOpened
-            AddHandler _cmbModel.Click, AddressOf OnModelComboClicked
-            AddHandler _cmbModel.SelectedIndexChanged, AddressOf OnModelSelected
-            upscaleCard.Controls.AddRange(New Control() {
-                upscaleAccent, upscaleTitle, upscaleDesc, _lblSwitch, _switchUpscale,
-                _lblBackend, _cmbBackend, upscaleModelLabel, _cmbModel
-            })
-
-            ' 运动补帧卡片
-            Dim interpAccent As New Panel() With {
-                .BackColor = UiSuccess, .Location = New Point(0, 18), .Size = New Size(4, 42)
-            }
-            Dim interpTitle As HtmlColorLabel = CreateHtmlTextLabel("运动补帧", 12.0F, FontStyle.Bold, UiText)
-            interpTitle.Location = New Point(20, 7)
-            interpTitle.Size = New Size(250, 28)
-            Dim interpDesc As Label = CreateTextLabel("通过 RIFE 生成中间帧，让运动画面更流畅。", 8.7F, FontStyle.Regular, UiTextMuted)
-            interpDesc.Location = New Point(20, 32)
-            interpDesc.Size = New Size(430, 24)
-            _lblSwitchInterp.Text = "<font color=#7E8C9D>关闭</font>"
-            _lblSwitchInterp.AutoSize = False
-            _lblSwitchInterp.Size = New Size(68, 30)
-            _lblSwitchInterp.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleRight
-            _switchInterp.Dock = DockStyle.None
-            ConfigureDpiSwitch(_switchInterp)
-            SyncInterpSwitchFromConfig()
-            AddHandler _switchInterp.CheckedChanged, AddressOf OnInterpSwitchChanged
-
-            Dim interpModelLabel As Label = CreateTextLabel("补帧模型", 8.7F, FontStyle.Regular, UiTextSecondary)
-            interpModelLabel.Location = New Point(20, 58)
-            interpModelLabel.Size = New Size(120, 24)
-            _cmbInterp.Location = New Point(20, 80)
-            _cmbInterp.Size = New Size(420, 36)
-            _cmbInterp.WaterText = "点击选择补帧模型…"
-            ConfigureCombo(_cmbInterp)
-            AddHandler _cmbInterp.DropDownOpened, AddressOf OnInterpDropDownOpened
-            AddHandler _cmbInterp.Click, AddressOf OnInterpComboClicked
-            AddHandler _cmbInterp.SelectedIndexChanged, AddressOf OnInterpModelSelected
-
-            _lblFactor.Text = "<font color=#B1BCCA>补帧倍率</font>"
-            _lblFactor.AutoSize = False
-            _lblFactor.Location = New Point(20, 121)
-            _lblFactor.Size = New Size(120, 24)
-            _lblFactor.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _cmbFactor.Location = New Point(20, 144)
-            _cmbFactor.Size = New Size(140, 36)
-            _cmbFactor.WaterText = "倍率…"
-            ConfigureCombo(_cmbFactor)
-            _cmbFactor.Items.Add("2 倍")
-            _cmbFactor.Items.Add("3 倍")
-            _cmbFactor.Items.Add("4 倍")
-            _cmbFactor.Items.Add("8 倍")
-            AddHandler _cmbFactor.SelectedIndexChanged, AddressOf OnFactorSelected
-            Dim factorHint As Label = CreateTextLabel("更高倍率会增加处理时间与显存占用", 8.5F, FontStyle.Regular, UiTextMuted)
-            factorHint.Location = New Point(176, 143)
-            factorHint.Size = New Size(300, 38)
-            interpCard.Controls.AddRange(New Control() {
-                interpAccent, interpTitle, interpDesc, _lblSwitchInterp, _switchInterp,
-                interpModelLabel, _cmbInterp, _lblFactor, _cmbFactor, factorHint
-            })
-
-            Dim arrangeUpscaleCard As Action =
-                Sub()
-                    Dim right = upscaleCard.ClientSize.Width - 20
-                    _switchUpscale.Location = New Point(Math.Max(260, right - _switchUpscale.Width), 15)
-                    _lblSwitch.Location = New Point(_switchUpscale.Left - _lblSwitch.Width - 8, 11)
-                    upscaleTitle.Width = Math.Max(120, _lblSwitch.Left - upscaleTitle.Left - 12)
-                    upscaleDesc.Width = Math.Max(180, right - upscaleDesc.Left)
-                    _cmbBackend.Width = Math.Max(180, right - _cmbBackend.Left)
-                    _cmbModel.Width = Math.Max(180, right - _cmbModel.Left)
-                End Sub
-            Dim arrangeInterpCard As Action =
-                Sub()
-                    Dim right = interpCard.ClientSize.Width - 20
-                    _switchInterp.Location = New Point(Math.Max(260, right - _switchInterp.Width), 15)
-                    _lblSwitchInterp.Location = New Point(_switchInterp.Left - _lblSwitchInterp.Width - 8, 11)
-                    interpTitle.Width = Math.Max(120, _lblSwitchInterp.Left - interpTitle.Left - 12)
-                    interpDesc.Width = Math.Max(180, right - interpDesc.Left)
-                    _cmbInterp.Width = Math.Max(180, right - _cmbInterp.Left)
-                    factorHint.Width = Math.Max(120, right - factorHint.Left)
-                End Sub
-            AddHandler upscaleCard.Resize, Sub(sender, e) arrangeUpscaleCard()
-            AddHandler interpCard.Resize, Sub(sender, e) arrangeInterpCard()
-
-            Dim arrangeSettings As Action =
-                Sub()
-                    Dim width = settingsHost.ClientSize.Width
-                    If width < 900 Then
-                        If settingsHost.Height <> 420 Then settingsHost.Height = 420
-                        upscaleCard.SetBounds(0, 10, Math.Max(420, width), 196)
-                        interpCard.SetBounds(0, 214, Math.Max(420, width), 196)
-                    Else
-                        If settingsHost.Height <> 218 Then settingsHost.Height = 218
-                        Dim cardWidth = Math.Max(420, (width - 12) \ 2)
-                        upscaleCard.SetBounds(0, 10, cardWidth, 198)
-                        interpCard.SetBounds(cardWidth + 12, 10, Math.Max(420, width - cardWidth - 12), 198)
-                    End If
-                    arrangeUpscaleCard()
-                    arrangeInterpCard()
-                End Sub
-            AddHandler settingsHost.Resize, Sub(sender, e) arrangeSettings()
-            contentHost.Controls.Add(settingsHost)
-
-            ' 顶部总状态卡片
-            Dim masterCard As New FluentCardPanel() With {
-                .Dock = DockStyle.Top, .Height = 74,
-                .FillColor = UiSurface, .StrokeColor = UiStrokeSoft, .CornerRadius = 12
-            }
-            Dim masterAccent As New Panel() With {
-                .BackColor = UiAccent, .Location = New Point(0, 15), .Size = New Size(4, 44)
-            }
-            Dim masterIcon As New FluentCardPanel() With {
-                .Location = New Point(18, 17), .Size = New Size(40, 40),
-                .FillColor = Color.FromArgb(34, UiAccent), .StrokeColor = Color.FromArgb(88, UiAccent), .CornerRadius = 12
-            }
-            Dim masterGlyph As Label = CreateTextLabel("VE", 11.0F, FontStyle.Bold, UiAccent)
-            masterGlyph.Dock = DockStyle.Fill
-            masterGlyph.TextAlign = ContentAlignment.MiddleCenter
-            masterIcon.Controls.Add(masterGlyph)
-            Dim masterTitle As Label = CreateTextLabel("Video Enhancer", 13.0F, FontStyle.Bold, UiText)
-            masterTitle.Location = New Point(72, 8)
-            masterTitle.Size = New Size(480, 30)
-            Dim masterSubtitle As Label = CreateTextLabel("接管编码队列，为视频任务启用 AI 超分或运动补帧。", 9.0F, FontStyle.Regular, UiTextSecondary)
-            masterSubtitle.Location = New Point(72, 35)
-            masterSubtitle.Size = New Size(700, 25)
-            _lblMaster.AutoSize = False
-            _lblMaster.Size = New Size(126, 36)
-            _lblMaster.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleRight
-            _switchMaster.Dock = DockStyle.None
-            ConfigureDpiSwitch(_switchMaster)
-            _switchMaster.Checked = _config.Enabled
-            AddHandler _switchMaster.CheckedChanged, AddressOf OnMasterSwitchChanged
-            masterCard.Controls.AddRange(New Control() {
-                masterAccent, masterIcon, masterTitle, masterSubtitle, _lblMaster, _switchMaster
-            })
-            Dim arrangeMaster As Action =
-                Sub()
-                    Dim right = masterCard.ClientSize.Width - 22
-                    _switchMaster.Location = New Point(Math.Max(420, right - _switchMaster.Width), 25)
-                    _lblMaster.Location = New Point(_switchMaster.Left - _lblMaster.Width - 10, 19)
-                    masterTitle.Width = Math.Max(180, _lblMaster.Left - masterTitle.Left - 16)
-                    masterSubtitle.Width = Math.Max(220, _lblMaster.Left - masterSubtitle.Left - 16)
-                End Sub
-            AddHandler masterCard.Resize, Sub(sender, e) arrangeMaster()
-            contentHost.Controls.Add(masterCard)
-
-            arrangeMaster()
-            arrangeSettings()
-            UpdateModeStateLabels()
-        End Sub
-
-        Private Function BuildImageUpscaleSection() As Panel
-            Dim section As New FluentCardPanel() With {
-                .FillColor = UiSurface, .StrokeColor = UiStrokeSoft, .CornerRadius = 12,
-                .AllowDrop = True
-            }
-            AddHandler section.DragEnter, AddressOf OnImageDragEnter
-            AddHandler section.DragDrop, AddressOf OnImageDragDrop
-
-            Dim title As HtmlColorLabel = CreateHtmlTextLabel("图片增强", 12.0F, FontStyle.Bold, UiText)
-            title.Location = New Point(18, 10)
-            title.Size = New Size(300, 30)
-            Dim subtitle As Label = CreateTextLabel("沿用上方超分后端与模型，支持文件、文件夹和拖放。", 8.8F, FontStyle.Regular, UiTextMuted)
-            subtitle.Location = New Point(18, 36)
-            subtitle.Size = New Size(720, 24)
-            section.Controls.AddRange(New Control() {title, subtitle})
-
-            Dim inputRow As New FluentCardPanel() With {
-                .FillColor = UiSurfaceRaised, .StrokeColor = UiStrokeSoft, .CornerRadius = 9
-            }
-            Dim inputTag As Label = CreateTextLabel("输入", 8.7F, FontStyle.Bold, UiAccent)
-            inputTag.Location = New Point(14, 0)
-            inputTag.Size = New Size(58, 66)
-            ConfigureImageButton(_btnImageFiles, "选择图片", 148)
-            ConfigureImageButton(_btnImageFolder, "选择文件夹", 172)
-            _btnImageFiles.Location = New Point(82, 15)
-            _btnImageFolder.Location = New Point(238, 15)
-            AddHandler _btnImageFiles.Click, AddressOf OnPickImageFiles
-            AddHandler _btnImageFolder.Click, AddressOf OnPickImageFolder
-            _lblImageInputs.Location = New Point(422, 10)
-            _lblImageInputs.Size = New Size(420, 46)
-            _lblImageInputs.AutoSize = False
-            _lblImageInputs.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _lblImageInputs.Text = "<font color=#7E8C9D>尚未选择图片，可直接拖放到此区域</font>"
-            inputRow.Controls.AddRange(New Control() {inputTag, _btnImageFiles, _btnImageFolder, _lblImageInputs})
-            section.Controls.Add(inputRow)
-
-            Dim outputRow As New FluentCardPanel() With {
-                .FillColor = UiSurfaceRaised, .StrokeColor = UiStrokeSoft, .CornerRadius = 9
-            }
-            Dim outputTag As Label = CreateTextLabel("输出", 8.7F, FontStyle.Bold, UiSuccess)
-            outputTag.Location = New Point(14, 0)
-            outputTag.Size = New Size(58, 72)
-            ConfigureImageButton(_btnImageOutput, "输出文件夹", 148)
-            _btnImageOutput.Location = New Point(82, 18)
-            AddHandler _btnImageOutput.Click, AddressOf OnPickImageOutput
-            _lblImageOutput.Location = New Point(238, 12)
-            _lblImageOutput.Size = New Size(290, 48)
-            _lblImageOutput.AutoSize = False
-            _lblImageOutput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _switchImageOriginal.Dock = DockStyle.None
-            ConfigureDpiSwitch(_switchImageOriginal)
-            _switchImageOriginal.Checked = _config.ImageOutputOriginal
-            AddHandler _switchImageOriginal.CheckedChanged, AddressOf OnImageOriginalChanged
-            Dim originalLabel As Label = CreateTextLabel("原目录输出", 8.7F, FontStyle.Regular, UiTextSecondary)
-            originalLabel.Size = New Size(104, 36)
-            _cmbImageSuffix.Size = New Size(150, 36)
-            _cmbImageSuffix.Items.Add("处理时间戳")
-            _cmbImageSuffix.Items.Add("模型名称")
-            _cmbImageSuffix.SelectedIndex = If(String.Equals(_config.ImageSuffix, "model", StringComparison.OrdinalIgnoreCase), 1, 0)
-            _cmbImageSuffix.WaterText = "文件名后缀"
-            ConfigureCombo(_cmbImageSuffix)
-            AddHandler _cmbImageSuffix.SelectedIndexChanged, AddressOf OnImageSuffixChanged
-            outputRow.Controls.AddRange(New Control() {
-                outputTag, _btnImageOutput, _lblImageOutput, _switchImageOriginal, originalLabel, _cmbImageSuffix
-            })
-            section.Controls.Add(outputRow)
-
-            Dim actionRow As New FluentCardPanel() With {
-                .FillColor = Color.FromArgb(238, 29, 36, 46), .StrokeColor = UiStroke, .CornerRadius = 9
-            }
-            _btnImageStart.Text = "开始增强  →"
-            _btnImageStart.Size = New Size(170, 38)
-            ConfigurePrimaryButton(_btnImageStart)
-            AddHandler _btnImageStart.Click, AddressOf OnStartImageProcessing
-            _switchImagePng.Dock = DockStyle.None
-            ConfigureDpiSwitch(_switchImagePng)
-            _switchImagePng.Checked = _config.ImagePng
-            AddHandler _switchImagePng.CheckedChanged, AddressOf OnImagePngChanged
-            Dim pngLabel As Label = CreateTextLabel("无损 PNG", 8.8F, FontStyle.Bold, UiTextSecondary)
-            pngLabel.Size = New Size(92, 38)
-            Dim pngHint As Label = CreateTextLabel("关闭时保留源格式", 8.4F, FontStyle.Regular, UiTextMuted)
-            pngHint.Size = New Size(170, 38)
-            _imageProgress.Minimum = 0
-            _imageProgress.Maximum = 1000
-            _imageProgress.TrackColor = Color.FromArgb(42, 50, 61)
-            _imageProgress.ProgressColor = UiAccent
-            _imageProgress.GlowColor = Color.FromArgb(120, 204, 255)
-            _lblImageProgress.AutoSize = False
-            _lblImageProgress.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _lblImageProgress.Text = "<font color=#7E8C9D>等待开始</font>"
-            actionRow.Controls.AddRange(New Control() {
-                _btnImageStart, _switchImagePng, pngLabel, pngHint, _imageProgress, _lblImageProgress
-            })
-            section.Controls.Add(actionRow)
-
-            Dim arrange As Action =
-                Sub()
-                    Dim rowWidth = Math.Max(760, section.ClientSize.Width - 32)
-                    Dim gap = Math.Max(8, Math.Min(16, (section.ClientSize.Height - 290) \ 2))
-                    inputRow.SetBounds(16, 66, rowWidth, 66)
-                    outputRow.SetBounds(16, inputRow.Bottom + gap, rowWidth, 72)
-                    actionRow.SetBounds(16, outputRow.Bottom + gap, rowWidth, 72)
-                    title.Width = Math.Max(220, rowWidth - 20)
-                    subtitle.Width = Math.Max(220, rowWidth - 20)
-
-                    _lblImageInputs.Width = Math.Max(160, rowWidth - _lblImageInputs.Left - 14)
-
-                    Dim suffixWidth = Math.Max(138, Math.Min(170, CInt(rowWidth * 0.14)))
-                    _cmbImageSuffix.SetBounds(rowWidth - suffixWidth - 12, 18, suffixWidth, 36)
-                    originalLabel.Location = New Point(_cmbImageSuffix.Left - originalLabel.Width - 8, 18)
-                    _switchImageOriginal.Location = New Point(originalLabel.Left - _switchImageOriginal.Width - 8, 24)
-                    _lblImageOutput.Width = Math.Max(130, _switchImageOriginal.Left - _lblImageOutput.Left - 12)
-
-                    _btnImageStart.Location = New Point(14, 17)
-                    _switchImagePng.Location = New Point(202, 24)
-                    pngLabel.Location = New Point(_switchImagePng.Right + 10, 17)
-                    pngHint.Location = New Point(pngLabel.Right, 17)
-                    Dim progressLeft = Math.Max(470, CInt(rowWidth * 0.58))
-                    pngHint.Width = Math.Max(0, progressLeft - pngHint.Left - 12)
-                    pngHint.Visible = pngHint.Width >= 90
-                    Dim progressWidth = Math.Max(145, Math.Min(280, CInt(rowWidth * 0.2)))
-                    _imageProgress.SetBounds(progressLeft, 31, progressWidth, 10)
-                    _lblImageProgress.SetBounds(_imageProgress.Right + 14, 10,
-                                                Math.Max(110, rowWidth - _imageProgress.Right - 26), 52)
-                End Sub
-            AddHandler section.Resize, Sub(sender, e) arrange()
-            RefreshImageOutputLabel()
-            arrange()
-            Return section
-        End Function
-
-        Private Sub BuildUpscalePageLegacy()
-            _pageUpscale.Dock = DockStyle.Fill
-            _pageUpscale.BackColor = Color.Transparent
-            _pageUpscale.AutoScroll = True
-            ' 给页签标题与插件总开关之间留出明确的呼吸空间；其余控件相对间距保持不变。
-            _pageUpscale.Padding = New Padding(0, 22, 0, 0)
-
-            ' 行内 Dock.Left 从右往左排列：先添加右侧标签，最后添加开关（最左）。
-            ' 整页 Dock.Top 反序添加：最后添加的行排在最上。
-
-            ' ── 说明 + exe 路径（放回超分主界面；先添加 → 排在最下）──
-            Dim sectionHint As New Panel() With {.Dock = DockStyle.Fill, .BackColor = Color.Transparent, .Padding = New Padding(2, 2, 0, 0)}
-            _lblAdvancedHint.AutoSize = False
-            _lblAdvancedHint.Dock = DockStyle.Fill
-            _lblAdvancedHint.TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft
-            _lblAdvancedHint.LineSpacing = 4
-            _lblAdvancedHint.Text = "<font color=#9A9A9A><b>说明</b></font><br/>" &
-                "<font color=#8A8A8A>「插件总开关」仅作用于「超分主界面」页：开启后，加入编码队列的命令会被 videoenhancer.exe 中转执行 AI 超分/补帧。</font><br/>" &
-                "<font color=#8A8A8A>「实时预览」与队列监控即使关闭插件总开关也能使用。超分开关右边选择图片超分模型，开关关闭也可以使用。</font><br/>" &
-                "<font color=#8A8A8A>CLI 程序启动时读取本目录 videoenhancer.ini 的 core-path，并校验 bin\ffmpeg、python 库与模型库。</font>"
-            sectionHint.Controls.Add(_lblAdvancedHint)
-
-            Dim sectionExe As New Panel() With {.Dock = DockStyle.Top, .Height = 44, .BackColor = Color.Transparent, .Padding = New Padding(0, 8, 0, 0)}
-            _btnPickExe.Text = "更改路径"
-            _btnPickExe.Size = New Size(110, 32)
-            _btnPickExe.Dock = DockStyle.Right
-            _btnPickExe.BorderRadius = 8
-            _btnPickExe.BorderSize = 0
-            _btnPickExe.BackColor1 = Color.FromArgb(40, 220, 220, 220)
-            _btnPickExe.HoverBackColor1 = Color.FromArgb(60, 220, 220, 220)
-            AddHandler _btnPickExe.Click, AddressOf OnPickExeClick
-            sectionExe.Controls.Add(_btnPickExe)
-            _lblExe.AutoSize = True
-            _lblExe.Dock = DockStyle.Fill
-            _lblExe.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _lblExe.ForeColor = Color.Gainsboro
-            sectionExe.Controls.Add(_lblExe)
-            Dim footer As New Panel() With {.Dock = DockStyle.Top, .Height = 130, .BackColor = Color.Transparent}
-            footer.Controls.Add(sectionHint)
-            footer.Controls.Add(sectionExe)
-            _pageUpscale.Controls.Add(footer)
-
-            ' 图片超分位于补帧倍率下方；模型与推理方式直接借用上方选择。
-            Dim imageSection = BuildImageUpscaleSectionLegacy()
-
-            ' ── 因子行（补帧倍率）：先添加 → 排在最下 ──
-            Dim sectionFactor As New Panel() With {.Dock = DockStyle.Top, .Height = 56, .BackColor = Color.Transparent, .Padding = New Padding(0, 10, 0, 0)}
-            Dim rowFactor As New Panel() With {.Dock = DockStyle.Top, .Height = 40, .BackColor = Color.Transparent}
-            sectionFactor.Controls.Add(rowFactor)
-            _lblFactor.Text = "<font color=#D8D8D8>补帧倍率</font>"
-            _lblFactor.AutoSize = False
-            _lblFactor.Size = New Size(110, 40)
-            _lblFactor.Location = New Point(199, 0)
-            _lblFactor.Anchor = AnchorStyles.Left Or AnchorStyles.Top
-            _lblFactor.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            rowFactor.Controls.Add(_lblFactor)
-            _cmbFactor.Location = New Point(337, 0)
-            _cmbFactor.Size = New Size(90, 40)
-            _cmbFactor.Anchor = AnchorStyles.Left Or AnchorStyles.Top
-            _cmbFactor.WaterText = "补帧倍率…"
-            _cmbFactor.BorderRadius = 8
-            _cmbFactor.BorderSize = 1
-            _cmbFactor.Items.Add("2 倍")
-            _cmbFactor.Items.Add("3 倍")
-            _cmbFactor.Items.Add("4 倍")
-            _cmbFactor.Items.Add("8 倍")
-            AddHandler _cmbFactor.SelectedIndexChanged, AddressOf OnFactorSelected
-            rowFactor.Controls.Add(_cmbFactor)
-            _pageUpscale.Controls.Add(sectionFactor)
-
-            ' ── 补帧行：补帧开关 + 补帧模型 ──
-            Dim sectionInterp As New Panel() With {.Dock = DockStyle.Top, .Height = 56, .BackColor = Color.Transparent, .Padding = New Padding(0, 10, 0, 0)}
-            Dim rowInterp As New Panel() With {.Dock = DockStyle.Top, .Height = 40, .BackColor = Color.Transparent}
-            sectionInterp.Controls.Add(rowInterp)
-            Dim lblInterpModel As New HtmlColorLabel() With {
-                .Text = "<font color=#D8D8D8>补帧模型</font>",
-                .AutoSize = False,
-                .Size = New Size(110, 40),
-                .Location = New Point(201, 0),
-                .Anchor = AnchorStyles.Left Or AnchorStyles.Top,
-                .TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            }
-            rowInterp.Controls.Add(lblInterpModel)
-            _lblSwitchInterp.Text = "<font color=#E8E8E8><b>补帧开关</b></font>"
-            _lblSwitchInterp.AutoSize = False
-            _lblSwitchInterp.Size = New Size(120, 40)
-            _lblSwitchInterp.Padding = New Padding(14, 0, 0, 0)
-            _lblSwitchInterp.Dock = DockStyle.Left
-            _lblSwitchInterp.ForeColor = Color.Gainsboro
-            _lblSwitchInterp.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            rowInterp.Controls.Add(_lblSwitchInterp)
-            _switchInterp.Dock = DockStyle.Left
-            ConfigureDpiSwitch(_switchInterp)
-            _switchInterp.TrackColorOn = Color.FromArgb(80, 200, 120)
-            _switchInterp.TrackColorOff = Color.FromArgb(90, 90, 100)
-            _switchInterp.KnobColor = Color.FromArgb(235, 235, 235)
-            SyncInterpSwitchFromConfig()
-            AddHandler _switchInterp.CheckedChanged, AddressOf OnInterpSwitchChanged
-            rowInterp.Controls.Add(_switchInterp)
-            _cmbInterp.Dock = DockStyle.None
-            _cmbInterp.Location = New Point(337, 0)
-            _cmbInterp.Size = New Size(300, 40)
-            _cmbInterp.Anchor = AnchorStyles.Left Or AnchorStyles.Top
-            _cmbInterp.WaterText = "点击选择补帧模型…"
-            _cmbInterp.BorderRadius = 8
-            _cmbInterp.BorderSize = 1
-            AddHandler _cmbInterp.DropDownOpened, AddressOf OnInterpDropDownOpened
-            AddHandler _cmbInterp.Click, AddressOf OnInterpComboClicked
-            AddHandler _cmbInterp.SelectedIndexChanged, AddressOf OnInterpModelSelected
-            rowInterp.Controls.Add(_cmbInterp)
-            _pageUpscale.Controls.Add(sectionInterp)
-
-            ' ── 模型行（放大模型，设计器 pnlBackend 高 50）──
-            Dim sectionModel As New Panel() With {.Dock = DockStyle.Top, .Height = 50, .BackColor = Color.Transparent, .Padding = New Padding(0, 8, 0, 0)}
-            Dim rowModel As New Panel() With {.Dock = DockStyle.Top, .Height = 40, .BackColor = Color.Transparent}
-            sectionModel.Controls.Add(rowModel)
-            Dim lblUpscaleModel As New HtmlColorLabel() With {
-                .Text = "<font color=#D8D8D8>放大模型</font>",
-                .AutoSize = False,
-                .Size = New Size(110, 40),
-                .Location = New Point(201, 0),
-                .Anchor = AnchorStyles.Left Or AnchorStyles.Top,
-                .TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            }
-            rowModel.Controls.Add(lblUpscaleModel)
-            _cmbModel.Dock = DockStyle.None
-            _cmbModel.Location = New Point(337, 0)
-            _cmbModel.Size = New Size(456, 40)
-            _cmbModel.Anchor = AnchorStyles.Left Or AnchorStyles.Top
-            _cmbModel.WaterText = "点击选择放大模型…"
-            _cmbModel.BorderRadius = 8
-            _cmbModel.BorderSize = 1
-            AddHandler _cmbModel.DropDownOpened, AddressOf OnModelDropDownOpened
-            AddHandler _cmbModel.Click, AddressOf OnModelComboClicked
-            AddHandler _cmbModel.SelectedIndexChanged, AddressOf OnModelSelected
-            rowModel.Controls.Add(_cmbModel)
-            _pageUpscale.Controls.Add(sectionModel)
-
-            ' ── 超分行：超分开关 + 选择推理方式 ──
-            Dim sectionUpscale As New Panel() With {.Dock = DockStyle.Top, .Height = 56, .BackColor = Color.Transparent, .Padding = New Padding(0, 10, 0, 0)}
-            Dim rowUpscale As New Panel() With {.Dock = DockStyle.Top, .Height = 40, .BackColor = Color.Transparent}
-            sectionUpscale.Controls.Add(rowUpscale)
-            _lblBackend.Text = "<font color=#D8D8D8>选择推理方式</font>"
-            _lblBackend.AutoSize = False
-            _lblBackend.Size = New Size(130, 40)
-            _lblBackend.Location = New Point(201, 0)
-            _lblBackend.Anchor = AnchorStyles.Left Or AnchorStyles.Top
-            _lblBackend.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            rowUpscale.Controls.Add(_lblBackend)
-            _cmbBackend.Dock = DockStyle.None
-            _cmbBackend.Location = New Point(337, 0)
-            _cmbBackend.Size = New Size(220, 36)
-            _cmbBackend.Anchor = AnchorStyles.Left Or AnchorStyles.Top
-            _cmbBackend.WaterText = "选择推理方式…"
-            _cmbBackend.BorderRadius = 8
-            _cmbBackend.BorderSize = 1
-            _cmbBackend.Items.Add("NCNN (Vulkan)")
-            _cmbBackend.Items.Add("CUDA (PyTorch)")
-            _cmbBackend.Items.Add("TensorRT (NVIDIA)")
-            _cmbBackend.Items.Add("ONNX Runtime")
-            _cmbBackend.Items.Add("FlashVSR (NVIDIA · 视频)")
-            _cmbBackend.Items.Add("BasicVSR++ (NVIDIA · 视频)")
-            AddHandler _cmbBackend.SelectedIndexChanged, AddressOf OnBackendSelected
-            rowUpscale.Controls.Add(_cmbBackend)
-            _lblSwitch.Text = "<font color=#E8E8E8><b>超分开关</b></font>"
-            _lblSwitch.AutoSize = False
-            _lblSwitch.Size = New Size(120, 40)
-            _lblSwitch.Padding = New Padding(14, 0, 0, 0)
-            _lblSwitch.Dock = DockStyle.Left
-            _lblSwitch.ForeColor = Color.Gainsboro
-            _lblSwitch.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            rowUpscale.Controls.Add(_lblSwitch)
-            _switchUpscale.Dock = DockStyle.Left
-            ConfigureDpiSwitch(_switchUpscale)
-            _switchUpscale.TrackColorOn = Color.FromArgb(80, 200, 120)
-            _switchUpscale.TrackColorOff = Color.FromArgb(90, 90, 100)
-            _switchUpscale.KnobColor = Color.FromArgb(235, 235, 235)
-            _switchUpscale.Checked = _config.UpscaleEnabled
-            _switchUpscale.Enabled = _config.Enabled
-            AddHandler _switchUpscale.CheckedChanged, AddressOf OnUpscaleSwitchChanged
-            rowUpscale.Controls.Add(_switchUpscale)
-            _pageUpscale.Controls.Add(sectionUpscale)
-
-            ' ── 插件总开关（最后添加 → 排在最上）──
-            Dim sectionMaster As New Panel() With {.Dock = DockStyle.Top, .Height = 50, .BackColor = Color.Transparent, .Padding = New Padding(0, 10, 0, 0)}
-            _lblMaster.Text = "<font color=#F2F2F2><b>插件总开关</b></font>  <font color=#B8B8B8>关闭此开关时，超分主页面功能不生效</font>"
-            _lblMaster.AutoSize = False
-            _lblMaster.Size = New Size(589, 40)
-            _lblMaster.Padding = New Padding(14, 0, 0, 0)
-            _lblMaster.Dock = DockStyle.Left
-            _lblMaster.ForeColor = Color.White
-            _lblMaster.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            sectionMaster.Controls.Add(_lblMaster)
-            _switchMaster.Dock = DockStyle.Left
-            ConfigureDpiSwitch(_switchMaster)
-            _switchMaster.TrackColorOn = Color.FromArgb(80, 200, 120)
-            _switchMaster.TrackColorOff = Color.FromArgb(90, 90, 100)
-            _switchMaster.KnobColor = Color.FromArgb(235, 235, 235)
-            _switchMaster.Checked = _config.Enabled
-            AddHandler _switchMaster.CheckedChanged, AddressOf OnMasterSwitchChanged
-            sectionMaster.Controls.Add(_switchMaster)
-            _pageUpscale.Controls.Add(sectionMaster)
-
-            ' 图片区占用固定设置区与底部说明之间的全部剩余高度；窗口较小时保留滚动能力。
-            Dim resizeImageSection As Action =
-                Sub()
-                    Dim fixedHeight = 50 + 56 + 50 + 56 + 56
-                    Dim available = _pageUpscale.ClientSize.Height - _pageUpscale.Padding.Vertical - fixedHeight - footer.Height
-                    imageSection.Height = Math.Max(330, available)
-                End Sub
-            AddHandler _pageUpscale.Resize, Sub(sender, e) resizeImageSection()
-            resizeImageSection()
-        End Sub
-
-        Private Function BuildImageUpscaleSectionLegacy() As Panel
-            Dim section As New FluentCardPanel() With {
-                .Dock = DockStyle.Top, .Height = 330, .FillColor = Color.FromArgb(43, 43, 43),
-                .StrokeColor = Color.FromArgb(62, 62, 62), .CornerRadius = 12,
-                .Padding = New Padding(18), .AllowDrop = True
-            }
-            AddHandler section.DragEnter, AddressOf OnImageDragEnter
-            AddHandler section.DragDrop, AddressOf OnImageDragDrop
-
-            Dim title As New Label() With {
-                .Text = "图片超分", .Location = New Point(20, 14), .Size = New Size(880, 30),
-                .ForeColor = Color.White, .BackColor = Color.Transparent,
-                .Font = New Font("Microsoft YaHei UI", 12.0F, FontStyle.Bold),
-                .TextAlign = ContentAlignment.MiddleLeft
-            }
-            section.Controls.Add(title)
-
-            Dim subtitle As New Label() With {
-                .Text = "借用上方超分模型和推理方式，可处理单张图片或递归文件夹。",
-                .Location = New Point(20, 44), .Size = New Size(880, 24),
-                .ForeColor = Color.FromArgb(170, 170, 170), .BackColor = Color.Transparent,
-                .Font = New Font("Microsoft YaHei UI", 9.0F), .TextAlign = ContentAlignment.MiddleLeft
-            }
-            section.Controls.Add(subtitle)
-
-            Dim inputRow As New FluentCardPanel() With {
-                .Location = New Point(20, 76), .Size = New Size(900, 50),
-                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right,
-                .FillColor = Color.FromArgb(51, 51, 51), .StrokeColor = Color.FromArgb(68, 68, 68), .CornerRadius = 8
-            }
-            ConfigureImageButton(_btnImageFiles, "选择或拖入文件", 185)
-            ConfigureImageButton(_btnImageFolder, "选择文件夹及其子目录", 232)
-            _btnImageFiles.Location = New Point(8, 9)
-            _btnImageFolder.Location = New Point(205, 9)
-            AddHandler _btnImageFiles.Click, AddressOf OnPickImageFiles
-            AddHandler _btnImageFolder.Click, AddressOf OnPickImageFolder
-            _lblImageInputs.Location = New Point(449, 9)
-            _lblImageInputs.Size = New Size(435, 32)
-            _lblImageInputs.AutoSize = False
-            _lblImageInputs.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _lblImageInputs.Text = "<font color=#999999>尚未选择图片</font>"
-            inputRow.Controls.AddRange(New Control() {_btnImageFiles, _btnImageFolder, _lblImageInputs})
-            section.Controls.Add(inputRow)
-
-            Dim outputRow As New FluentCardPanel() With {
-                .Location = New Point(20, 136), .Size = New Size(900, 50),
-                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right,
-                .FillColor = Color.FromArgb(51, 51, 51), .StrokeColor = Color.FromArgb(68, 68, 68), .CornerRadius = 8
-            }
-            ConfigureImageButton(_btnImageOutput, "指定输出文件夹", 185)
-            _btnImageOutput.Location = New Point(8, 9)
-            AddHandler _btnImageOutput.Click, AddressOf OnPickImageOutput
-            _lblImageOutput.Location = New Point(205, 9)
-            _lblImageOutput.Size = New Size(300, 32)
-            _lblImageOutput.AutoSize = False
-            _lblImageOutput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _switchImageOriginal.Location = New Point(513, 13)
-            ConfigureDpiSwitch(_switchImageOriginal)
-            _switchImageOriginal.Checked = _config.ImageOutputOriginal
-            AddHandler _switchImageOriginal.CheckedChanged, AddressOf OnImageOriginalChanged
-            Dim originalLabel As New Label() With {.Text = "输出到原目录，附加", .ForeColor = Color.Gainsboro, .BackColor = Color.Transparent, .Location = New Point(568, 10), .Size = New Size(170, 30), .TextAlign = ContentAlignment.MiddleLeft}
-            _cmbImageSuffix.Location = New Point(738, 9)
-            _cmbImageSuffix.Size = New Size(160, 32)
-            _cmbImageSuffix.Items.Add("处理时间戳")
-            _cmbImageSuffix.Items.Add("模型名称")
-            _cmbImageSuffix.SelectedIndex = If(String.Equals(_config.ImageSuffix, "model", StringComparison.OrdinalIgnoreCase), 1, 0)
-            AddHandler _cmbImageSuffix.SelectedIndexChanged, AddressOf OnImageSuffixChanged
-            outputRow.Controls.AddRange(New Control() {_btnImageOutput, _lblImageOutput, _switchImageOriginal, originalLabel, _cmbImageSuffix})
-            section.Controls.Add(outputRow)
-
-            Dim actionRow As New FluentCardPanel() With {
-                .Location = New Point(20, 196), .Size = New Size(900, 50),
-                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right,
-                .FillColor = Color.FromArgb(51, 51, 51), .StrokeColor = Color.FromArgb(68, 68, 68), .CornerRadius = 8
-            }
-            ConfigureImageButton(_btnImageStart, "开始处理", 185)
-            _btnImageStart.Location = New Point(8, 9)
-            _btnImageStart.BackColor1 = Color.FromArgb(0, 120, 212)
-            _btnImageStart.HoverBackColor1 = Color.FromArgb(17, 94, 163)
-            _btnImageStart.ForeColor = Color.White
-            AddHandler _btnImageStart.Click, AddressOf OnStartImageProcessing
-            _switchImagePng.Location = New Point(208, 13)
-            ConfigureDpiSwitch(_switchImagePng)
-            _switchImagePng.Checked = _config.ImagePng
-            AddHandler _switchImagePng.CheckedChanged, AddressOf OnImagePngChanged
-            Dim pngLabel As New Label() With {.Text = "处理为 PNG 格式", .ForeColor = Color.Gainsboro, .BackColor = Color.Transparent, .Location = New Point(263, 10), .Size = New Size(150, 30), .TextAlign = ContentAlignment.MiddleLeft}
-            Dim pngHint As New Label() With {.Text = "开启后统一输出为无损 PNG；关闭时输出源格式", .ForeColor = Color.FromArgb(160, 160, 160), .BackColor = Color.Transparent, .Location = New Point(413, 10), .Size = New Size(477, 30), .TextAlign = ContentAlignment.MiddleLeft}
-            actionRow.Controls.AddRange(New Control() {_btnImageStart, _switchImagePng, pngLabel, pngHint})
-            section.Controls.Add(actionRow)
-
-            Dim progressRow As New FluentCardPanel() With {
-                .Location = New Point(20, 256), .Size = New Size(900, 50),
-                .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Right,
-                .FillColor = Color.FromArgb(47, 47, 47), .StrokeColor = Color.FromArgb(68, 68, 68), .CornerRadius = 8
-            }
-            _imageProgress.Location = New Point(8, 16)
-            _imageProgress.Size = New Size(420, 18)
-            _imageProgress.Minimum = 0
-            _imageProgress.Maximum = 1000
-            _lblImageProgress.Location = New Point(443, 7)
-            _lblImageProgress.Size = New Size(445, 38)
-            _lblImageProgress.AutoSize = False
-            _lblImageProgress.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _lblImageProgress.Text = "<font color=#999999>处理进度 / ETA：等待开始</font>"
-            progressRow.Controls.AddRange(New Control() {_imageProgress, _lblImageProgress})
-            section.Controls.Add(progressRow)
-
-            ' 水平方向利用完整可用宽度；左边界保持不动。各按钮基准宽度较旧布局增加约 30%。
-            ' 垂直方向把四行平均铺开，避免集中挤在模块顶部。
-            Dim arrange As Action =
-                Sub()
-                    Dim rowWidth = Math.Max(900, section.ClientSize.Width - 40)
-                    inputRow.Width = rowWidth
-                    outputRow.Width = rowWidth
-                    actionRow.Width = rowWidth
-                    progressRow.Width = rowWidth
-
-                    _lblImageInputs.Width = Math.Max(220, rowWidth - _lblImageInputs.Left - 8)
-
-                    Dim suffixWidth = Math.Max(150, Math.Min(190, CInt(rowWidth * 0.17)))
-                    _cmbImageSuffix.Width = suffixWidth
-                    _cmbImageSuffix.Left = rowWidth - suffixWidth
-                    originalLabel.Width = 170
-                    originalLabel.Left = _cmbImageSuffix.Left - originalLabel.Width
-                    _switchImageOriginal.Left = originalLabel.Left - _switchImageOriginal.Width - 10
-                    _lblImageOutput.Width = Math.Max(180, _switchImageOriginal.Left - _lblImageOutput.Left - 10)
-
-                    pngHint.Width = Math.Max(220, rowWidth - pngHint.Left - 8)
-                    _imageProgress.Width = Math.Max(360, CInt(rowWidth * 0.55))
-                    _lblImageProgress.Left = _imageProgress.Right + 15
-                    _lblImageProgress.Width = Math.Max(220, rowWidth - _lblImageProgress.Left)
-
-                    Dim usable = Math.Max(230, section.ClientSize.Height - 86)
-                    Dim stepY = Math.Max(58, usable \ 4)
-                    inputRow.Top = 76
-                    outputRow.Top = inputRow.Top + stepY
-                    actionRow.Top = outputRow.Top + stepY
-                    progressRow.Top = Math.Min(section.ClientSize.Height - progressRow.Height - 14, actionRow.Top + stepY)
-                End Sub
-            AddHandler section.Resize, Sub(sender, e) arrange()
-
-            _pageUpscale.Controls.Add(section)
-            RefreshImageOutputLabel()
-            arrange()
-            Return section
-        End Function
 
         ''' <summary>BooleanSwitch 按宿主窗口的实际 DPI 重新计算尺寸（96 DPI 基准为 38×20）。</summary>
         Private Shared Sub ConfigureDpiSwitch(switchControl As LakeUI.BooleanSwitch)
@@ -3924,7 +3183,7 @@ Namespace videoenhancer
             _pagePreview.BackColor = Color.Transparent
             _pagePreview.Padding = New Padding(0, 8, 0, 0)
 
-            Dim root As New TableLayoutPanel With {
+            Dim root As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 1,
                 .RowCount = 5,
@@ -3943,7 +3202,7 @@ Namespace videoenhancer
             _lblPreviewTitle.Dock = DockStyle.Fill
             _lblPreviewTitle.Margin = Padding.Empty
             _lblPreviewTitle.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            root.Controls.Add(_lblPreviewTitle, 0, 0)
+            root.AddAt(_lblPreviewTitle, 0, 0)
 
             _lblPreviewStatus.Text = "<font color=#888888>等待编码队列任务…</font>"
             _lblPreviewStatus.AutoSize = False
@@ -3953,7 +3212,7 @@ Namespace videoenhancer
             _lblPreviewStatus.LineSpacing = 2
             _lblPreviewStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
 
-            Dim taskRow As New TableLayoutPanel With {
+            Dim taskRow As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 3,
                 .RowCount = 1,
@@ -3978,11 +3237,11 @@ Namespace videoenhancer
             Dim taskHint = CreateOfficialCaption("可查看处理中或已经完成的帧")
             taskHint.TextAlign = ContentAlignment.MiddleLeft
             taskHint.Margin = New Padding(16, 0, 0, 0)
-            taskRow.Controls.Add(_lblTask, 0, 0)
-            taskRow.Controls.Add(_cmbTask, 1, 0)
-            taskRow.Controls.Add(taskHint, 2, 0)
-            root.Controls.Add(taskRow, 0, 1)
-            root.Controls.Add(_lblPreviewStatus, 0, 2)
+            taskRow.AddAt(_lblTask, 0, 0)
+            taskRow.AddAt(_cmbTask, 1, 0)
+            taskRow.AddAt(taskHint, 2, 0)
+            root.AddAt(taskRow, 0, 1)
+            root.AddAt(_lblPreviewStatus, 0, 2)
 
             Dim previewSurface As New ModernPanel With {
                 .Dock = DockStyle.Fill,
@@ -3996,11 +3255,14 @@ Namespace videoenhancer
             }
             _picPreview.Dock = DockStyle.Fill
             _picPreview.BackColor = Color.FromArgb(16, 16, 18)
-            _picPreview.SizeMode = PictureBoxSizeMode.Zoom
+            _picPreview.ShowSelection = False
+            _picPreview.BackColor1 = Color.Transparent
+            _picPreview.BorderSize = 0
+            _picPreview.BackgroundSource = ModernPanel1
             previewSurface.Controls.Add(_picPreview)
-            root.Controls.Add(previewSurface, 0, 3)
+            root.AddAt(previewSurface, 0, 3)
 
-            Dim footer As New TableLayoutPanel With {
+            Dim footer As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 3,
                 .RowCount = 1,
@@ -4033,126 +3295,11 @@ Namespace videoenhancer
             _cmbRate.Dock = DockStyle.Fill
             _cmbRate.Margin = New Padding(12, 5, 0, 5)
             AddHandler _cmbRate.SelectedIndexChanged, AddressOf OnRateSelected
-            footer.Controls.Add(_lblPreviewNote, 0, 0)
-            footer.Controls.Add(_lblRate, 1, 0)
-            footer.Controls.Add(_cmbRate, 2, 0)
-            root.Controls.Add(footer, 0, 4)
+            footer.AddAt(_lblPreviewNote, 0, 0)
+            footer.AddAt(_lblRate, 1, 0)
+            footer.AddAt(_cmbRate, 2, 0)
+            root.AddAt(footer, 0, 4)
             _pagePreview.Controls.Add(root)
-        End Sub
-
-        Private Sub BuildOfficialAdvancedPage()
-            _pageAdvanced.Dock = DockStyle.Fill
-            _pageAdvanced.BackColor = Color.Transparent
-            _pageAdvanced.Padding = New Padding(0, 8, 0, 0)
-
-            Dim root As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 1,
-                .RowCount = 4,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 44.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 82.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 70.0F))
-            root.Controls.Add(CreateOfficialSectionHeading(
-                "视频对比工作室", "并排检查原片、超分、补帧和不同参数版本；全部在本机处理"), 0, 0)
-
-            Dim steps As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 3,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            For index As Integer = 0 To 2
-                steps.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 33.3333F))
-            Next
-            steps.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-            Dim stepTexts = New String() {
-                "01   添加 2–4 个视频",
-                "02   选择对比布局",
-                "03   预览并导出结果"
-            }
-            For index As Integer = 0 To stepTexts.Length - 1
-                Dim stepPanel As New ModernPanel With {
-                    .Dock = DockStyle.Fill,
-                    .Margin = If(index = 0, New Padding(0, 9, 8, 9),
-                                 If(index = 2, New Padding(8, 9, 0, 9), New Padding(8, 9, 8, 9))),
-                    .Padding = New Padding(14, 0, 14, 0),
-                    .BackColor = Color.Transparent,
-                    .BackColor1 = UiSurface,
-                    .BorderColor = Color.Transparent,
-                    .BorderSize = 0,
-                    .BorderRadius = 10
-                }
-                Dim stepLabel = CreateTextLabel(stepTexts(index), 9.5F, FontStyle.Regular,
-                                                If(index = 0, UiAccent, UiText))
-                stepLabel.Dock = DockStyle.Fill
-                stepLabel.Margin = Padding.Empty
-                stepPanel.Controls.Add(stepLabel)
-                steps.Controls.Add(stepPanel, index, 0)
-            Next
-            root.Controls.Add(steps, 0, 1)
-
-            Dim previewGrid As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 2,
-                .RowCount = 2,
-                .BackColor = Color.Transparent,
-                .Margin = New Padding(0, 8, 0, 8),
-                .Padding = Padding.Empty
-            }
-            previewGrid.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
-            previewGrid.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 50.0F))
-            previewGrid.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
-            previewGrid.RowStyles.Add(New RowStyle(SizeType.Percent, 50.0F))
-            Dim previewNames = New String() {"原始画面", "方案 A", "方案 B", "方案 C"}
-            For index As Integer = 0 To previewNames.Length - 1
-                Dim cell As New ModernPanel With {
-                    .Dock = DockStyle.Fill,
-                    .Margin = New Padding(If(index Mod 2 = 0, 0, 4), If(index < 2, 0, 4),
-                                          If(index Mod 2 = 0, 4, 0), If(index < 2, 4, 0)),
-                    .BackColor = Color.Transparent,
-                    .BackColor1 = Color.FromArgb(If(index = 0, 28, 34), If(index = 0, 28, 34), If(index = 0, 28, 34)),
-                    .BorderColor = Color.Transparent,
-                    .BorderSize = 0,
-                    .BorderRadius = 0
-                }
-                Dim caption = CreateTextLabel(previewNames(index), 10.0F, FontStyle.Regular,
-                                              If(index = 0, UiTextMuted, UiTextSecondary))
-                caption.Dock = DockStyle.Fill
-                caption.TextAlign = ContentAlignment.MiddleCenter
-                cell.Controls.Add(caption)
-                previewGrid.Controls.Add(cell, index Mod 2, index \ 2)
-            Next
-            root.Controls.Add(previewGrid, 0, 2)
-
-            Dim footer As New TableLayoutPanel With {
-                .Dock = DockStyle.Fill,
-                .ColumnCount = 2,
-                .RowCount = 1,
-                .BackColor = Color.Transparent,
-                .Margin = Padding.Empty,
-                .Padding = Padding.Empty
-            }
-            footer.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            footer.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 230.0F))
-            footer.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-            Dim hint = CreateOfficialCaption("支持上下、左右、1+2 和四宫格布局，并可自定义编码器、分辨率与分割线")
-            hint.TextAlign = ContentAlignment.MiddleLeft
-            _btnQuad.Text = "打开对比工作室"
-            _btnQuad.Dock = DockStyle.Fill
-            _btnQuad.Margin = New Padding(12, 8, 0, 8)
-            ConfigurePrimaryButton(_btnQuad)
-            AddHandler _btnQuad.Click, AddressOf OnQuadClick
-            footer.Controls.Add(hint, 0, 0)
-            footer.Controls.Add(_btnQuad, 1, 0)
-            root.Controls.Add(footer, 0, 3)
-            _pageAdvanced.Controls.Add(root)
         End Sub
 
         Private Sub BuildOfficialModelDownloadPage()
@@ -4160,7 +3307,7 @@ Namespace videoenhancer
             _pageDownloader.BackColor = Color.Transparent
             _pageDownloader.Padding = New Padding(0, 8, 0, 0)
 
-            Dim root As New TableLayoutPanel With {
+            Dim root As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 1,
                 .RowCount = 2,
@@ -4170,7 +3317,7 @@ Namespace videoenhancer
             }
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 58.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-            Dim header As New TableLayoutPanel With {
+            Dim header As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 3,
                 .RowCount = 1,
@@ -4182,7 +3329,7 @@ Namespace videoenhancer
             header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 174.0F))
             header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 190.0F))
             header.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-            header.Controls.Add(CreateOfficialSectionHeading(
+            header.AddAt(CreateOfficialSectionHeading(
                 "模型资源库", "从 ModelScope 获取模型与后端组件"), 0, 0)
             _btnDownloadPluginUpdate.Text = "下载全部"
             _btnDownloadPluginUpdate.Dock = DockStyle.Fill
@@ -4190,17 +3337,17 @@ Namespace videoenhancer
             _btnDownloadPluginUpdate.Margin = New Padding(12, 7, 0, 7)
             ConfigureSecondaryButton(_btnDownloadPluginUpdate)
             AddHandler _btnDownloadPluginUpdate.Click, AddressOf OnDownloadAllClick
-            header.Controls.Add(_btnDownloadPluginUpdate, 2, 0)
+            header.AddAt(_btnDownloadPluginUpdate, 2, 0)
             _btnRefreshDownloads.Text = "刷新资源"
             _btnRefreshDownloads.Dock = DockStyle.Fill
             _btnRefreshDownloads.Margin = New Padding(12, 7, 0, 7)
             ConfigureSecondaryButton(_btnRefreshDownloads)
             AddHandler _btnRefreshDownloads.Click, Sub(sender, e) LoadDownloadModels(True)
-            header.Controls.Add(_btnRefreshDownloads, 1, 0)
-            root.Controls.Add(header, 0, 0)
+            header.AddAt(_btnRefreshDownloads, 1, 0)
+            root.AddAt(header, 0, 0)
 
             ConfigureDownloadList()
-            root.Controls.Add(_downloadList, 0, 1)
+            root.AddAt(_downloadList, 0, 1)
             _pageDownloader.Controls.Add(root)
         End Sub
 
@@ -4257,426 +3404,6 @@ Namespace videoenhancer
                         _downloadList.RefreshItems()
                     End If
                 End Sub
-        End Sub
-
-        Private Sub BuildPreviewPage()
-            _pagePreview.Dock = DockStyle.Fill
-            _pagePreview.BackColor = Color.Transparent
-            _pagePreview.Padding = New Padding(8, 14, 8, 10)
-
-            ' 画面区域先加入并填满剩余空间，上下工具条随后占位。
-            Dim previewFrame As New FluentCardPanel() With {
-                .Dock = DockStyle.Fill, .FillColor = UiCanvas,
-                .StrokeColor = UiStrokeSoft, .CornerRadius = 12,
-                .Padding = New Padding(8)
-            }
-            _picPreview.Dock = DockStyle.Fill
-            _picPreview.BackColor = Color.FromArgb(10, 13, 17)
-            _picPreview.SizeMode = PictureBoxSizeMode.Zoom
-            previewFrame.Controls.Add(_picPreview)
-            _pagePreview.Controls.Add(previewFrame)
-
-            Dim bottomHost As New Panel() With {
-                .Dock = DockStyle.Bottom, .Height = 70, .BackColor = Color.Transparent,
-                .Padding = New Padding(0, 12, 0, 0)
-            }
-            Dim bottomBar As New FluentCardPanel() With {
-                .Dock = DockStyle.Fill, .FillColor = UiSurface,
-                .StrokeColor = UiStrokeSoft, .CornerRadius = 10,
-                .Padding = New Padding(14, 8, 10, 8)
-            }
-            _lblPreviewNote.Text = "<font color=#7E8C9D>预览会自动跟随任务进度；慢速处理时短暂停顿属于正常现象。</font>"
-            _lblPreviewNote.AutoSize = False
-            _lblPreviewNote.Dock = DockStyle.Fill
-            _lblPreviewNote.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            bottomBar.Controls.Add(_lblPreviewNote)
-            _cmbRate.Dock = DockStyle.Right
-            _cmbRate.Width = 158
-            _cmbRate.WaterText = "切换频率…"
-            ConfigureCombo(_cmbRate)
-            _cmbRate.Items.Add("0.5 秒")
-            _cmbRate.Items.Add("1 秒")
-            _cmbRate.Items.Add("2 秒")
-            _cmbRate.Items.Add("3 秒")
-            _cmbRate.Items.Add("关键帧模式")
-            _cmbRate.SelectedIndex = 1
-            AddHandler _cmbRate.SelectedIndexChanged, AddressOf OnRateSelected
-            bottomBar.Controls.Add(_cmbRate)
-            _lblRate.Text = "<font color=#B1BCCA>刷新频率</font>"
-            _lblRate.AutoSize = False
-            _lblRate.Dock = DockStyle.Right
-            _lblRate.Width = 86
-            _lblRate.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            bottomBar.Controls.Add(_lblRate)
-            ' Dock.Right 依 Z 顺序布局：下拉框置于最右，标签紧邻其左侧。
-            bottomBar.Controls.SetChildIndex(_cmbRate, bottomBar.Controls.Count - 1)
-            bottomHost.Controls.Add(bottomBar)
-            _pagePreview.Controls.Add(bottomHost)
-
-            Dim headerHost As New Panel() With {
-                .Dock = DockStyle.Top, .Height = 108, .BackColor = Color.Transparent,
-                .Padding = New Padding(0, 0, 0, 12)
-            }
-            Dim header As New FluentCardPanel() With {
-                .Dock = DockStyle.Fill, .FillColor = UiSurface,
-                .StrokeColor = UiStrokeSoft, .CornerRadius = 12
-            }
-            Dim liveDot As Label = CreateTextLabel("●", 9.0F, FontStyle.Regular, UiSuccess)
-            liveDot.Location = New Point(18, 16)
-            liveDot.Size = New Size(22, 28)
-            liveDot.TextAlign = ContentAlignment.MiddleCenter
-            _lblPreviewTitle.Text = "<font color=#F2F6FA><b>实时预览</b></font>　<font color=#7E8C9D>队列画面监看</font>"
-            _lblPreviewTitle.AutoSize = False
-            _lblPreviewTitle.Location = New Point(44, 13)
-            _lblPreviewTitle.Size = New Size(460, 34)
-            _lblPreviewTitle.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _lblPreviewStatus.Text = "<font color=#7E8C9D>等待编码队列任务…</font>"
-            _lblPreviewStatus.AutoSize = False
-            _lblPreviewStatus.Location = New Point(20, 49)
-            _lblPreviewStatus.Size = New Size(700, 30)
-            _lblPreviewStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _lblTask.Text = "<font color=#B1BCCA>预览任务</font>"
-            _lblTask.AutoSize = False
-            _lblTask.Size = New Size(84, 38)
-            _lblTask.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _cmbTask.Size = New Size(360, 38)
-            _cmbTask.WaterText = "选择要预览的任务…"
-            ConfigureCombo(_cmbTask)
-            AddHandler _cmbTask.SelectedIndexChanged, AddressOf OnTaskSelected
-            header.Controls.AddRange(New Control() {liveDot, _lblPreviewTitle, _lblPreviewStatus, _lblTask, _cmbTask})
-            Dim arrangeHeader As Action =
-                Sub()
-                    _cmbTask.Location = New Point(Math.Max(520, header.ClientSize.Width - _cmbTask.Width - 18), 28)
-                    _lblTask.Location = New Point(_cmbTask.Left - _lblTask.Width - 8, 28)
-                    _lblPreviewTitle.Width = Math.Max(220, _lblTask.Left - _lblPreviewTitle.Left - 20)
-                    _lblPreviewStatus.Width = Math.Max(300, _lblTask.Left - _lblPreviewStatus.Left - 20)
-                End Sub
-            AddHandler header.Resize, Sub(sender, e) arrangeHeader()
-            headerHost.Controls.Add(header)
-            _pagePreview.Controls.Add(headerHost)
-            arrangeHeader()
-        End Sub
-
-        Private Sub BuildPreviewPageLegacy()
-            _pagePreview.Dock = DockStyle.Fill
-            _pagePreview.BackColor = Color.Transparent
-            ' 设计器坐标：标题/任务/状态/预览区左侧留 30px 边距，底栏左侧留 27px
-            _pagePreview.Padding = New Padding(30, 4, 0, 0)
-
-            ' 中央预览区：原生 PictureBox（Fill 先添加 → 最后布局 → 填充剩余空间）
-            Dim previewBorder As New Panel() With {.Dock = DockStyle.Fill, .BackColor = Color.FromArgb(64, 64, 74), .Padding = New Padding(1)}
-            _picPreview.Dock = DockStyle.Fill
-            _picPreview.BackColor = Color.FromArgb(16, 16, 18)
-            _picPreview.SizeMode = PictureBoxSizeMode.Zoom
-            previewBorder.Controls.Add(_picPreview)
-            _pagePreview.Controls.Add(previewBorder)
-
-            ' 状态行
-            _lblPreviewStatus.Text = "<font color=#9AA79A>等待编码队列任务…</font>"
-            _lblPreviewStatus.AutoSize = False
-            _lblPreviewStatus.Dock = DockStyle.Top
-            _lblPreviewStatus.Height = 26
-            _lblPreviewStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _pagePreview.Controls.Add(_lblPreviewStatus)
-
-            ' 任务选择行：预览任务 [下拉框]
-            Dim taskBar As New Panel() With {.Dock = DockStyle.Top, .Height = 36, .BackColor = Color.Transparent, .Padding = New Padding(0, 4, 0, 0)}
-            _cmbTask.Dock = DockStyle.Left
-            _cmbTask.Width = 300
-            _cmbTask.BorderRadius = 8
-            _cmbTask.BorderSize = 1
-            _cmbTask.WaterText = "选择要预览的任务…"
-            AddHandler _cmbTask.SelectedIndexChanged, AddressOf OnTaskSelected
-            taskBar.Controls.Add(_cmbTask)
-            _lblTask.Text = "<font color=#C8C8C8>预览任务</font>"
-            _lblTask.AutoSize = False
-            _lblTask.Dock = DockStyle.Left
-            _lblTask.Width = 96
-            _lblTask.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            taskBar.Controls.Add(_lblTask)
-            _pagePreview.Controls.Add(taskBar)
-
-            ' 标题行
-            _lblPreviewTitle.Text = "<font color=#E8E8E8><b>实时预览</b></font>  <font color=#8A8A8A>预览超分/编码完成的帧</font>"
-            _lblPreviewTitle.AutoSize = False
-            _lblPreviewTitle.Dock = DockStyle.Top
-            _lblPreviewTitle.Height = 36
-            _lblPreviewTitle.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _pagePreview.Controls.Add(_lblPreviewTitle)
-
-            ' 底部栏：说明（左）+ 切换频率（右）
-            Dim bottomBar As New Panel() With {.Dock = DockStyle.Bottom, .Height = 46, .BackColor = Color.Transparent, .Padding = New Padding(0, 10, 0, 0)}
-            _lblPreviewNote.Text = "<font color=#8A8A8A>处理速度较慢时，可能存在预览停顿</font>"
-            _lblPreviewNote.AutoSize = False
-            _lblPreviewNote.Dock = DockStyle.Fill
-            _lblPreviewNote.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            bottomBar.Controls.Add(_lblPreviewNote)
-            _lblRate.Text = "<font color=#C8C8C8>切换频率</font>"
-            _lblRate.AutoSize = False
-            _lblRate.Dock = DockStyle.Right
-            _lblRate.Width = 90
-            _lblRate.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            bottomBar.Controls.Add(_lblRate)
-            _cmbRate.Dock = DockStyle.Right
-            _cmbRate.Width = 150
-            _cmbRate.BorderRadius = 8
-            _cmbRate.BorderSize = 1
-            _cmbRate.WaterText = "切换频率…"
-            _cmbRate.Items.Add("0.5 秒")
-            _cmbRate.Items.Add("1 秒")
-            _cmbRate.Items.Add("2 秒")
-            _cmbRate.Items.Add("3 秒")
-            _cmbRate.Items.Add("关键帧模式")
-            _cmbRate.SelectedIndex = 1
-            AddHandler _cmbRate.SelectedIndexChanged, AddressOf OnRateSelected
-            bottomBar.Controls.Add(_cmbRate)
-            _pagePreview.Controls.Add(bottomBar)
-        End Sub
-
-        ' ────────────────────────── 高级功能页 ──────────────────────────
-
-        Private Sub BuildAdvancedPage()
-            _pageAdvanced.Dock = DockStyle.Fill
-            _pageAdvanced.BackColor = Color.Transparent
-            _pageAdvanced.Padding = New Padding(8, 14, 8, 10)
-            _pageAdvanced.AutoScroll = True
-
-            Dim workflowHost As New Panel() With {
-                .Dock = DockStyle.Top, .Height = 104, .BackColor = Color.Transparent,
-                .Padding = New Padding(0, 12, 0, 0)
-            }
-            Dim workflow As New FluentCardPanel() With {
-                .Dock = DockStyle.Fill, .FillColor = Color.FromArgb(212, 26, 32, 40),
-                .StrokeColor = UiStrokeSoft, .CornerRadius = 10
-            }
-            Dim workflowTitle As Label = CreateTextLabel("三步完成对比", 9.0F, FontStyle.Bold, UiTextSecondary)
-            workflowTitle.Location = New Point(18, 12)
-            workflowTitle.Size = New Size(150, 26)
-            Dim stepOne As Label = CreateTextLabel("01  添加 2–4 个视频", 9.0F, FontStyle.Regular, UiText)
-            Dim stepTwo As Label = CreateTextLabel("02  选择画面布局", 9.0F, FontStyle.Regular, UiText)
-            Dim stepThree As Label = CreateTextLabel("03  预览并导出", 9.0F, FontStyle.Regular, UiText)
-            Dim arrowOne As Label = CreateTextLabel("→", 11.0F, FontStyle.Regular, UiTextMuted)
-            Dim arrowTwo As Label = CreateTextLabel("→", 11.0F, FontStyle.Regular, UiTextMuted)
-            workflow.Controls.AddRange(New Control() {workflowTitle, stepOne, arrowOne, stepTwo, arrowTwo, stepThree})
-            Dim arrangeWorkflow As Action =
-                Sub()
-                    Dim available = Math.Max(720, workflow.ClientSize.Width - 36)
-                    Dim stepWidth = Math.Max(180, (available - 80) \ 3)
-                    stepOne.SetBounds(18, 42, stepWidth, 30)
-                    arrowOne.SetBounds(stepOne.Right + 10, 42, 30, 30)
-                    stepTwo.SetBounds(arrowOne.Right + 10, 42, stepWidth, 30)
-                    arrowTwo.SetBounds(stepTwo.Right + 10, 42, 30, 30)
-                    stepThree.SetBounds(arrowTwo.Right + 10, 42, stepWidth, 30)
-                End Sub
-            AddHandler workflow.Resize, Sub(sender, e) arrangeWorkflow()
-            workflowHost.Controls.Add(workflow)
-            _pageAdvanced.Controls.Add(workflowHost)
-
-            Dim heroHost As New Panel() With {
-                .Dock = DockStyle.Top, .Height = 266, .BackColor = Color.Transparent,
-                .Padding = New Padding(0, 12, 0, 0)
-            }
-            Dim hero As New FluentCardPanel() With {
-                .Dock = DockStyle.Fill, .FillColor = UiSurface,
-                .StrokeColor = UiStrokeSoft, .CornerRadius = 12
-            }
-            Dim heroAccent As New Panel() With {
-                .BackColor = UiAccent, .Location = New Point(0, 20), .Size = New Size(4, 62)
-            }
-            Dim heroKicker As Label = CreateTextLabel("LOCAL VIDEO LAB", 8.0F, FontStyle.Bold, UiAccent)
-            heroKicker.Location = New Point(24, 18)
-            heroKicker.Size = New Size(260, 24)
-            Dim heroTitle As HtmlColorLabel = CreateHtmlTextLabel("把差异放在同一画面里", 15.0F, FontStyle.Bold, UiText)
-            heroTitle.Location = New Point(24, 42)
-            heroTitle.Size = New Size(560, 38)
-            Dim heroDesc As Label = CreateTextLabel("实时组合原片、超分、补帧等版本，支持上下、左右、1+2 与四宫格布局。", 9.2F, FontStyle.Regular, UiTextSecondary)
-            heroDesc.Location = New Point(24, 82)
-            heroDesc.Size = New Size(650, 48)
-            Dim privacy As Label = CreateTextLabel("✓ 本机处理    ✓ 自定义分辨率    ✓ 自定义编码器与分割线", 8.7F, FontStyle.Regular, UiSuccess)
-            privacy.Location = New Point(24, 132)
-            privacy.Size = New Size(640, 30)
-            _btnQuad.Text = "打开对比工作室  →"
-            _btnQuad.Size = New Size(188, 42)
-            ConfigurePrimaryButton(_btnQuad)
-            AddHandler _btnQuad.Click, AddressOf OnQuadClick
-
-            Dim preview As New FluentCardPanel() With {
-                .FillColor = Color.FromArgb(14, 18, 24), .StrokeColor = UiStroke, .CornerRadius = 10
-            }
-            Dim previewCaption As Label = CreateTextLabel("4-UP PREVIEW", 7.5F, FontStyle.Bold, UiTextMuted)
-            previewCaption.Location = New Point(12, 8)
-            previewCaption.Size = New Size(150, 20)
-            preview.Controls.Add(previewCaption)
-            Dim cells As New List(Of FluentCardPanel)()
-            For i As Integer = 0 To 3
-                Dim cell As New FluentCardPanel() With {
-                    .FillColor = If(i Mod 2 = 0, Color.FromArgb(38, 50, 65), Color.FromArgb(47, 42, 58)),
-                    .StrokeColor = Color.FromArgb(61, 74, 90), .CornerRadius = 6
-                }
-                Dim badge As Label = CreateTextLabel((i + 1).ToString(), 8.0F, FontStyle.Bold,
-                                                     If(i = 0, UiAccent, UiTextMuted))
-                badge.Dock = DockStyle.Fill
-                badge.TextAlign = ContentAlignment.MiddleCenter
-                cell.Controls.Add(badge)
-                cells.Add(cell)
-                preview.Controls.Add(cell)
-            Next
-            Dim arrangePreview As Action =
-                Sub()
-                    Dim gap = 8
-                    Dim cellWidth = Math.Max(70, (preview.ClientSize.Width - 32 - gap) \ 2)
-                    Dim cellHeight = Math.Max(45, (preview.ClientSize.Height - 48 - gap) \ 2)
-                    cells(0).SetBounds(12, 32, cellWidth, cellHeight)
-                    cells(1).SetBounds(cells(0).Right + gap, 32, cellWidth, cellHeight)
-                    cells(2).SetBounds(12, cells(0).Bottom + gap, cellWidth, cellHeight)
-                    cells(3).SetBounds(cells(2).Right + gap, cells(0).Bottom + gap, cellWidth, cellHeight)
-                End Sub
-            AddHandler preview.Resize, Sub(sender, e) arrangePreview()
-            hero.Controls.AddRange(New Control() {
-                heroAccent, heroKicker, heroTitle, heroDesc, privacy, _btnQuad, preview
-            })
-            Dim arrangeHero As Action =
-                Sub()
-                    Dim previewWidth = Math.Max(300, Math.Min(420, CInt(hero.ClientSize.Width * 0.32)))
-                    preview.SetBounds(hero.ClientSize.Width - previewWidth - 20, 18, previewWidth, hero.ClientSize.Height - 36)
-                    Dim textRight = preview.Left - 24
-                    heroTitle.Width = Math.Max(260, textRight - heroTitle.Left)
-                    heroDesc.Width = Math.Max(260, textRight - heroDesc.Left)
-                    privacy.Width = Math.Max(260, textRight - privacy.Left)
-                    _btnQuad.Location = New Point(24, hero.ClientSize.Height - _btnQuad.Height - 22)
-                    preview.Visible = hero.ClientSize.Width >= 820
-                    arrangePreview()
-                End Sub
-            AddHandler hero.Resize, Sub(sender, e) arrangeHero()
-            heroHost.Controls.Add(hero)
-            _pageAdvanced.Controls.Add(heroHost)
-
-            Dim headerHost As New Panel() With {
-                .Dock = DockStyle.Top, .Height = 94, .BackColor = Color.Transparent,
-                .Padding = New Padding(0, 0, 0, 12)
-            }
-            headerHost.Controls.Add(CreatePageHeader("▦", "对比工具", "在同一画面中检查不同模型、参数和处理版本，快速找到最合适的方案。"))
-            _pageAdvanced.Controls.Add(headerHost)
-            arrangeHero()
-            arrangeWorkflow()
-        End Sub
-
-        Private Sub BuildAdvancedPageLegacy()
-            _pageAdvanced.Dock = DockStyle.Fill
-            _pageAdvanced.BackColor = Color.Transparent
-            _pageAdvanced.Padding = New Padding(8, 22, 8, 8)
-
-            ' Fluent Design 功能卡片；只调整呈现，仍打开原有 QuadGridForm 后端。
-            Dim card As New FluentCardPanel() With {
-                .Dock = DockStyle.Top, .Height = 166, .Padding = New Padding(24, 20, 24, 20),
-                .FillColor = Color.FromArgb(43, 43, 43), .StrokeColor = Color.FromArgb(63, 63, 63), .CornerRadius = 12
-            }
-            Dim accent As New Panel() With {
-                .BackColor = Color.FromArgb(96, 205, 255), .Location = New Point(0, 22),
-                .Size = New Size(4, 122), .Anchor = AnchorStyles.Left Or AnchorStyles.Top Or AnchorStyles.Bottom
-            }
-            Dim icon As New Label() With {
-                .Text = "▦", .Location = New Point(24, 22), .Size = New Size(48, 48),
-                .ForeColor = Color.FromArgb(96, 205, 255), .Font = New Font("Segoe UI Symbol", 24.0F),
-                .TextAlign = ContentAlignment.MiddleCenter
-            }
-            Dim title As New Label() With {
-                .Text = "视频对比工作室", .Location = New Point(84, 22), .Size = New Size(420, 32),
-                .ForeColor = Color.FromArgb(250, 250, 250), .Font = New Font("Microsoft YaHei UI", 13.0F, FontStyle.Bold),
-                .TextAlign = ContentAlignment.MiddleLeft
-            }
-            Dim description As New Label() With {
-                .Text = "拖入 1–4 个视频，实时预览上下、左右、1+2 或四宫格布局，并自定义编码器、分辨率和分割线。",
-                .Location = New Point(84, 58), .Size = New Size(690, 52),
-                .ForeColor = Color.FromArgb(190, 190, 190), .Font = New Font("Microsoft YaHei UI", 9.5F),
-                .TextAlign = ContentAlignment.MiddleLeft, .AutoEllipsis = True
-            }
-            Dim footnote As New Label() With {
-                .Text = "至少需要两个视频 · 处理过程完全在本机完成", .Location = New Point(84, 112), .Size = New Size(520, 28),
-                .ForeColor = Color.FromArgb(145, 145, 145), .Font = New Font("Microsoft YaHei UI", 8.5F),
-                .TextAlign = ContentAlignment.MiddleLeft
-            }
-            _btnQuad.Text = "打开工作室  →"
-            _btnQuad.Size = New Size(168, 40)
-            _btnQuad.Location = New Point(card.Width - 192, 102)
-            _btnQuad.Anchor = AnchorStyles.Right Or AnchorStyles.Bottom
-            _btnQuad.BorderRadius = 8
-            _btnQuad.BorderSize = 0
-            _btnQuad.BackColor1 = Color.FromArgb(0, 120, 212)
-            _btnQuad.HoverBackColor1 = Color.FromArgb(17, 94, 163)
-            _btnQuad.PressedBackColor1 = Color.FromArgb(0, 91, 158)
-            AddHandler _btnQuad.Click, AddressOf OnQuadClick
-            card.Controls.AddRange(New Control() {accent, icon, title, description, footnote, _btnQuad})
-            _pageAdvanced.Controls.Add(card)
-        End Sub
-
-        ' ────────────────────────── 模型下载页 ──────────────────────────
-
-        Private Sub BuildModelDownloadPage()
-            _pageDownloader.Dock = DockStyle.Fill
-            _pageDownloader.BackColor = Color.Transparent
-            _pageDownloader.Padding = New Padding(8, 14, 8, 10)
-
-            ConfigureDownloadList()
-            _pageDownloader.Controls.Add(_downloadList)
-
-            Dim headerHost As New Panel() With {
-                .Dock = DockStyle.Top, .Height = 96, .BackColor = Color.Transparent,
-                .Padding = New Padding(0, 0, 0, 12)
-            }
-            Dim header = CreatePageHeader("↓", "模型资源库", "从 ModelScope 镜像获取模型与后端组件；压缩包下载后会自动解压到正确目录。")
-            _btnRefreshDownloads.Text = "刷新资源"
-            _btnRefreshDownloads.Size = New Size(124, 38)
-            ' 位置由 Resize 处理；同时使用 Right 锚点会在首次布局时重复偏移。
-            _btnRefreshDownloads.Anchor = AnchorStyles.Top
-            ConfigurePrimaryButton(_btnRefreshDownloads)
-            AddHandler _btnRefreshDownloads.Click, Sub(sender, e) LoadDownloadModels(True)
-            header.Controls.Add(_btnRefreshDownloads)
-            Dim arrangeHeader As Action =
-                Sub()
-                    _btnRefreshDownloads.Location = New Point(Math.Max(300, header.ClientSize.Width - _btnRefreshDownloads.Width - 16), 22)
-                    For Each child As Control In header.Controls
-                        If child IsNot _btnRefreshDownloads AndAlso child.Left >= 80 Then
-                            child.Width = Math.Max(160, _btnRefreshDownloads.Left - child.Left - 16)
-                        End If
-                    Next
-                    _btnRefreshDownloads.BringToFront()
-                End Sub
-            AddHandler header.Resize, Sub(sender, e) arrangeHeader()
-            headerHost.Controls.Add(header)
-            _pageDownloader.Controls.Add(headerHost)
-            arrangeHeader()
-        End Sub
-
-        Private Sub BuildModelDownloadPageLegacy()
-            _pageDownloader.Dock = DockStyle.Fill
-            _pageDownloader.BackColor = Color.Transparent
-            _pageDownloader.Padding = New Padding(0, 12, 0, 0)
-
-            Dim header As New Panel() With {.Dock = DockStyle.Top, .Height = 76, .BackColor = Color.Transparent}
-            Dim description As New HtmlColorLabel() With {
-                .Text = "<font color=#D8D8D8><b>ModelScope 模型镜像</b></font><br/>" &
-                        "<font color=#8A8A8A>模型下载到对应目录；Backend 单独检查版本并优先下载增量补丁，失败会自动回滚。</font>",
-                .AutoSize = False, .Dock = DockStyle.Fill,
-                .TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft, .LineSpacing = 4
-            }
-            _btnRefreshDownloads.Text = "刷新列表"
-            _btnRefreshDownloads.Size = New Size(118, 34)
-            _btnRefreshDownloads.Dock = DockStyle.Right
-            _btnRefreshDownloads.BorderRadius = 8
-            _btnRefreshDownloads.BorderSize = 0
-            _btnRefreshDownloads.BackColor1 = Color.FromArgb(40, 110, 190, 255)
-            _btnRefreshDownloads.HoverBackColor1 = Color.FromArgb(60, 110, 190, 255)
-            AddHandler _btnRefreshDownloads.Click, Sub(sender, e) LoadDownloadModels(True)
-            header.Controls.Add(description)
-            header.Controls.Add(_btnRefreshDownloads)
-            _pageDownloader.Controls.Add(header)
-
-            ConfigureDownloadList()
-            _pageDownloader.Controls.Add(_downloadList)
-            ' Fill 先加入、Top 后加入，确保标题栏占位后列表填满其余区域。
-            _pageDownloader.Controls.SetChildIndex(_downloadList, 0)
-            _pageDownloader.Controls.SetChildIndex(header, 1)
         End Sub
 
         Private Function DownloadExecutablePath() As String
@@ -5088,9 +3815,7 @@ Namespace videoenhancer
                 Dim message = "完整修复包约 " & sizeText & "，将用干净后端整体替换现有 Backend。" &
                     Environment.NewLine & "旧后端会先移入事务备份；成功后清理，失败时自动恢复。" &
                     Environment.NewLine & Environment.NewLine & "现在下载完整修复包吗？"
-                If MessageBox.Show(Me, message, "完整修复 Backend",
-                        MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
-                        MessageBoxDefaultButton.Button2) <> DialogResult.Yes Then Return
+                If Not ShowLakeConfirm(Me, message, "完整修复 Backend", defaultYes:=False) Then Return
             End If
             Dim relativePath = entry.RelativePath
             If Not TryBeginDownload(relativePath) Then
@@ -5462,7 +4187,7 @@ Namespace videoenhancer
             AddHandler _pageConverter.DragEnter, AddressOf OnConverterDragEnter
             AddHandler _pageConverter.DragDrop, AddressOf OnConverterDragDrop
 
-            Dim root As New TableLayoutPanel With {
+            Dim root As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 1,
                 .RowCount = 5,
@@ -5478,10 +4203,10 @@ Namespace videoenhancer
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 70.0F))
             AddHandler root.DragEnter, AddressOf OnConverterDragEnter
             AddHandler root.DragDrop, AddressOf OnConverterDragDrop
-            root.Controls.Add(CreateOfficialSectionHeading(
+            root.AddAt(CreateOfficialSectionHeading(
                 "模型转换", "超分权重与 RIFE 补帧权重使用各自的 TensorRT 构建流程"), 0, 0)
 
-            Dim inputRow As New TableLayoutPanel With {
+            Dim inputRow As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 3,
                 .RowCount = 1,
@@ -5502,13 +4227,13 @@ Namespace videoenhancer
             _lblConvertInput.Text = "<font color=#888888>支持 .pth / .pt / .pkl</font>"
             _lblConvertInput.AutoSize = False
             _lblConvertInput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            inputRow.Controls.Add(_btnPickPth, 0, 0)
-            inputRow.Controls.Add(CreateOfficialValueBox(_lblConvertInput), 2, 0)
+            inputRow.AddAt(_btnPickPth, 0, 0)
+            inputRow.AddAt(CreateOfficialValueBox(_lblConvertInput), 2, 0)
             AddHandler inputRow.DragEnter, AddressOf OnConverterDragEnter
             AddHandler inputRow.DragDrop, AddressOf OnConverterDragDrop
-            root.Controls.Add(inputRow, 0, 1)
+            root.AddAt(inputRow, 0, 1)
 
-            Dim outputRow As New TableLayoutPanel With {
+            Dim outputRow As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 3,
                 .RowCount = 1,
@@ -5526,9 +4251,9 @@ Namespace videoenhancer
             _lblConvertOutput.Text = "<font color=#888888>选择模型后自动确定</font>"
             _lblConvertOutput.AutoSize = False
             _lblConvertOutput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            outputRow.Controls.Add(outputCaption, 0, 0)
-            outputRow.Controls.Add(CreateOfficialValueBox(_lblConvertOutput), 2, 0)
-            root.Controls.Add(outputRow, 0, 2)
+            outputRow.AddAt(outputCaption, 0, 0)
+            outputRow.AddAt(CreateOfficialValueBox(_lblConvertOutput), 2, 0)
+            root.AddAt(outputRow, 0, 2)
 
             Dim information As New HtmlColorLabel With {
                 .Dock = DockStyle.Fill,
@@ -5545,9 +4270,9 @@ Namespace videoenhancer
                         "<font color=#888888>转换完全在本机进行，不会上传模型；复杂模型可能需要数分钟。</font><br/>" &
                         "<font color=#888888>Engine 与显卡、TensorRT 和 CUDA 版本绑定，换设备后建议重新转换。</font>"
             }
-            root.Controls.Add(information, 0, 3)
+            root.AddAt(information, 0, 3)
 
-            Dim actionRow As New TableLayoutPanel With {
+            Dim actionRow As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 2,
                 .RowCount = 1,
@@ -5569,9 +4294,9 @@ Namespace videoenhancer
             _lblConvertStatus.Dock = DockStyle.Fill
             _lblConvertStatus.Margin = New Padding(16, 0, 0, 0)
             _lblConvertStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            actionRow.Controls.Add(_btnConvert, 0, 0)
-            actionRow.Controls.Add(_lblConvertStatus, 1, 0)
-            root.Controls.Add(actionRow, 0, 4)
+            actionRow.AddAt(_btnConvert, 0, 0)
+            actionRow.AddAt(_lblConvertStatus, 1, 0)
+            root.AddAt(actionRow, 0, 4)
             _pageConverter.Controls.Add(root)
         End Sub
 
@@ -5583,7 +4308,7 @@ Namespace videoenhancer
             AddHandler _pageImporter.DragEnter, AddressOf OnModelImportDragEnter
             AddHandler _pageImporter.DragDrop, AddressOf OnModelImportDragDrop
 
-            Dim root As New TableLayoutPanel With {
+            Dim root As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
                 .ColumnCount = 1,
                 .RowCount = 5,
@@ -5599,12 +4324,15 @@ Namespace videoenhancer
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 72.0F))
             AddHandler root.DragEnter, AddressOf OnModelImportDragEnter
             AddHandler root.DragDrop, AddressOf OnModelImportDragDrop
-            root.Controls.Add(CreateOfficialSectionHeading(
+            root.AddAt(CreateOfficialSectionHeading(
                 "模型导入", "安全预检架构、用途、倍率与后端能力，通过后安装到 models\User"), 0, 0)
 
-            Dim sourceRow As New Panel With {
+            Dim sourceRow As New ModernPanel With {
                 .Dock = DockStyle.Fill,
                 .BackColor = Color.Transparent,
+                .BackColor1 = Color.Transparent,
+                .BorderSize = 0,
+                .BackgroundSource = ModernPanel1,
                 .Margin = Padding.Empty,
                 .Padding = New Padding(0, 9, 0, 9)
             }
@@ -5623,15 +4351,21 @@ Namespace videoenhancer
             _lblImportSource.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             Dim sourceValueBox = CreateOfficialValueBox(_lblImportSource)
             sourceValueBox.Dock = DockStyle.Fill
-            Dim sourceGap1 As New JustEmptyControl With {.Dock = DockStyle.Left, .Width = 10, .BackColor = Color.Transparent}
-            Dim sourceGap2 As New JustEmptyControl With {.Dock = DockStyle.Left, .Width = 12, .BackColor = Color.Transparent}
+            Dim sourceGap1 As New ModernPanel With {
+                .Dock = DockStyle.Left, .Width = 10, .BackColor = Color.Transparent,
+                .BackColor1 = Color.Transparent, .BorderSize = 0, .BackgroundSource = ModernPanel1
+            }
+            Dim sourceGap2 As New ModernPanel With {
+                .Dock = DockStyle.Left, .Width = 12, .BackColor = Color.Transparent,
+                .BackColor1 = Color.Transparent, .BorderSize = 0, .BackgroundSource = ModernPanel1
+            }
             ' 按 3FUI Designer 的 Dock 顺序：Fill 先加，其他控件从右向左加入。
             sourceRow.Controls.Add(sourceValueBox)
             sourceRow.Controls.Add(sourceGap2)
             sourceRow.Controls.Add(_btnPickImportFolder)
             sourceRow.Controls.Add(sourceGap1)
             sourceRow.Controls.Add(_btnPickImportFile)
-            root.Controls.Add(sourceRow, 0, 1)
+            root.AddAt(sourceRow, 0, 1)
 
             Dim formats As New HtmlColorLabel With {
                 .Dock = DockStyle.Fill,
@@ -5647,14 +4381,17 @@ Namespace videoenhancer
                         "<font color=#A8A8A8>PTH / PT / CKPT / SAFETENSORS / ONNX / NCNN PARAM+BIN / ZIP / 7Z / RAR</font><br/>" &
                         "<font color=#888888>补帧仅接受能识别为 RIFE、GMFSS 或 GIMM 的权重；双击用户模型可修正能力，选中后按 Delete 或右键可删除。</font>"
             }
-            root.Controls.Add(formats, 0, 2)
+            root.AddAt(formats, 0, 2)
 
             ConfigureImportModelList()
-            root.Controls.Add(_importModelList, 0, 3)
+            root.AddAt(_importModelList, 0, 3)
 
-            Dim actionRow As New Panel With {
+            Dim actionRow As New ModernPanel With {
                 .Dock = DockStyle.Fill,
                 .BackColor = Color.Transparent,
+                .BackColor1 = Color.Transparent,
+                .BorderSize = 0,
+                .BackgroundSource = ModernPanel1,
                 .Margin = Padding.Empty,
                 .Padding = New Padding(0, 9, 0, 9)
             }
@@ -5671,7 +4408,7 @@ Namespace videoenhancer
             _lblImportStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             actionRow.Controls.Add(_lblImportStatus)
             actionRow.Controls.Add(_btnImportModel)
-            root.Controls.Add(actionRow, 0, 4)
+            root.AddAt(actionRow, 0, 4)
             _pageImporter.Controls.Add(root)
         End Sub
 
@@ -5879,8 +4616,7 @@ Namespace videoenhancer
                 "将删除 models\\User 中的安装文件/目录和能力清单记录。" & Environment.NewLine &
                 "删除后无法通过本页恢复。" & Environment.NewLine & Environment.NewLine &
                 "路径：" & model.RelativePath
-            If MessageBox.Show(Me, question, "删除用户模型", MessageBoxButtons.YesNo,
-                               MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) <> DialogResult.Yes Then Return
+            If Not ShowLakeConfirm(Me, question, "删除用户模型", defaultYes:=False) Then Return
 
             Dim exePath = PluginConfig.ResolveInstalledExePath(_config.ExePath)
             If String.IsNullOrWhiteSpace(exePath) OrElse Not File.Exists(exePath) Then
@@ -5940,7 +4676,7 @@ Namespace videoenhancer
             Using dialog As New Form With {
                 .Text = "修正模型能力 - " & model.DisplayName,
                 .StartPosition = FormStartPosition.CenterParent,
-                .FormBorderStyle = FormBorderStyle.FixedDialog,
+                .FormBorderStyle = FormBorderStyle.None,
                 .MaximizeBox = False,
                 .MinimizeBox = False,
                 .ShowInTaskbar = False,
@@ -5949,9 +4685,24 @@ Namespace videoenhancer
                 .ClientSize = New Size(720, 570),
                 .Font = New Font("Microsoft YaHei UI", 9.0F)
             }
-                Dim grid As New TableLayoutPanel With {
-                    .Dock = DockStyle.Fill, .ColumnCount = 2, .RowCount = 11,
-                    .Padding = New Padding(20, 16, 20, 16), .BackColor = Color.Transparent
+                Dim chrome As New ThisIsYourWindow With {
+                    .BorderColor = Color.FromArgb(72, 72, 72),
+                    .BorderSize = 1,
+                    .CaptionBackColor = Color.FromArgb(30, 30, 30),
+                    .CaptionOverlayColor = Color.Transparent,
+                    .TitleForeColor = UiText,
+                    .CaptionHeight = 34,
+                    .ShowFullScreenButton = False
+                }
+                Dim grid As New ModernGridPanel With {
+                    .Dock = DockStyle.Fill,
+                    .ColumnCount = 2,
+                    .RowCount = 11,
+                    .Padding = New Padding(20, 16, 20, 16),
+                    .BackColor = Color.Transparent,
+                    .BackColor1 = Color.Transparent,
+                    .BackgroundSource = ModernPanel1,
+                    .BorderSize = 0
                 }
                 grid.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 150.0F))
                 grid.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
@@ -5963,72 +4714,125 @@ Namespace videoenhancer
 
                 Dim addCaption As Action(Of String, Integer) =
                     Sub(text, row)
-                        grid.Controls.Add(New Label With {
-                            .Text = text, .Dock = DockStyle.Fill, .TextAlign = ContentAlignment.MiddleLeft,
-                            .ForeColor = UiTextSecondary, .BackColor = Color.Transparent
-                        }, 0, row)
+                        Dim label = CreateTextLabel(text, 9.0F, FontStyle.Regular, UiTextSecondary)
+                        label.Dock = DockStyle.None
+                        label.Margin = Padding.Empty
+                        label.TextAlign = ContentAlignment.MiddleLeft
+                        grid.AddAt(label, 0, row)
                     End Sub
-                Dim readonlyValue As Func(Of String, Label) =
-                    Function(text) New Label With {
-                        .Text = text, .Dock = DockStyle.Fill, .TextAlign = ContentAlignment.MiddleLeft,
-                        .ForeColor = UiTextMuted, .BackColor = Color.Transparent, .AutoEllipsis = True
-                    }
+                Dim readonlyValue As Func(Of String, LakeTextLabel) =
+                    Function(text) CreateTextLabel(text, 9.0F, FontStyle.Regular, UiTextMuted)
 
-                Dim architectureBox As New ModernTextBox With {.Text = model.Architecture, .Dock = DockStyle.Fill, .Margin = New Padding(0, 5, 0, 5)}
-                Dim purposeBox As New ModernTextBox With {.Text = model.Purpose, .Dock = DockStyle.Fill, .Margin = New Padding(0, 5, 0, 5)}
-                Dim scaleBox As New NumericUpDown With {
-                    .Minimum = 1D, .Maximum = 16D, .Value = Math.Max(1, Math.Min(16, model.Scale)),
-                    .Dock = DockStyle.Left, .Width = 150, .BackColor = Color.FromArgb(38, 38, 38), .ForeColor = UiText
+                Dim architectureBox As New ModernTextBox With {.Text = model.Architecture}
+                Dim purposeBox As New ModernTextBox With {.Text = model.Purpose}
+                ConfigureOfficialTextBox(architectureBox, "模型架构")
+                ConfigureOfficialTextBox(purposeBox, "模型用途")
+
+                Dim scaleBox As New ModernNumericUpDown With {
+                    .Minimum = 1D,
+                    .Maximum = 16D,
+                    .Value = Math.Max(1, Math.Min(16, model.Scale)),
+                    .Increment = 1D,
+                    .DecimalPlaces = 0,
+                    .Editable = True,
+                    .Dock = DockStyle.Left,
+                    .Width = 150,
+                    .Height = 34,
+                    .BackColor1 = UiSurfaceRaised,
+                    .ForeColor = UiText,
+                    .BorderColor = Color.Transparent,
+                    .BorderSize = 0,
+                    .BorderRadius = 8
                 }
-                Dim multipleBox As New NumericUpDown With {
-                    .Minimum = 1D, .Maximum = 1024D, .Value = Math.Max(1, Math.Min(1024, model.InputMultiple)),
-                    .Dock = DockStyle.Left, .Width = 150, .BackColor = Color.FromArgb(38, 38, 38), .ForeColor = UiText
+                Dim multipleBox As New ModernNumericUpDown With {
+                    .Minimum = 1D,
+                    .Maximum = 1024D,
+                    .Value = Math.Max(1, Math.Min(1024, model.InputMultiple)),
+                    .Increment = 1D,
+                    .DecimalPlaces = 0,
+                    .Editable = True,
+                    .Dock = DockStyle.Left,
+                    .Width = 150,
+                    .Height = 34,
+                    .BackColor1 = UiSurfaceRaised,
+                    .ForeColor = UiText,
+                    .BorderColor = Color.Transparent,
+                    .BorderSize = 0,
+                    .BorderRadius = 8
                 }
                 If model.Task.Equals("interpolation", StringComparison.OrdinalIgnoreCase) OrElse
                     model.Task.Equals("restoration", StringComparison.OrdinalIgnoreCase) Then scaleBox.Enabled = False
-                Dim backendList As New CheckedListBox With {
-                    .Dock = DockStyle.Fill, .BackColor = Color.FromArgb(31, 31, 31), .ForeColor = UiText,
-                    .BorderStyle = BorderStyle.FixedSingle, .CheckOnClick = True, .MultiColumn = True,
-                    .ColumnWidth = 150, .IntegralHeight = False
+
+                Dim backendPanel As New ModernPanel With {
+                    .Dock = DockStyle.Fill,
+                    .BackColor = Color.Transparent,
+                    .BackColor1 = Color.Transparent,
+                    .BackgroundSource = ModernPanel1,
+                    .BorderSize = 0,
+                    .LayoutMode = ModernPanel.LayoutModeEnum.Flow,
+                    .FlowDirection = ModernPanel.FlowDirectionEnum.LeftToRight,
+                    .WrapContents = True,
+                    .ScrollBarMode = ModernPanel.ScrollMode.None,
+                    .Padding = New Padding(0, 2, 0, 2)
                 }
+                Dim backendChecks As New List(Of ModernCheckBox)()
                 Dim backendNames = New String() {"ncnn", "cuda", "tensorrt", "onnx", "flashvsr", "basicvsrpp"}
-                backendList.Items.AddRange(backendNames)
-                For index = 0 To backendNames.Length - 1
-                    backendList.SetItemChecked(index, model.Backends.Contains(backendNames(index), StringComparer.OrdinalIgnoreCase))
+                For Each backendName In backendNames
+                    Dim check = New ModernCheckBox With {
+                        .Text = backendName,
+                        .Checked = model.Backends.Contains(backendName, StringComparer.OrdinalIgnoreCase),
+                        .AutoSize = False,
+                        .Width = 150,
+                        .Height = 32,
+                        .Margin = New Padding(0, 2, 8, 2),
+                        .ForeColor = UiText,
+                        .BackColor = Color.Transparent,
+                        .BackgroundSource = ModernPanel1,
+                        .ClickAnywhere = True
+                    }
+                    backendChecks.Add(check)
+                    backendPanel.Controls.Add(check)
                 Next
 
-                addCaption("模型文件", 0) : grid.Controls.Add(readonlyValue(model.RelativePath), 1, 0)
-                addCaption("格式 / SHA-256", 1) : grid.Controls.Add(readonlyValue(model.Format.ToUpperInvariant() & "  ·  " & model.Sha256), 1, 1)
-                addCaption("任务类别（只读）", 2) : grid.Controls.Add(readonlyValue(DisplayUserModelPurpose(model) & "  [" & model.Task & "]"), 1, 2)
-                addCaption("架构", 3) : grid.Controls.Add(architectureBox, 1, 3)
-                addCaption("用途", 4) : grid.Controls.Add(purposeBox, 1, 4)
-                addCaption("模型倍率", 5) : grid.Controls.Add(scaleBox, 1, 5)
-                addCaption("输入尺寸倍数", 6) : grid.Controls.Add(multipleBox, 1, 6)
+                addCaption("模型文件", 0) : grid.AddAt(readonlyValue(model.RelativePath), 1, 0)
+                addCaption("格式 / SHA-256", 1) : grid.AddAt(readonlyValue(model.Format.ToUpperInvariant() & "  ·  " & model.Sha256), 1, 1)
+                addCaption("任务类别（只读）", 2) : grid.AddAt(readonlyValue(DisplayUserModelPurpose(model) & "  [" & model.Task & "]"), 1, 2)
+                addCaption("架构", 3) : grid.AddAt(architectureBox, 1, 3)
+                addCaption("用途", 4) : grid.AddAt(purposeBox, 1, 4)
+                addCaption("模型倍率", 5) : grid.AddAt(scaleBox, 1, 5)
+                addCaption("输入尺寸倍数", 6) : grid.AddAt(multipleBox, 1, 6)
                 Dim sizeRequirement = If(model.MinimumSize > 0, "最小 " & model.MinimumSize.ToString() & " px", "无额外最小值") &
                     If(model.Square, "；要求正方形", "") & If(String.IsNullOrWhiteSpace(model.Tiling), "", "；切片 " & model.Tiling)
-                addCaption("其他尺寸要求（只读）", 7) : grid.Controls.Add(readonlyValue(sizeRequirement), 1, 7)
-                addCaption("可用后端", 8) : grid.Controls.Add(backendList, 1, 8)
+                addCaption("其他尺寸要求（只读）", 7) : grid.AddAt(readonlyValue(sizeRequirement), 1, 7)
+                addCaption("可用后端", 8) : grid.AddAt(backendPanel, 1, 8)
 
                 Dim hint = readonlyValue("保存前会校验模型格式、架构和后端组合；错误组合不会写入能力清单。")
                 hint.ForeColor = UiTextMuted
-                grid.Controls.Add(hint, 0, 9)
+                grid.AddAt(hint, 0, 9)
                 grid.SetColumnSpan(hint, 2)
-                Dim buttons As New FlowLayoutPanel With {
-                    .Dock = DockStyle.Fill, .FlowDirection = FlowDirection.RightToLeft,
-                    .BackColor = Color.Transparent, .WrapContents = False
+                Dim buttons As New ModernPanel With {
+                    .Dock = DockStyle.Fill,
+                    .BackColor = Color.Transparent,
+                    .BackColor1 = Color.Transparent,
+                    .BackgroundSource = ModernPanel1,
+                    .BorderSize = 0,
+                    .LayoutMode = ModernPanel.LayoutModeEnum.Flow,
+                    .FlowDirection = ModernPanel.FlowDirectionEnum.LeftToRight,
+                    .WrapContents = False
                 }
-                Dim saveButton As New ModernButton With {.Text = "保存修正", .Size = New Size(130, 40)}
-                Dim cancelButton As New ModernButton With {.Text = "取消", .Size = New Size(100, 40)}
+                Dim saveButton As New ModernButton With {.Text = "保存修正", .Size = New Size(130, 40), .Margin = New Padding(8, 4, 0, 4)}
+                Dim cancelButton As New ModernButton With {.Text = "取消", .Size = New Size(100, 40), .Margin = New Padding(8, 4, 0, 4)}
                 ConfigurePrimaryButton(saveButton)
                 ConfigureSecondaryButton(cancelButton)
                 AddHandler cancelButton.Click, Sub(sender, args) dialog.Close()
                 AddHandler saveButton.Click,
                     Sub(sender, args)
-                        Dim selectedBackends = backendList.CheckedItems.Cast(Of Object)().Select(Function(value) value.ToString()).ToArray()
+                        Dim selectedBackends = backendChecks.Where(Function(check) check.Checked).
+                            Select(Function(check) check.Text).ToArray()
                         Dim errorText = UpdateUserModelCapabilities(model.Id, architectureBox.Text, purposeBox.Text,
-                            Decimal.ToInt32(scaleBox.Value), Decimal.ToInt32(multipleBox.Value), selectedBackends)
+                            CInt(Math.Round(scaleBox.Value)), CInt(Math.Round(multipleBox.Value)), selectedBackends)
                         If errorText.Length > 0 Then
-                            MessageBox.Show(dialog, errorText, "能力修正失败", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                            ShowLakeInfo(dialog, errorText, "能力修正失败")
                             Return
                         End If
                         dialog.DialogResult = DialogResult.OK
@@ -6036,17 +4840,21 @@ Namespace videoenhancer
                     End Sub
                 buttons.Controls.Add(saveButton)
                 buttons.Controls.Add(cancelButton)
-                grid.Controls.Add(buttons, 0, 10)
+                grid.AddAt(buttons, 0, 10)
                 grid.SetColumnSpan(buttons, 2)
                 dialog.Controls.Add(grid)
-                If dialog.ShowDialog(Me) = DialogResult.OK Then
-                    LoadUserModels()
-                    RefreshModels()
-                    _lblImportStatus.Text = "<font color=#3FCD87>已保存能力修正，并刷新工作台模型列表</font>"
-                End If
+                chrome.Attach(dialog)
+                Try
+                    If dialog.ShowDialog(Me) = DialogResult.OK Then
+                        LoadUserModels()
+                        RefreshModels()
+                        _lblImportStatus.Text = "<font color=#3FCD87>已保存能力修正，并刷新工作台模型列表</font>"
+                    End If
+                Finally
+                    chrome.Detach(dialog)
+                End Try
             End Using
         End Sub
-
         Private Function UpdateUserModelCapabilities(id As String, architecture As String, purpose As String,
                                                      scale As Integer, inputMultiple As Integer,
                                                      backends As String()) As String
@@ -6182,240 +4990,52 @@ Namespace videoenhancer
             End Try
         End Sub
 
-        Private Sub BuildMarkdownPage(page As Panel, markdown As String)
+        Private Sub BuildMarkdownPage(page As ModernPanel, markdown As String)
             page.Dock = DockStyle.Fill
             page.BackColor = Color.Transparent
+            page.BackColor1 = Color.Transparent
+            page.BackgroundSource = ModernPanel1
+            page.BorderSize = 0
             page.Padding = New Padding(0, 8, 0, 0)
-            ' WebBrowser 初始化会加载系统浏览器引擎，延迟到用户首次打开对应选项卡，
-            ' 避免两个教程页阻塞插件首屏布局。
             _markdownSources(page) = If(markdown, "")
         End Sub
 
-        Private Sub EnsureMarkdownPage(page As Panel)
+        Private Sub EnsureMarkdownPage(page As ModernPanel)
             If page Is Nothing OrElse _markdownReady.Contains(page) Then Return
             Dim markdown As String = ""
             If Not _markdownSources.TryGetValue(page, markdown) Then Return
-            Dim browser As New WebBrowser With {
-                .Dock = DockStyle.Fill, .AllowWebBrowserDrop = False,
-                .IsWebBrowserContextMenuEnabled = False, .WebBrowserShortcutsEnabled = False,
-                .ScriptErrorsSuppressed = True, .ScrollBarsEnabled = True
+            Dim viewer As New MarkDownViewer With {
+                .Dock = DockStyle.Fill,
+                .Margin = Padding.Empty,
+                .Padding = New Padding(10, 8, 10, 12),
+                .BackColor = Color.Transparent,
+                .BackgroundSource = ModernPanel1,
+                .BorderSize = 0
             }
-            browser.DocumentText = MarkdownDocument(markdown)
-            page.Controls.Add(browser)
-            _markdownReady.Add(page)
-        End Sub
-
-        Private Shared Function MarkdownDocument(markdown As String) As String
-            Dim body As New StringBuilder()
-            Dim inList = False
-            Dim lineFeed As Char = Convert.ToChar(10)
-            For Each raw As String In If(markdown, "").Replace(Environment.NewLine, lineFeed.ToString()).Split(New Char() {lineFeed})
-                Dim line = raw.TrimEnd()
-                If line.StartsWith("### ") Then
-                    If inList Then body.Append("</ul>") : inList = False
-                    body.Append("<h3>").Append(InlineMarkdown(line.Substring(4))).Append("</h3>")
-                ElseIf line.StartsWith("## ") Then
-                    If inList Then body.Append("</ul>") : inList = False
-                    body.Append("<h2>").Append(InlineMarkdown(line.Substring(3))).Append("</h2>")
-                ElseIf line.StartsWith("# ") Then
-                    If inList Then body.Append("</ul>") : inList = False
-                    body.Append("<h1>").Append(InlineMarkdown(line.Substring(2))).Append("</h1>")
-                ElseIf line.StartsWith("- ") OrElse line.StartsWith("* ") Then
-                    If Not inList Then body.Append("<ul>") : inList = True
-                    body.Append("<li>").Append(InlineMarkdown(line.Substring(2))).Append("</li>")
-                ElseIf String.IsNullOrWhiteSpace(line) Then
-                    If inList Then body.Append("</ul>") : inList = False
-                Else
-                    If inList Then body.Append("</ul>") : inList = False
-                    body.Append("<p>").Append(InlineMarkdown(line)).Append("</p>")
-                End If
-            Next
-            If inList Then body.Append("</ul>")
-            Return "<!doctype html><html><head><meta charset='utf-8'><style>" &
-                "html{background:#181818;scrollbar-face-color:#454545;scrollbar-track-color:#181818;scrollbar-arrow-color:#888;}" &
-                "body{box-sizing:border-box;max-width:1080px;background:#181818;color:#989898;font-family:'Microsoft YaHei UI','Segoe UI',sans-serif;margin:0;padding:14px 10px 38px;}" &
-                "h1{font-size:21px;font-weight:400;color:#dcdcdc;margin:0 0 16px;padding:0;}" &
-                "h2{font-size:16px;font-weight:400;color:#d0d0d0;margin:18px 0 8px;}h3{font-size:15px;color:#c8c8c8;}" &
-                "p,li{font-size:13px;line-height:1.65;}p{margin:4px 0 10px;}ul{padding:0 0 0 24px;margin:4px 0 12px;}" &
-                "li{padding:2px 0;}strong{color:#dcdcdc}code{background:#383838;padding:3px 6px;border-radius:5px;color:#9bc8ff}a{color:#479cff;}" &
-                "::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:#181818}::-webkit-scrollbar-thumb{background:#484848;border-radius:4px}</style></head><body>" &
-                body.ToString() & "</body></html>"
-        End Function
-
-        Private Shared Function InlineMarkdown(text As String) As String
-            Dim value = System.Net.WebUtility.HtmlEncode(If(text, ""))
-            value = Regex.Replace(value, "\*\*(.+?)\*\*", "<strong>$1</strong>")
-            value = Regex.Replace(value, "`(.+?)`", "<code>$1</code>")
-            value = Regex.Replace(value, "\[(.+?)\]\((https?://[^\s)]+)\)", "<a href='$2'>$1</a>")
-            Return value
-        End Function
-
-        Private Sub BuildConverterPage()
-            _pageConverter.Dock = DockStyle.Fill
-            _pageConverter.BackColor = Color.Transparent
-            _pageConverter.Padding = New Padding(8, 14, 8, 10)
-            _pageConverter.AllowDrop = True
-            AddHandler _pageConverter.DragEnter, AddressOf OnConverterDragEnter
-            AddHandler _pageConverter.DragDrop, AddressOf OnConverterDragDrop
-
-            Dim workspace As New FluentCardPanel() With {
-                .Dock = DockStyle.Fill, .FillColor = UiSurface,
-                .StrokeColor = UiStrokeSoft, .CornerRadius = 12
-            }
-            Dim dropZone As New FluentCardPanel() With {
-                .FillColor = UiSurfaceRaised, .StrokeColor = Color.FromArgb(104, UiAccent), .CornerRadius = 12,
-                .AllowDrop = True
-            }
-            AddHandler dropZone.DragEnter, AddressOf OnConverterDragEnter
-            AddHandler dropZone.DragDrop, AddressOf OnConverterDragDrop
-            Dim dropIcon As HtmlColorLabel = CreateHtmlTextLabel("PTH", 22.0F, FontStyle.Bold, UiAccent)
-            dropIcon.TextAlign = HtmlColorLabel.TextAlignEnum.Center
-            Dim dropTitle As Label = CreateTextLabel("拖入 PTH 模型", 12.0F, FontStyle.Bold, UiText)
-            dropTitle.TextAlign = ContentAlignment.MiddleCenter
-            Dim dropHint As Label = CreateTextLabel("或从磁盘选择一个 .pth 文件", 8.8F, FontStyle.Regular, UiTextMuted)
-            dropHint.TextAlign = ContentAlignment.MiddleCenter
-            _btnPickPth.Text = "选择模型"
-            _btnPickPth.Size = New Size(148, 40)
-            ConfigureSecondaryButton(_btnPickPth)
-            AddHandler _btnPickPth.Click, AddressOf OnPickPthClick
-            dropZone.Controls.AddRange(New Control() {dropIcon, dropTitle, dropHint, _btnPickPth})
-
-            Dim detailKicker As Label = CreateTextLabel("OFFLINE CONVERSION", 8.0F, FontStyle.Bold, UiAccent)
-            Dim detailTitle As Label = CreateTextLabel("PTH → TensorRT Engine", 15.0F, FontStyle.Bold, UiText)
-            Dim detailDesc As Label = CreateTextLabel("为当前 NVIDIA 显卡生成专用 Engine，提升吞吐并降低推理开销。整个过程只在本机进行。", 9.0F, FontStyle.Regular, UiTextSecondary)
-            Dim compatibility As Label = CreateTextLabel("注意：Engine 与显卡、TensorRT 和 CUDA 版本绑定，换设备后建议重新转换。", 8.7F, FontStyle.Regular, UiTextMuted)
-
-            _lblConvertInput.Text = "<font color=#7E8C9D>输入模型</font><br/><font color=#B1BCCA>尚未选择 .pth 文件</font>"
-            _lblConvertInput.AutoSize = False
-            _lblConvertInput.TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft
-            _lblConvertOutput.Text = "<font color=#7E8C9D>输出目录</font><br/><font color=#B1BCCA>选择模型后自动确定</font>"
-            _lblConvertOutput.AutoSize = False
-            _lblConvertOutput.TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft
-            _lblConvertStatus.Text = "<font color=#7E8C9D>等待选择模型…</font>"
-            _lblConvertStatus.AutoSize = False
-            _lblConvertStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _btnConvert.Text = "开始转换  →"
-            _btnConvert.Size = New Size(164, 42)
-            _btnConvert.Enabled = False
-            ConfigurePrimaryButton(_btnConvert)
-            AddHandler _btnConvert.Click, AddressOf OnConvertModelClick
-            workspace.Controls.AddRange(New Control() {
-                dropZone, detailKicker, detailTitle, detailDesc, compatibility,
-                _lblConvertInput, _lblConvertOutput, _btnConvert, _lblConvertStatus
-            })
-            _pageConverter.Controls.Add(workspace)
-
-            Dim headerHost As New Panel() With {
-                .Dock = DockStyle.Top, .Height = 96, .BackColor = Color.Transparent,
-                .Padding = New Padding(0, 0, 0, 12)
-            }
-            headerHost.Controls.Add(CreatePageHeader("◇", "模型转换", "将 PyTorch 模型离线编译为 TensorRT Engine，并自动归档到个性化模型目录。"))
-            _pageConverter.Controls.Add(headerHost)
-
-            Dim arranging As Boolean = False
-            Dim arrange As Action =
-                Sub()
-                    If arranging Then Return
-                    arranging = True
+            viewer.ScrollBarWidth = 10
+            viewer.ScrollBarTrackColor = Color.FromArgb(18, 18, 18)
+            viewer.ScrollBarColor = Color.FromArgb(72, 72, 72)
+            viewer.ScrollBarHoverColor = Color.FromArgb(104, 104, 104)
+            viewer.HeadingColor = UiText
+            viewer.BoldColor = UiText
+            viewer.LinkColor = UiAccent
+            viewer.CodeBackColor = Color.FromArgb(44, 44, 48)
+            viewer.CodeBlockBackColor = Color.FromArgb(32, 34, 38)
+            viewer.CodeBlockForeColor = UiTextSecondary
+            AddHandler viewer.LinkClicked,
+                Sub(sender, args)
                     Try
-                        Dim pad = 22
-                        Dim gap = 28
-                        Dim leftWidth = Math.Max(300, Math.Min(470, CInt(workspace.ClientSize.Width * 0.36)))
-                        dropZone.SetBounds(pad, pad, leftWidth, Math.Max(300, workspace.ClientSize.Height - pad * 2))
-                        dropIcon.SetBounds(20, Math.Max(38, dropZone.ClientSize.Height \ 2 - 110), dropZone.ClientSize.Width - 40, 64)
-                        dropTitle.SetBounds(20, dropIcon.Bottom, dropZone.ClientSize.Width - 40, 34)
-                        dropHint.SetBounds(20, dropTitle.Bottom + 2, dropZone.ClientSize.Width - 40, 28)
-                        _btnPickPth.Location = New Point((dropZone.ClientSize.Width - _btnPickPth.Width) \ 2, dropHint.Bottom + 18)
-
-                        Dim left = dropZone.Right + gap
-                        Dim width = Math.Max(320, workspace.ClientSize.Width - left - pad)
-                        detailKicker.SetBounds(left, 30, width, 24)
-                        detailTitle.SetBounds(left, 54, width, 42)
-                        detailDesc.SetBounds(left, 99, width, 52)
-                        compatibility.SetBounds(left, 151, width, 42)
-                        Dim fieldTop = Math.Max(206, CInt(workspace.ClientSize.Height * 0.43))
-                        _lblConvertInput.SetBounds(left, fieldTop, width, 58)
-                        _lblConvertOutput.SetBounds(left, fieldTop + 68, width, 58)
-                        _btnConvert.Location = New Point(left, Math.Min(workspace.ClientSize.Height - 64, fieldTop + 148))
-                        _lblConvertStatus.SetBounds(_btnConvert.Right + 16, _btnConvert.Top - 4,
-                                                    Math.Max(140, width - _btnConvert.Width - 16), 50)
-                    Finally
-                        arranging = False
+                        If args Is Nothing OrElse String.IsNullOrWhiteSpace(args.LinkText) Then Return
+                        Process.Start(New ProcessStartInfo With {
+                            .FileName = args.LinkText,
+                            .UseShellExecute = True})
+                    Catch
+                        ' 外部链接无法打开时不影响教程页面和插件主流程。
                     End Try
                 End Sub
-            AddHandler workspace.Resize, Sub(sender, e) arrange()
-            arrange()
-        End Sub
-
-        Private Sub BuildConverterPageLegacy()
-            _pageConverter.Dock = DockStyle.Fill
-            _pageConverter.BackColor = Color.Transparent
-            _pageConverter.Padding = New Padding(0, 18, 0, 0)
-            _pageConverter.AllowDrop = True
-            AddHandler _pageConverter.DragEnter, AddressOf OnConverterDragEnter
-            AddHandler _pageConverter.DragDrop, AddressOf OnConverterDragDrop
-
-            Dim actionRow As New Panel() With {.Dock = DockStyle.Top, .Height = 58, .BackColor = Color.Transparent, .Padding = New Padding(0, 10, 0, 0)}
-            _btnPickPth.Text = "选择或拖入 PTH 模型"
-            _btnPickPth.Size = New Size(200, 38)
-            _btnPickPth.Dock = DockStyle.Left
-            _btnPickPth.BorderRadius = 8
-            _btnPickPth.BorderSize = 0
-            _btnPickPth.BackColor1 = Color.FromArgb(40, 110, 190, 255)
-            _btnPickPth.HoverBackColor1 = Color.FromArgb(60, 110, 190, 255)
-            AddHandler _btnPickPth.Click, AddressOf OnPickPthClick
-            actionRow.Controls.Add(_btnPickPth)
-
-            _btnConvert.Text = "开始离线转换"
-            _btnConvert.Size = New Size(160, 38)
-            _btnConvert.Dock = DockStyle.Left
-            _btnConvert.Margin = New Padding(12, 0, 0, 0)
-            _btnConvert.BorderRadius = 8
-            _btnConvert.BorderSize = 0
-            _btnConvert.Enabled = False
-            AddHandler _btnConvert.Click, AddressOf OnConvertModelClick
-            actionRow.Controls.Add(_btnConvert)
-            _pageConverter.Controls.Add(actionRow)
-
-            Dim info As New HtmlColorLabel() With {
-                .Text = "<font color=#D8D8D8><b>PTH → TensorRT Engine</b></font><br/>" &
-                        "<font color=#8A8A8A>拖入一个 .pth 模型后，输出目录会自动设为 models\TensorRT-Personalized，和预置引擎分开管理。</font><br/>" &
-                        "<font color=#8A8A8A>TensorRT 通常能获得更高吞吐与更低推理开销；转换完全离线进行，不会上传模型。</font><br/>" &
-                        "<font color=#8A8A8A>Engine 与显卡、TensorRT/CUDA 版本相关，建议在实际使用的设备上重新转换。</font>",
-                .AutoSize = False,
-                .Dock = DockStyle.Top,
-                .Height = 112,
-                .TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft,
-                .LineSpacing = 4
-            }
-            _pageConverter.Controls.Add(info)
-
-            _lblConvertInput.Text = "<font color=#A8A8A8>输入模型：</font><font color=#7F7F7F>请拖入或选择 .pth 文件</font>"
-            _lblConvertInput.AutoSize = False
-            _lblConvertInput.Dock = DockStyle.Top
-            _lblConvertInput.Height = 38
-            _lblConvertInput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _pageConverter.Controls.Add(_lblConvertInput)
-
-            _lblConvertOutput.Text = "<font color=#A8A8A8>输出目录：</font><font color=#7F7F7F>选择模型后自动确定</font>"
-            _lblConvertOutput.AutoSize = False
-            _lblConvertOutput.Dock = DockStyle.Top
-            _lblConvertOutput.Height = 38
-            _lblConvertOutput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _pageConverter.Controls.Add(_lblConvertOutput)
-
-            _lblConvertStatus.Text = "<font color=#8A8A8A>等待选择模型…</font>"
-            _lblConvertStatus.AutoSize = False
-            _lblConvertStatus.Dock = DockStyle.Top
-            _lblConvertStatus.Height = 52
-            _lblConvertStatus.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
-            _pageConverter.Controls.Add(_lblConvertStatus)
-            ' DockStyle.Top 按 Z 序布局，固定为：说明 → 输入 → 输出 → 操作 → 状态。
-            _pageConverter.Controls.SetChildIndex(info, 0)
-            _pageConverter.Controls.SetChildIndex(_lblConvertInput, 1)
-            _pageConverter.Controls.SetChildIndex(_lblConvertOutput, 2)
-            _pageConverter.Controls.SetChildIndex(actionRow, 3)
-            _pageConverter.Controls.SetChildIndex(_lblConvertStatus, 4)
+            viewer.SetMarkdownImmediate(markdown)
+            page.Controls.Add(viewer)
+            _markdownReady.Add(page)
         End Sub
 
         Private Sub OnConverterDragEnter(sender As Object, e As DragEventArgs)
@@ -6887,7 +5507,7 @@ Namespace videoenhancer
                 CloseModelMenuToolTip()
                 CloseUserModelContextMenu()
                 StopEnvironmentCheck(5000)
-                ' LakeUI 3.22.0 在 TabControl 隐藏时会重新显示当前绑定页。
+                ' LakeUI 5.x 在 TabControl 隐藏时会重新显示当前绑定页。
                 ' 先解除绑定，避免父窗体销毁期间访问已经 Dispose 的 ModernPanel。
                 Try
                     For Each tab In _tabs.Items
@@ -6924,6 +5544,7 @@ Namespace videoenhancer
                 End If
                 If _lastPreviewImage IsNot Nothing Then
                     Try
+                        _picPreview.Image = Nothing
                         _lastPreviewImage.Dispose()
                     Catch
                     End Try

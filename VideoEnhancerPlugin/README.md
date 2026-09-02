@@ -182,6 +182,7 @@ pwsh -ExecutionPolicy Bypass -File .\build.ps1
 - .NET SDK 10（使用自带 Roslyn vbc，无需 NuGet restore）；
 - 3FUI 开发版程序集：
   `FFmpegFreeUI\FFmpegFreeUI\bin\Debug\net10.0-windows10.0.26100.0\FFmpegFreeUI.dll` 与 `LakeUI.dll`。
+- LakeUI `5.1` 是当前最低构建与运行时基线，允许后续 5.x 版本；脚本会拒绝 3.x、5.0.x 或其他版本的 `LakeUI.dll`。
 
 ## 宿主兼容说明
 

@@ -30,6 +30,13 @@ if (-not (Test-Path (Join-Path $hostBin 'FFmpegFreeUI.dll')) -or -not (Test-Path
     throw "host assemblies not found: $hostBin"
 }
 
+$lakeDll = Join-Path $hostBin 'LakeUI.dll'
+$lakeVersion = [System.Reflection.AssemblyName]::GetAssemblyName($lakeDll).Version
+if ($null -eq $lakeVersion -or $lakeVersion.Major -ne 5 -or $lakeVersion.Minor -lt 1) {
+    throw "LakeUI 5.1 or newer (5.x) is required; found $lakeVersion in $lakeDll"
+}
+Write-Host "LakeUI baseline: $lakeVersion"
+
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add('-nologo')
 $lines.Add('-target:library')

@@ -1,17 +1,30 @@
 # Project Status
 
-Last updated: 2026-08-27 18:19
+Last updated: 2026-09-02 22:25
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 完成 1.1.3 正式发布，包含模型导入删除、模型菜单说明、选项滚轮锁定和使用教程改动。
-- Current state: 1.1.3 功能提交 `5a7d309` 和最终发布记录提交 `67c4a14` 已推送到 `fork/main` 与 `fork/release/1.1.3`，GitHub `v1.1.3` Release、ModelScope Releases 稳定清单及 Models 备用 EXE 均已同步并回读一致。Backend 2026.08.26.1 逐文件审计为 0 变化，CLI/插件、全量测试、安装器/更新器门禁均通过；本地 `main` 已对齐远端，工作树干净。
+- Current objective: 发布 1.2.0，纳入 LakeUI 5.1+ 全插件原生控件迁移和透明 GPU 表面渲染修复。
+- Current state: `PluginPanel` 六页、模型能力编辑器和四宫格窗口已迁移到 LakeUI 5.1+ 控件及 ModernPanel 布局骨架；旧 WinForms 可视控件和自绘卡片/进度条/时间轴已移除。构建脚本和运行时门禁以 LakeUI 5.1 为最低版本并允许后续 5.x；已用实际 3FUI 6.2.3 / LakeUI 5.3.0.0 构建、安装并打开插件，主界面和六个标签页切换保持响应。根据官方 LakeUI 5.x `ModernPanel`/`ModernTabControl` 源码，已移除超分根容器的 `Anchor.Right`，改为宿主布局完成后显式同步宽度，解决右半空白及宽度来回跳变；六个标签页根 `ModernPanel` 的默认 1px 灰色边框也已关闭，消除插件内容外沿白线。当前 1.2.0 版本源已更新，正在执行发布门禁；源码和记录尚未提交。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 用户在真实 3FUI 中确认菜单提示、二级勾选和关闭下拉框滚轮体验；如需切换工具或设备，当前提交已可直接接手。
+- Next recommended step: 补做 100%/125%/150% DPI 截图、四宫格拖放/预览/时间轴/模型编辑和 500 帧预览压力回归；确认后提交本轮源码与记录。
 
 ## Active TODO
+
+- [ ] Task: 发布 1.2.0 双源本体资产。
+  - Owner: Codex
+  - Status: 版本源、Release Notes、插件/CLI 本地构建、静态控件门禁、CLI 18/18、发布门禁 5/5 和 Backend 事务 6/6 已通过；待生成候选 EXE、运行安装器/更新器隔离测试后提交并发布到 GitHub 与 ModelScope。
+  - Blockers: Backend 基线需用本机已安装 `2026.08.26.1` 目录做无变化审计；GitHub/ModelScope 尚未上传本次资产。
+  - Relevant files: `VideoEnhancerPlugin/PluginVersion.vb`, `cli/VideoEnhancer.csproj`, `README.md`, `release/release-notes.txt`, `version/版本迭代记录.md`
+
+- [ ] Task: 完成 LakeUI 5.1 全插件原生控件迁移并完成宿主回归。
+  - Owner: user / Codex
+  - Status: `PluginPanel.vb`、`LakeLayoutPanel.vb`、`QuadGridControls.vb`、`QuadGridForm.vb` 和 `build.ps1` 已完成迁移；六页、编辑器和四宫格均只保留 LakeUI 可视控件或明确允许的宿主/系统外壳。
+  - Verification: 实际 3FUI 6.2.3 + LakeUI `5.3.0.0` 构建并安装成功；LakeUI 5.1 最低版本门禁保留，旧 5.0/3.x 拒绝逻辑已验证；迁移源码及整个插件无旧 WinForms 可视控件/自绘视觉类静态命中；CLI Python 测试 18/18；六个标签页逐页点击后宿主均保持 `Responding=True`；组合框首字偏移、窄列末尾裁切和超分根容器右半空白已修复并截图确认；普通窗口/最大化/还原/宿主窄化连续采样时根内容宽度稳定；产物引用为 `FFmpegFreeUI 6.2.3.0`、`LakeUI 5.3.0.0`。
+  - Blockers: 尚未完成 100%/125%/150% DPI 截图矩阵、500 帧预览压力、四宫格完整鼠标流程和运行时控件树递归检查；工作树包含未提交源码改动。
+  - Relevant files: `VideoEnhancerPlugin/PluginPanel.vb`, `VideoEnhancerPlugin/LakeLayoutPanel.vb`, `VideoEnhancerPlugin/QuadGridControls.vb`, `VideoEnhancerPlugin/QuadGridForm.vb`, `VideoEnhancerPlugin/build.ps1`
 
 - [x] Task: 发布 1.1.3。
   - Owner: Codex
@@ -1438,3 +1451,110 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Build and gates: 官方 `release/build-modelscope-release.ps1` 以 Backend 2026.08.26.1 同目录审计，结果 `UNCHANGED`；重新完成插件/CLI 构建、全量 Python 测试 18/18、发布门禁 5/5、安装器五场景和更新器隔离测试，全部通过。构建仅有既有 2 条 CA1416 警告。
 - Assets: 发布 EXE 16,877,609 bytes，SHA-256 `16e1728a99a2ed568909bdc44df1c7df7cea7356a4135e7661e57a127859bf50`；stable.json 673 bytes，SHA-256 `0da8e3cb5e49a62b199c048a3ecac41f36d38db539c9cfdffa29c25ad3060276`。GitHub Release `https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.1.3` 为正式、非草稿、非预发布，包含版本 EXE 和 stable.json；ModelScope Releases 与 Models 备用 EXE 均上传成功，稳定 JSON、两处 EXE 的版本/路径/大小/哈希回读一致。
 - Git/worktree: 发布过程中本地 `main` 快进曾受百度同步临时占用影响，未终止同步进程；已通过远端快进完成主线发布。当前在 `release/1.1.3`，已开始补最终记录；后续需将记录提交并使本地 `main` 与 `fork/main` 对齐。真实 3FUI 鼠标交互仍待用户确认。
+
+### 2026-09-01 08:40 - Codex
+
+- Objective: 继续执行 LakeUI 5.0 全插件原生控件迁移方案，修复 5.0 GPU 控件表面与透明 WinForms 容器造成的黑块、文字重叠和裁切风险。
+- Changes: 新增 `VideoEnhancerPlugin/LakeLayoutPanel.vb`，提供只计算边界、不自行绘制的 `ModernGridPanel` 与 `ModernHorizontalPanel`；`PluginPanel.vb` 六个页面、统一 `ModernPanel1` 背景映射、LakeUI Markdown 教程、`ExcellentProgressBar`、`PixelPictureBox`、模型能力编辑器和 LakeUI `ExMsgBox` 已接入。`QuadGridControls.vb` 删除 `FluentCardPanel`、`FluentProgressBar`、`SmoothButton` 和旧自绘时间轴，视频槽改为 `ModernPanel.Image`，时间轴直接使用 `ExcellentTrackBar`；`QuadGridForm.vb` 的预览、下拉框、数值框、复选框、标签、承载面板和分割线均已迁移。
+- Compatibility: `build.ps1` 读取 `LakeUI.dll` 元数据并强制主版本为 5；插件构造时增加运行时门禁，旧版本显示明确升级提示。旧 LakeUI `3.22.0.0` 构建已验证被拒绝。
+- Verification: 使用 `C:\Users\maxzr\AppData\Local\Temp\videoenhancer-lakeui5-build-current` 中 `FFmpegFreeUI 6.1.39` 与 LakeUI `5.0.0.0` 构建成功；产物引用 `LakeUI, Version=5.0.0.0`。迁移源码和整个插件静态扫描均无 `Panel`/`TableLayoutPanel`/`FlowLayoutPanel`/`Label`/`PictureBox`/`WebBrowser`/`NumericUpDown`/`CheckBox`/`ComboBox` 等旧可视控件构造及自绘视觉类；CLI Python 测试 18/18；`git diff --check` 通过。
+- Runtime scope: 尚未在真实 3FUI 中执行六页 DPI 截图、控件树递归检查、连续 500 帧预览压力和四宫格完整交互；这些属于下一步宿主实机回归，不在当前无 GUI 构建环境中宣称已通过。
+- Git: 分支 `release/1.1.2`，远端同步基线保持不变；工作树包含上述 5 个源码/构建文件改动及本次记录，未提交、未推送。建议宿主实测前先创建本地提交。
+
+### 2026-09-01 08:51 - Codex
+
+- Baseline recheck: 从官方 3FUI 6.2.2 x64 包临时提取的新版 `FFmpegFreeUI.dll`（引用 LakeUI 5.1.0.0）也可通过本插件构建；随后重新用 LakeUI 5.0.0.0 基线生成最终忽略产物，引用核对为 `LakeUI, Version=5.0.0.0`。
+- Tutorial: 为 LakeUI `MarkDownViewer.LinkClicked` 增加系统默认浏览器打开处理，保留教程链接点击行为；失败时仅忽略打开错误，不影响插件。
+- Lifecycle: 预览/四宫格关闭路径先解除控件图片引用，再释放旧位图；四宫格视频槽使用 `ModernPanel.ImageFillMode.Zoom` 保持缩略图比例。
+- Verification: LakeUI 5.0 基线构建、静态迁移门禁、旧 3.22 拒绝门禁和 `git diff --check` 均再次通过。
+
+### 2026-09-01 08:57 - Codex
+
+- Final verification: 重新用 LakeUI `5.0.0.0` 构建并核对插件引用；再次以旧 LakeUI `3.22.0.0` 执行构建，收到预期的版本拒绝；静态旧控件门禁与 `git diff --check` 均通过。
+- Existing tests: `python -m unittest discover -s cli/tests -p 'test_*.py'` 结果 `Ran 18 tests ... OK`。本轮未修改 CLI、视频处理、模型、配置或队列业务逻辑。
+- Git: 当前仍为 `release/1.1.2`，`HEAD` 与 `fork/main` 均为 `6120a8b`；工作树仅含迁移源码、构建门禁和两份状态记录改动，尚未提交或推送。
+
+### 2026-09-01 09:03 - Codex
+
+- Runtime metadata gate: 在加载 LakeUI 5.0 与宿主程序集后递归核对 `PluginPanel`、`QuadGridForm`、`VideoSlotCard`、`ModernGridPanel`、`ModernHorizontalPanel` 类型及其字段，未发现原生 WinForms 可视控件字段；根类型分别为宿主允许的 `UserControl`/`Form` 和 LakeUI `ModernPanel`。
+- Final artifact remains built from LakeUI `5.0.0.0`;真实 3FUI GUI 截图、DPI、500 帧和鼠标交互仍需用户宿主执行。
+
+### 2026-09-01 09:07 - Codex
+
+- Closeout checks: 修正静态扫描命令后，迁移源码与整个 `VideoEnhancerPlugin` 均通过旧 WinForms 可视控件/自绘视觉类门禁；`git diff --check` 无错误（仅保留换行格式提示）。
+- Git: 工作树仍包含本轮迁移源码、构建门禁和状态记录，尚未提交；真实 3FUI 宿主回归仍是下一步。
+
+### 2026-09-01 09:14 - Codex
+
+- Baseline upgrade: 根据用户要求将基线从 LakeUI 5.0 切换到官方 LakeUI 5.1；运行时门禁、构建脚本提示和 README 依赖说明均改为严格 `5.1.x`。
+- Verification: 使用官方 3FUI 6.2.2 宿主与 LakeUI `5.1.0.0` 构建通过，产物引用 `FFmpegFreeUI, Version=6.2.2.0` 和 `LakeUI, Version=5.1.0.0`；LakeUI `5.0.0.0`、`3.22.0.0` 均被构建门禁拒绝；类型元数据门禁通过。
+- Runtime scope: 真实 3FUI 截图、DPI、500 帧预览压力及四宫格鼠标回归仍需宿主环境执行；源码和记录尚未提交。
+
+### 2026-09-01 09:16 - Codex
+
+- Final verification: 以 LakeUI `5.1.0.0` / 3FUI 6.2.2 重新构建成功；CLI Python 测试 `18/18` 通过（测试中的预期异常堆栈仍被正确捕获）；全插件旧控件静态门禁和 `git diff --check` 通过。
+- Git: 当前分支 `release/1.1.2`，`HEAD` 与 `fork/main` 均为 `6120a8b`；工作树包含本轮源码、README、构建门禁和记录改动，未提交、未推送。
+
+### 2026-09-01 11:35 - Codex
+
+- Baseline/runtime: 实际安装的 3FUI 已自动更新为 `6.2.3`，随附 LakeUI `5.3.0.0`。按用户要求保留 LakeUI `5.1` 为最低基线并允许后续 5.x，重新以实际宿主构建，产物引用核对为 `FFmpegFreeUI 6.2.3.0` / `LakeUI 5.3.0.0`。
+- Rendering fixes: LakeUI 5.3 的 `ModernPanel` 构造期间会提前触发布局，`ModernGridPanel`、`ModernHorizontalPanel` 和 `VideoSlotCard` 的布局重写已增加初始化保护；移除 `ModernTabControl.BackgroundSource` 的全树绑定，避免 D3D `RequestRender` 递归导致宿主无响应。页面仍由 `ModernPanel1` 和各内容页分别映射背景。
+- Combo text fix: 新增 `LakeComboBox`，在只读组合框选项变化、字体变化和尺寸变化时清零 LakeUI `SingleLineTextBoxRenderer` 的旧 `_scrollXOffset`；同时将补帧后端列从 29% 调整为 34%、收紧内边距。实机截图确认 `TensorRT (NVIDIA)` 上下两处均从首字母完整显示，模型名从 `AnimeJaNai...` 开头显示。
+- Real host verification: 覆盖安装到 `C:\Program portable\3FUI\3FUI\Plugin\videoenhancer.3fui.dll`，安装文件 SHA-256 为 `793D869D27682E233E9E532BB6BC013C4AF4154C309874235E16D70D53A781C1`；启动实际 3FUI PID `10456` 后插件可打开，六个标签页逐页点击均保持 `Responding=True`。截图保存在 `%TEMP%\3fui-after-layout-plugin.png` 和 `%TEMP%\3fui-after-layout-plugin-combo-crop.png`。
+- Verification: 插件构建成功；旧 WinForms 可视控件静态门禁通过；CLI Python 测试 `18/18` 通过；`git diff --check` 无内容错误，仅报告仓库已有的换行格式/CRLF 提示。尚未宣称 DPI 矩阵、500 帧压力、四宫格完整鼠标流程和控件树递归已完成。
+- Git: 分支 `release/1.1.2`，`HEAD` 与 `fork/main` 仍为 `6120a8b`；工作树含未提交源码、README、构建门禁和记录改动。建议在后续回归前创建本地提交，便于回滚实机安装测试。
+
+### 2026-09-01 11:48 - Codex
+
+- Final install: 重新构建并覆盖安装实际插件 DLL；最终安装 SHA-256 为 `BB3E64617A6D4445184ABB5265AF03AAA623D8BF61569A78F6FC75CC7CF6F049`。启动实际 3FUI PID `34320`，插件页可加载。
+- Final tab check: 通过鼠标依次点击实时预览、模型下载、模型转换、模型导入、使用教程和超分工作台，六页均返回 `Responding=True`，未复现渲染递归卡死；最终工作台截图为 `%TEMP%\3fui-final-installed-plugin.png`，组合框局部截图为 `%TEMP%\3fui-final-installed-plugin-bottom-combos.png`。
+- Combo result: 组合框首字母横向偏移和补帧后端窄列右侧裁切均已修复；两个 TensorRT 下拉框完整显示 `TensorRT (NVIDIA)`，模型下拉框从 `AnimeJaNai...` 开头显示。
+- Remaining scope unchanged: 尚未完成 DPI 100%/125%/150% 矩阵、500 帧预览压力、四宫格完整鼠标流程和运行时控件树递归；工作树仍未提交。
+
+### 2026-09-01 11:52 - Codex
+
+- Post-normalization rebuild/install: 清理新增文本的混合换行并保留已有文件的 UTF-8/BOM 与历史换行布局后重新构建并覆盖安装；最终 DLL SHA-256 为 `695E1ADA472755B13AC60404FA579A852CF401C88948E7D4BBE3E65CDC5A8B50`。
+- Final real-host pass: 实际 3FUI PID `29648` 启动后插件再次打开，六个标签页逐页点击均 `Responding=True`；最终截图 `%TEMP%\3fui-final-installed-plugin-lf.png` 中上下两个 `TensorRT (NVIDIA)` 均完整可见，模型名从 `AnimeJaNai...` 开头显示。
+- `git diff --check` 现已返回退出码 0；仅保留 Git 关于仓库 `core.autocrlf` 将 LF 转为 CRLF 的提示。CLI Python 测试仍为 `18/18`，静态旧控件门禁通过，工作树尚未提交。
+
+### 2026-09-01 11:58 - Codex
+
+- Closeout verification: 最终再次执行旧 WinForms 可视控件静态扫描（PASS）、`python -m unittest discover -s cli/tests -p 'test_*.py'`（18/18，预期异常被测试捕获）和 `git diff --check`（退出码 0）。实际 3FUI PID `29648` 仍为 `Responding=True`。
+
+### 2026-09-01 12:55 - Codex
+
+- Model-column fix: 用户反馈放大模型名称右侧仍被截断；将超分后端/模型列比例从 `46%/54%` 调整为 `38%/62%`，组合框保持左对齐偏移重置和 6px 内边距。当前实机截图已完整显示 `AnimeJaNai-V3-2x-HD-Sharp1-Compact-430K`，两个 `TensorRT (NVIDIA)` 也完整可见。
+- Final install: 重新以实际 3FUI 6.2.3 / LakeUI 5.3.0.0 构建并覆盖安装，源文件与实际插件 DLL SHA-256 均为 `DE8AB0FB3C5E2D2D0F5C49127BEFBD0BE5CC827794C1FA5C9ADD05F623433AE3`。截图为 `%TEMP%\3fui-model-width-fix.png`。
+- Final runtime check: 实际 3FUI PID `34656` 启动响应正常，插件页可打开；此前六页切换验证保持 `Responding=True`。静态旧控件门禁、CLI Python 18/18 和 `git diff --check` 均通过。
+- Remaining scope: 100%/125%/150% DPI 矩阵、500 帧预览压力、四宫格完整鼠标流程和运行时控件树递归仍待后续执行；工作树未提交。
+
+### 2026-09-01 12:56 - Codex
+
+- Latest host pass: 使用包含模型列宽修正的最终 DLL 再次点击六个标签页，实时预览、模型下载、模型转换、模型导入、使用教程和超分工作台全部保持 `Responding=True`。
+
+### 2026-09-01 14:19 - Codex
+
+- LakeUI source research: 克隆并阅读官方 LakeUI 5.3 `ModernPanel.vb` 与 `ModernTabControl.vb`，确认 `ModernTabControl` 会把绑定页加入内部透明内容面板并强制 `Dock=Fill`；`ModernPanel` 的绝对布局仍会经过 WinForms 基类布局，带 `Anchor.Right` 的子控件会恢复创建时缓存的窄宽度。官方 README 的 v5 GPU HWND Swap Chain 说明也要求透明界面使用 LakeUI 原生控件和 `ModernPanel` 背景映射。
+- Root layout fix: 超分工作台根 `ModernPanel` 改为 `Dock=None`、仅 `Anchor.Top|Left`，由 `SyncUpscaleRootBounds` 在插件、页面和 TabControl 布局完成后显式提交宽度；保留一次 `BeginInvoke` 补同步，避免布局重入。删除临时宽度 trace 和计时器，不再依赖 `Anchor.Right` 或 `Dock=Top`。
+- Real-host verification: 重新构建并覆盖安装 `C:\Program portable\3FUI\3FUI\Plugin\videoenhancer.3fui.dll`；源 DLL、`VideoEnhancerPlugin\out\videoenhancer.dll` 与安装 DLL SHA-256 均为 `D490EEA6CD9804E652A1EA6A57ED9BA7F231A83E7020A083433123DE43FAB6D6`。实际 3FUI 6.2.3 / LakeUI 5.3.0.0 PID `30736` 保持 `Responding=True`，六个标签页依次切换通过；普通窗口连续采样根内容为 `1434x850` 且稳定，最大化/还原/宿主窄化采样均无宽度跳变。前台截图：`%TEMP%\3fui-final-host-foreground.png`。
+- Verification: 静态旧 WinForms 控件门禁 PASS；`python -m unittest discover -s cli/tests -p 'test_*.py'` 为 `18/18`；`git diff --check` 退出码 0（仅 core.autocrlf 换行转换提示）。DPI 100%/125%/150% 矩阵、500 帧预览压力、四宫格完整鼠标流程和运行时控件树递归仍未宣称完成。
+- Git: 分支 `release/1.1.2`，`HEAD` 与 `fork/main` 仍为 `6120a8b`；工作树包含本轮源码、构建门禁、README 和状态记录改动，未提交、未推送。建议保留本次实机基线后创建本地提交。
+
+### 2026-09-01 14:26 - Codex
+
+- Rebuild/install: 使用实际 3FUI 6.2.3 / LakeUI 5.3.0.0 再次执行 `VideoEnhancerPlugin\build.ps1 -SkipInstall`，构建门禁报告 `LakeUI baseline: 5.3.0.0`；编译器生成的新 DLL 元数据使本次二进制哈希更新为 `BF14C138EBEB86ECF19F1F63589A96AC4E62ED8D439D985C3F3C860F19E44CAB`，`videoenhancer.3fui.dll`、`VideoEnhancerPlugin\out\videoenhancer.dll` 和实机安装文件三者一致。
+- Regression record: 根宽度和六页响应已由上一份源码等价构建在真实宿主中完成验证；本次仅因构建元数据变化覆盖安装，未修改 UI/业务逻辑。静态旧控件门禁 PASS、CLI Python 测试 `18/18`、`git diff --check` 退出码 0。
+- Git: 分支 `release/1.1.2`，`HEAD` 与 `fork/main` 仍为 `6120a8b`；新增实机 DLL 备份位于宿主目录，不属于仓库。工作树源码和记录仍未提交、未推送。
+
+### 2026-09-02 16:38 - Codex
+
+- 根据实机截图定位插件外沿白线：六个内容页字段均为 `New ModernPanel`，LakeUI 5.x 默认 `BorderSize=1`、`BorderColor=Gray`；页面根面板正好覆盖 TabControl 内容区，因此默认边框被渲染成围绕整个插件内容的亮线。`ModernGridPanel`、`ModernPanel1`、`ModernTabControl.ContentBorderWidth` 和下载列表本身均已显式无边框，问题不在系统窗口边框。
+- 在 `PluginPanel.vb` 页面统一样式处为 `_pageUpscale`、`_pagePreview`、`_pageDownloader`、`_pageConverter`、`_pageImporter`、`_pageTutorial` 统一设置 `BorderColor=Transparent`、`BorderSize=0`、`BorderRadius=0`；重新使用实际 3FUI 6.2.3 / LakeUI 5.3.0.0 构建并覆盖安装 `C:\Program portable\3FUI\3FUI\Plugin\videoenhancer.3fui.dll`。
+- 构建门禁报告 `LakeUI baseline: 5.3.0.0`，源 DLL 与实机安装 DLL SHA-256 均为 `3FAFC169ED605C403916B2BA00CABF8FF8F7E7FB44FD5AEBC64A8F2C71ED0835`；本轮未启动宿主，待用户下次打开插件确认白线消失。源码和记录尚未提交。
+
+### 2026-09-02 22:25 - Codex
+
+- 按用户授权启动 1.2.0 发布流程：创建本地 `release/1.2.0` 分支；`PluginVersion.Current`、`cli/VideoEnhancer.csproj`、根 README 和 `release/release-notes.txt` 已切换到 1.2.0；1.1.3 记录已移入版本历史。
+- 本地检查通过：LakeUI 5.3 插件构建、CLI Release 构建（0 错误，仅既有 Windows CA1416 警告）、旧 WinForms 控件静态门禁 `STATIC_SCAN_OK`、Python 测试 `18/18`、发布门禁 `RELEASE_GATE_TESTS_PASS|5`、Backend 更新事务 `BACKEND_UPDATER_TESTS_PASS|6`、`git diff --check`。
+- 认证检查通过：`gh auth status` 为 `maxzrb`，`modelscope whoami` 为 `AerithDream`。远端 Backend channel 当前为 `2026.08.26.1`；本次 UI-only 发布不改变 Backend，候选构建将使用实机同版本目录做零差异审计。
+- 尚未生成 1.2.0 双源资产、提交或上传；工作树包含本轮迁移源码、版本源和记录改动。下一步运行正式构建脚本生成 EXE/stable.json 并执行安装器、更新器隔离测试。

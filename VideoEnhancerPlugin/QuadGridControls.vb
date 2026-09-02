@@ -19,197 +19,19 @@ Namespace videoenhancer
             Return path
         End Function
 
-        Friend Sub DrawImageCover(g As Graphics, image As Image, target As Rectangle)
-            If image Is Nothing OrElse target.Width <= 0 OrElse target.Height <= 0 Then Return
-            Dim sourceRatio = image.Width / CDbl(Math.Max(1, image.Height))
-            Dim targetRatio = target.Width / CDbl(Math.Max(1, target.Height))
-            Dim source As RectangleF
-            If sourceRatio > targetRatio Then
-                Dim width = CSng(image.Height * targetRatio)
-                source = New RectangleF((image.Width - width) / 2.0F, 0, width, image.Height)
-            Else
-                Dim height = CSng(image.Width / targetRatio)
-                source = New RectangleF(0, (image.Height - height) / 2.0F, image.Width, height)
-            End If
-            g.DrawImage(image, target, source.X, source.Y, source.Width, source.Height, GraphicsUnit.Pixel)
-        End Sub
     End Module
 
-    ''' <summary>Windows 11 Fluent 风格圆角卡片容器。</summary>
-    Friend Class FluentCardPanel
-        Inherits Panel
-
-        Friend Property FillColor As Color = Color.FromArgb(43, 43, 43)
-        Friend Property StrokeColor As Color = Color.FromArgb(62, 62, 62)
-        Friend Property CornerRadius As Integer = 10
-
-        Public Sub New()
-            BackColor = Color.Transparent
-            SetStyle(ControlStyles.AllPaintingInWmPaint Or ControlStyles.UserPaint Or
-                     ControlStyles.OptimizedDoubleBuffer Or ControlStyles.ResizeRedraw Or
-                     ControlStyles.SupportsTransparentBackColor, True)
-        End Sub
-
-        Protected Overrides Sub OnPaintBackground(e As PaintEventArgs)
-            If Width <= 1 OrElse Height <= 1 Then Return
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias
-            Using path = QuadGridDrawing.RoundedPath(New RectangleF(0.5F, 0.5F, Width - 1.0F, Height - 1.0F), CornerRadius)
-                Using brush As New SolidBrush(FillColor)
-                    e.Graphics.FillPath(brush, path)
-                End Using
-                Using pen As New Pen(StrokeColor, 1.0F)
-                    e.Graphics.DrawPath(pen, path)
-                End Using
-            End Using
-        End Sub
-    End Class
-
-    ''' <summary>轻量圆角进度条，替代系统 ProgressBar 的高亮白色外观。</summary>
-    Friend Class FluentProgressBar
-        Inherits Control
-
-        Private _minimum As Integer
-        Private _maximum As Integer = 100
-        Private _value As Integer
-
-        Friend Property TrackColor As Color = Color.FromArgb(42, 50, 61)
-        Friend Property ProgressColor As Color = Color.FromArgb(76, 166, 255)
-        Friend Property GlowColor As Color = Color.FromArgb(112, 194, 255)
-        Friend Property CornerRadius As Integer = 5
-
-        Friend Property Minimum As Integer
-            Get
-                Return _minimum
-            End Get
-            Set(value As Integer)
-                _minimum = value
-                If _maximum <= _minimum Then _maximum = _minimum + 1
-                If _value < _minimum Then _value = _minimum
-                Invalidate()
-            End Set
-        End Property
-
-        Friend Property Maximum As Integer
-            Get
-                Return _maximum
-            End Get
-            Set(value As Integer)
-                _maximum = Math.Max(_minimum + 1, value)
-                If _value > _maximum Then _value = _maximum
-                Invalidate()
-            End Set
-        End Property
-
-        Friend Property Value As Integer
-            Get
-                Return _value
-            End Get
-            Set(value As Integer)
-                _value = Math.Max(_minimum, Math.Min(_maximum, value))
-                Invalidate()
-            End Set
-        End Property
-
-        Public Sub New()
-            SetStyle(ControlStyles.AllPaintingInWmPaint Or ControlStyles.UserPaint Or
-                     ControlStyles.OptimizedDoubleBuffer Or ControlStyles.ResizeRedraw Or
-                     ControlStyles.SupportsTransparentBackColor, True)
-            BackColor = Color.Transparent
-            Size = New Size(240, 10)
-        End Sub
-
-        Protected Overrides Sub OnPaint(e As PaintEventArgs)
-            MyBase.OnPaint(e)
-            If Width <= 1 OrElse Height <= 1 Then Return
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias
-            Dim outer = New RectangleF(0.5F, 0.5F, Width - 1.0F, Height - 1.0F)
-            Using trackPath = QuadGridDrawing.RoundedPath(outer, Math.Min(CornerRadius, Height \ 2))
-                Using brush As New SolidBrush(TrackColor)
-                    e.Graphics.FillPath(brush, trackPath)
-                End Using
-            End Using
-            Dim ratio = (_value - _minimum) / CDbl(Math.Max(1, _maximum - _minimum))
-            Dim fillWidth = CSng(Math.Max(0, Math.Min(Width - 1, ratio * (Width - 1))))
-            If fillWidth <= 0.5F Then Return
-            Dim fillRect = New RectangleF(0.5F, 0.5F, fillWidth, Height - 1.0F)
-            Using fillPath = QuadGridDrawing.RoundedPath(fillRect, Math.Min(CornerRadius, Height \ 2))
-                Using brush As New LinearGradientBrush(fillRect, ProgressColor, GlowColor, 0.0F)
-                    e.Graphics.FillPath(brush, fillPath)
-                End Using
-            End Using
-        End Sub
-    End Class
-
-    ''' <summary>圆角、抗锯齿、带悬停状态的按钮；完全编译进插件，无额外运行库。</summary>
-    Friend Class SmoothButton
-        Inherits Button
-
-        Private _hovered As Boolean
-        Friend Property CornerRadius As Integer = 8
-        Friend Property FillColor As Color = Color.FromArgb(42, 46, 54)
-        Friend Property HoverFillColor As Color = Color.FromArgb(53, 59, 68)
-        Friend Property PressedFillColor As Color = Color.FromArgb(34, 38, 45)
-        Friend Property BorderColor As Color = Color.FromArgb(76, 84, 94)
-        Friend Property BorderThickness As Single = 1.0F
-
-        Public Sub New()
-            FlatStyle = FlatStyle.Flat
-            FlatAppearance.BorderSize = 0
-            UseVisualStyleBackColor = False
-            SetStyle(ControlStyles.AllPaintingInWmPaint Or ControlStyles.UserPaint Or
-                     ControlStyles.OptimizedDoubleBuffer Or ControlStyles.ResizeRedraw, True)
-        End Sub
-
-        Protected Overrides Sub OnMouseEnter(e As EventArgs)
-            _hovered = True
-            Invalidate()
-            MyBase.OnMouseEnter(e)
-        End Sub
-
-        Protected Overrides Sub OnMouseLeave(e As EventArgs)
-            _hovered = False
-            Invalidate()
-            MyBase.OnMouseLeave(e)
-        End Sub
-
-        Protected Overrides Sub OnPaint(e As PaintEventArgs)
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias
-            Dim rect = New RectangleF(0.5F, 0.5F, Math.Max(1, Width - 1.0F), Math.Max(1, Height - 1.0F))
-            Using path = QuadGridDrawing.RoundedPath(rect, CornerRadius)
-                Dim fill = If(Control.MouseButtons = System.Windows.Forms.MouseButtons.Left AndAlso ClientRectangle.Contains(PointToClient(Cursor.Position)),
-                              PressedFillColor, If(_hovered, HoverFillColor, FillColor))
-                Using brush As New SolidBrush(fill)
-                    e.Graphics.FillPath(brush, path)
-                End Using
-                If BorderThickness > 0 Then
-                    Using pen As New Pen(BorderColor, BorderThickness)
-                        e.Graphics.DrawPath(pen, path)
-                    End Using
-                End If
-            End Using
-            Dim flags = TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis
-            Select Case TextAlign
-                Case ContentAlignment.BottomLeft, ContentAlignment.MiddleLeft, ContentAlignment.TopLeft
-                    flags = flags Or TextFormatFlags.Left
-                Case ContentAlignment.BottomRight, ContentAlignment.MiddleRight, ContentAlignment.TopRight
-                    flags = flags Or TextFormatFlags.Right
-                Case Else
-                    flags = flags Or TextFormatFlags.HorizontalCenter
-            End Select
-            TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, ForeColor, flags)
-        End Sub
-    End Class
-
-    ''' <summary>视频输入卡片：缩略图、编号、文件名和大号拖放提示在同一圆角控件内绘制。</summary>
+    ''' <summary>LakeUI 原生视频槽：图片由 ModernPanel.Image 渲染，子标签只负责交互与文本。</summary>
     Friend Class VideoSlotCard
-        Inherits Control
+        Inherits ModernPanel
 
-        Private _previewImage As Image
         Private _filePath As String = ""
         Private ReadOnly _badge As New HtmlColorLabel()
         Private ReadOnly _hint As New HtmlColorLabel()
         Private ReadOnly _fileName As New HtmlColorLabel()
+
         Friend Property SlotIndex As Integer
+
         Friend ReadOnly Property FilePath As String
             Get
                 Return _filePath
@@ -218,26 +40,36 @@ Namespace videoenhancer
 
         Friend Sub SetVideo(path As String)
             _filePath = If(path, "")
+            Image = Nothing
             AccessibleName = If(String.IsNullOrWhiteSpace(_filePath), "空视频槽", System.IO.Path.GetFileName(_filePath))
-            _badge.BackColor1 = If(String.IsNullOrWhiteSpace(_filePath), Color.FromArgb(58, 58, 58), Color.FromArgb(0, 120, 212))
+            _badge.BackColor1 = If(String.IsNullOrWhiteSpace(_filePath),
+                                   Color.FromArgb(58, 58, 58),
+                                   Color.FromArgb(0, 120, 212))
             _hint.Visible = String.IsNullOrWhiteSpace(_filePath)
             _fileName.Visible = Not _hint.Visible
             _fileName.Text = If(_hint.Visible, "", System.IO.Path.GetFileName(_filePath))
+            BorderColor = If(_hint.Visible, Color.FromArgb(68, 68, 68), Color.FromArgb(96, 205, 255))
             Invalidate()
         End Sub
 
         Friend Sub SetPreviewImage(image As Image)
-            _previewImage = image
+            Image = image
+            _hint.Visible = String.IsNullOrWhiteSpace(_filePath)
+            _fileName.Visible = Not _hint.Visible
             Invalidate()
         End Sub
 
         Public Sub New()
             AllowDrop = True
             Cursor = Cursors.Hand
-            SetStyle(ControlStyles.AllPaintingInWmPaint Or ControlStyles.UserPaint Or
-                     ControlStyles.OptimizedDoubleBuffer Or ControlStyles.ResizeRedraw Or
-                     ControlStyles.SupportsTransparentBackColor, True)
             BackColor = Color.Transparent
+            BackColor1 = Color.FromArgb(34, 34, 38)
+            BorderColor = Color.FromArgb(68, 68, 68)
+            BorderSize = 1
+            BorderRadius = 9
+            ' Zoom 保持缩略图比例，避免不同视频尺寸被强行拉伸。
+            ImageMode = ModernPanel.ImageFillMode.Zoom
+
             _badge.Text = "1"
             _badge.TextAlign = HtmlColorLabel.TextAlignEnum.Center
             _badge.ForeColor = Color.White
@@ -245,18 +77,24 @@ Namespace videoenhancer
             _badge.BackColor1 = Color.FromArgb(58, 58, 58)
             _badge.BorderRadius = 7
             _badge.BorderSize = 0
+            _badge.BackgroundSource = Me
+
             _hint.Text = "拖放视频或点击选择"
             _hint.TextAlign = HtmlColorLabel.TextAlignEnum.Center
             _hint.ForeColor = Color.FromArgb(205, 205, 205)
             _hint.Font = New Font("Microsoft YaHei UI", 11.0F, FontStyle.Regular)
             _hint.BackColor1 = Color.Transparent
             _hint.BorderSize = 0
+            _hint.BackgroundSource = Me
+
             _fileName.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _fileName.ForeColor = Color.FromArgb(235, 239, 244)
             _fileName.Font = New Font("Microsoft YaHei UI", 9.5F, FontStyle.Regular)
             _fileName.BackColor1 = Color.Transparent
             _fileName.BorderSize = 0
+            _fileName.BackgroundSource = Me
             _fileName.Visible = False
+
             For Each child As Control In New Control() {_badge, _hint, _fileName}
                 child.Cursor = Cursors.Hand
                 child.AllowDrop = True
@@ -269,6 +107,8 @@ Namespace videoenhancer
 
         Protected Overrides Sub OnLayout(levent As LayoutEventArgs)
             MyBase.OnLayout(levent)
+            ' ModernPanel 的基类构造函数可能在派生字段初始化前触发布局。
+            If _badge Is Nothing OrElse _hint Is Nothing OrElse _fileName Is Nothing Then Return
             If Width <= 0 OrElse Height <= 0 Then Return
             Dim pad = Math.Max(6, Width \ 45)
             Dim imageHeight = Math.Max(28, CInt(Height * 0.62))
@@ -280,160 +120,9 @@ Namespace videoenhancer
             If _hint.Visible Then _hint.BringToFront() Else _fileName.BringToFront()
         End Sub
 
-        Protected Overrides Sub OnPaint(e As PaintEventArgs)
-            MyBase.OnPaint(e)
-            If Width <= 1 OrElse Height <= 1 Then Return
-            Dim g = e.Graphics
-            g.SmoothingMode = SmoothingMode.AntiAlias
-            g.InterpolationMode = InterpolationMode.HighQualityBicubic
-            Dim outer = New RectangleF(0.5F, 0.5F, Math.Max(1, Width - 1.0F), Math.Max(1, Height - 1.0F))
-            Using path = QuadGridDrawing.RoundedPath(outer, 9)
-                Using brush As New LinearGradientBrush(ClientRectangle, Color.FromArgb(50, 50, 50), Color.FromArgb(43, 43, 43), 90.0F)
-                    g.FillPath(brush, path)
-                End Using
-                Using pen As New Pen(If(String.IsNullOrWhiteSpace(_filePath), Color.FromArgb(68, 68, 68), Color.FromArgb(96, 205, 255)), If(String.IsNullOrWhiteSpace(_filePath), 1.0F, 1.5F))
-                    g.DrawPath(pen, path)
-                End Using
-            End Using
-
-            Dim pad = Math.Max(7, Width \ 45)
-            Dim imageHeight = Math.Max(34, CInt(Height * 0.62))
-            Dim imageRect = New Rectangle(pad, pad, Math.Max(1, Width - pad * 2), Math.Max(1, imageHeight - pad))
-            If _previewImage IsNot Nothing Then
-                Dim state = g.Save()
-                Using clip = QuadGridDrawing.RoundedPath(imageRect, 6)
-                    g.SetClip(clip)
-                    QuadGridDrawing.DrawImageCover(g, _previewImage, imageRect)
-                End Using
-                g.Restore(state)
-            Else
-                Using brush As New SolidBrush(Color.FromArgb(30, 30, 30))
-                    Using clip = QuadGridDrawing.RoundedPath(imageRect, 6)
-                        g.FillPath(brush, clip)
-                    End Using
-                End Using
-            End If
-
-        End Sub
-
         Protected Overrides Sub OnCreateControl()
             MyBase.OnCreateControl()
             _badge.Text = (SlotIndex + 1).ToString()
-        End Sub
-    End Class
-
-    ''' <summary>双缓冲自绘时间轴。拖动只更新视觉位置，Seek 由宿主在 MouseUp 时统一提交。</summary>
-    Friend Class SmoothTimeline
-        Inherits Control
-
-        Private _minimum As Integer
-        Private _maximum As Integer = 1
-        Private _value As Integer
-        Private _dragging As Boolean
-
-        Friend Event ValueChanged(sender As Object, e As EventArgs)
-        Friend Property Minimum As Integer
-            Get
-                Return _minimum
-            End Get
-            Set(value As Integer)
-                _minimum = value
-                If _maximum < _minimum Then _maximum = _minimum
-                Value = _value
-            End Set
-        End Property
-        Friend Property Maximum As Integer
-            Get
-                Return _maximum
-            End Get
-            Set(value As Integer)
-                _maximum = Math.Max(_minimum, value)
-                Value = _value
-            End Set
-        End Property
-        Friend Property Value As Integer
-            Get
-                Return _value
-            End Get
-            Set(value As Integer)
-                Dim nextValue = Math.Min(_maximum, Math.Max(_minimum, value))
-                If nextValue = _value Then Return
-                _value = nextValue
-                Invalidate()
-                RaiseEvent ValueChanged(Me, EventArgs.Empty)
-            End Set
-        End Property
-        Friend ReadOnly Property IsDragging As Boolean
-            Get
-                Return _dragging
-            End Get
-        End Property
-
-        Public Sub New()
-            Cursor = Cursors.Hand
-            SetStyle(ControlStyles.AllPaintingInWmPaint Or ControlStyles.UserPaint Or
-                     ControlStyles.OptimizedDoubleBuffer Or ControlStyles.ResizeRedraw Or
-                     ControlStyles.SupportsTransparentBackColor, True)
-            BackColor = Color.Transparent
-        End Sub
-
-        Private Sub SetValueFromX(x As Integer)
-            If Width <= 1 OrElse _maximum <= _minimum Then
-                Value = _minimum
-                Return
-            End If
-            Dim ratio = Math.Min(1.0, Math.Max(0.0, x / CDbl(Width - 1)))
-            Value = CInt(Math.Round(_minimum + ratio * (_maximum - _minimum)))
-        End Sub
-
-        Protected Overrides Sub OnMouseDown(e As MouseEventArgs)
-            MyBase.OnMouseDown(e)
-            If e.Button <> MouseButtons.Left Then Return
-            _dragging = True
-            Capture = True
-            SetValueFromX(e.X)
-        End Sub
-
-        Protected Overrides Sub OnMouseMove(e As MouseEventArgs)
-            MyBase.OnMouseMove(e)
-            If _dragging Then SetValueFromX(e.X)
-        End Sub
-
-        Protected Overrides Sub OnMouseUp(e As MouseEventArgs)
-            If _dragging AndAlso e.Button = MouseButtons.Left Then SetValueFromX(e.X)
-            _dragging = False
-            Capture = False
-            MyBase.OnMouseUp(e)
-        End Sub
-
-        Protected Overrides Sub OnPaint(e As PaintEventArgs)
-            MyBase.OnPaint(e)
-            If Width <= 1 OrElse Height <= 1 Then Return
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias
-            Dim centerY = Height / 2.0F
-            Dim track = New RectangleF(1.0F, centerY - 3.0F, Math.Max(1, Width - 2.0F), 6.0F)
-            Using path = QuadGridDrawing.RoundedPath(track, 3)
-                Using brush As New SolidBrush(Color.FromArgb(82, 82, 82))
-                    e.Graphics.FillPath(brush, path)
-                End Using
-            End Using
-            Dim ratio = If(_maximum <= _minimum, 0.0, (_value - _minimum) / CDbl(_maximum - _minimum))
-            Dim filledWidth = CSng(Math.Max(0, (Width - 2) * ratio))
-            If filledWidth > 0 Then
-                Dim filled = New RectangleF(1.0F, centerY - 3.0F, filledWidth, 6.0F)
-                Using path = QuadGridDrawing.RoundedPath(filled, 3)
-                    Using brush As New SolidBrush(Color.FromArgb(96, 205, 255))
-                        e.Graphics.FillPath(brush, path)
-                    End Using
-                End Using
-            End If
-            Dim handleX = CSng(1 + (Width - 2) * ratio)
-            Using shadow As New SolidBrush(Color.FromArgb(80, 0, 0, 0))
-                e.Graphics.FillEllipse(shadow, handleX - 8, centerY - 7, 16, 16)
-            End Using
-            Using brush As New SolidBrush(Color.FromArgb(235, 242, 248))
-                e.Graphics.FillEllipse(brush, handleX - 6, centerY - 6, 12, 12)
-            End Using
         End Sub
     End Class
 

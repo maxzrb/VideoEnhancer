@@ -37,22 +37,22 @@ Namespace videoenhancer
         ' ── 控件 ──
         Private ReadOnly _videos(3) As String
         Private ReadOnly _slotLabels(3) As VideoSlotCard
-        Private ReadOnly _preview As New PictureBox()
-        Private ReadOnly _cmbSize As New ComboBox()
-        Private ReadOnly _cmbScale As New ComboBox()
-        Private ReadOnly _numLine As New NumericUpDown()
+        Private ReadOnly _preview As New PixelPictureBox()
+        Private ReadOnly _previewEmptyLabel As New HtmlColorLabel()
+        Private ReadOnly _cmbSize As New LakeComboBox()
+        Private ReadOnly _cmbScale As New LakeComboBox()
+        Private ReadOnly _numLine As New ModernNumericUpDown()
         Private ReadOnly _btnColor As New ModernButton()
-        Private ReadOnly _cmbLayout As New ComboBox()
-        Private ReadOnly _cmbEncoder As New ComboBox()
-        Private ReadOnly _numQuality As New NumericUpDown()
-        Private ReadOnly _chkBurnFileName As New CheckBox()
-        Private ReadOnly _playerBar As New Panel()
+        Private ReadOnly _cmbLayout As New LakeComboBox()
+        Private ReadOnly _cmbEncoder As New LakeComboBox()
+        Private ReadOnly _numQuality As New ModernNumericUpDown()
+        Private ReadOnly _chkBurnFileName As New ModernCheckBox()
         Private ReadOnly _btnPlay As New ModernButton()
         Private ReadOnly _lblTime As New HtmlColorLabel()
-        Private ReadOnly _timeline As New SmoothTimeline()
+        Private ReadOnly _timeline As New ExcellentTrackBar()
         Private ReadOnly _lblPreviewNote As New HtmlColorLabel()
         Private ReadOnly _nameOverlays(3) As HtmlColorLabel
-        Private ReadOnly _dividerPanels As New List(Of Panel)()
+        Private ReadOnly _dividerPanels As New List(Of ModernPanel)()
         Private ReadOnly _playbackTimer As New Timer() With {.Interval = 33}
         Private ReadOnly _previewDebounceTimer As New Timer() With {.Interval = 90}
         Private ReadOnly _previewClock As New Stopwatch()
@@ -94,21 +94,21 @@ Namespace videoenhancer
         Private Const RightPaneHorizontalScale As Double = 1.0
         Private ReadOnly _layoutControls As New Dictionary(Of String, Control)(StringComparer.OrdinalIgnoreCase)
         Private _layoutDocument As LayoutDocument
-        Private ReadOnly _lblEncoderSection As New Label()
-        Private ReadOnly _lblLayoutSection As New Label()
-        Private ReadOnly _btnEncoderCaption As New Label()
-        Private ReadOnly _btnScaleCaption As New Label()
-        Private ReadOnly _btnSizeCaption As New Label()
-        Private ReadOnly _btnQualityCaption As New Label()
-        Private ReadOnly _btnLayoutCaption As New Label()
-        Private ReadOnly _btnLineCaption As New Label()
-        Private ReadOnly _timelineHost As New Panel()
-        Private ReadOnly _encoderHost As New Panel()
-        Private ReadOnly _scaleHost As New Panel()
-        Private ReadOnly _sizeHost As New Panel()
-        Private ReadOnly _layoutHost As New Panel()
-        Private ReadOnly _qualityHost As New Panel()
-        Private ReadOnly _lineHost As New Panel()
+        Private ReadOnly _lblEncoderSection As New LakeTextLabel()
+        Private ReadOnly _lblLayoutSection As New LakeTextLabel()
+        Private ReadOnly _btnEncoderCaption As New LakeTextLabel()
+        Private ReadOnly _btnScaleCaption As New LakeTextLabel()
+        Private ReadOnly _btnSizeCaption As New LakeTextLabel()
+        Private ReadOnly _btnQualityCaption As New LakeTextLabel()
+        Private ReadOnly _btnLayoutCaption As New LakeTextLabel()
+        Private ReadOnly _btnLineCaption As New LakeTextLabel()
+        Private ReadOnly _timelineHost As New ModernPanel()
+        Private ReadOnly _encoderHost As New ModernPanel()
+        Private ReadOnly _scaleHost As New ModernPanel()
+        Private ReadOnly _sizeHost As New ModernPanel()
+        Private ReadOnly _layoutHost As New ModernPanel()
+        Private ReadOnly _qualityHost As New ModernPanel()
+        Private ReadOnly _lineHost As New ModernPanel()
         Private ReadOnly _titleText As New HtmlColorLabel()
         Private ReadOnly _titleIcon As New HtmlColorLabel()
         Private ReadOnly _btnMinimize As New ModernButton()
@@ -191,11 +191,24 @@ Namespace videoenhancer
             Next
 
             _preview.BackColor = Color.FromArgb(15, 15, 15)
+            _preview.BackColor1 = Color.FromArgb(15, 15, 15)
+            _preview.BorderColor = Color.FromArgb(62, 62, 62)
+            _preview.BorderSize = 1
+            _preview.ShowSelection = False
+            _preview.BackgroundSource = Nothing
             _preview.AllowDrop = True
-            _preview.SizeMode = PictureBoxSizeMode.Normal
-            AddHandler _preview.Paint, AddressOf PreviewPaint
             AddHandler _preview.DragEnter, AddressOf SlotDragEnter
             AddHandler _preview.DragDrop, AddressOf PreviewDragDrop
+            _previewEmptyLabel.AutoSize = False
+            _previewEmptyLabel.Dock = DockStyle.Fill
+            _previewEmptyLabel.BackColor = Color.Transparent
+            _previewEmptyLabel.BackColor1 = Color.Transparent
+            _previewEmptyLabel.BorderSize = 0
+            _previewEmptyLabel.ForeColor = Color.FromArgb(150, 157, 168)
+            _previewEmptyLabel.Font = New Font("Microsoft YaHei UI", 11.0F)
+            _previewEmptyLabel.TextAlign = HtmlColorLabel.TextAlignEnum.Center
+            _previewEmptyLabel.Text = "拖入或浏览 1-4 个视频，实时预览四宫格布局"
+            _preview.Controls.Add(_previewEmptyLabel)
             Controls.Add(_preview)
 
             ' 1.1 的流畅方案只使用一个合成画面。这里不再创建 4 个原生播放器 HWND，
@@ -230,6 +243,23 @@ Namespace videoenhancer
             _lblTime.ForeColor = Color.White
             _lblTime.BackColor1 = Color.Transparent
             _lblTime.BorderSize = 0
+            _timeline.Cursor = Cursors.Hand
+            _timeline.BackColor = Color.Transparent
+            _timeline.BackgroundSource = Nothing
+            _timeline.Orientation = ExcellentTrackBar.TrackOrientationEnum.Horizontal
+            _timeline.TrackColor = Color.FromArgb(82, 82, 82)
+            _timeline.TrackFillColor = Color.FromArgb(96, 205, 255)
+            _timeline.TrackThickness = 6
+            _timeline.TrackRadius = 3
+            _timeline.TrackBorderWidth = 0
+            _timeline.ThumbWidth = 14
+            _timeline.ThumbHeight = 14
+            _timeline.ThumbColor = Color.FromArgb(235, 242, 248)
+            _timeline.ThumbBorderColor = Color.FromArgb(60, 60, 60)
+            _timeline.ThumbBorderWidth = 1
+            _timeline.ThumbRadius = 7
+            _timeline.ThumbTextMode = ExcellentTrackBar.ThumbTextModeEnum.None
+            _timeline.Font = New Font("Microsoft YaHei UI", 9.0F)
             _timeline.Minimum = 0
             _timeline.Maximum = 1
             AddHandler _timeline.ValueChanged, AddressOf TimelineValueChanged
@@ -254,43 +284,44 @@ Namespace videoenhancer
             ConfigureCaptionLabel(_btnLayoutCaption, "排版方式")
             ConfigureCaptionLabel(_btnLineCaption, "线宽")
 
-            _cmbSize.DropDownStyle = ComboBoxStyle.DropDownList
-            _cmbSize.Items.AddRange(New Object() {"3840x2160", "2560x1440", "1920x1080", "1280x720", "960x540"})
+            _cmbSize.Items.AddRange(New String() {"3840x2160", "2560x1440", "1920x1080", "1280x720", "960x540"})
             _cmbSize.SelectedIndex = 0
             AddHandler _cmbSize.SelectedIndexChanged, AddressOf OptionsChanged
-            _cmbScale.DropDownStyle = ComboBoxStyle.DropDownList
-            _cmbScale.Items.AddRange(New Object() {"lanczos", "bicubic", "bilinear", "spline"})
+            _cmbScale.Items.AddRange(New String() {"lanczos", "bicubic", "bilinear", "spline"})
             _cmbScale.SelectedIndex = 0
             AddHandler _cmbScale.SelectedIndexChanged, AddressOf OptionsChanged
-            _cmbLayout.DropDownStyle = ComboBoxStyle.DropDownList
             AddHandler _cmbLayout.SelectedIndexChanged, AddressOf OptionsChanged
-            _cmbEncoder.DropDownStyle = ComboBoxStyle.DropDownList
-            _cmbEncoder.Items.AddRange(New Object() {"HEVC · NVIDIA NVENC", "AV1 · NVIDIA NVENC", "HEVC · Intel QSV", "AV1 · Intel QSV", "HEVC · AMD AMF", "AV1 · AMD AMF", "HEVC · CPU (x265)", "AV1 · CPU (SVT-AV1)"})
+            _cmbEncoder.Items.AddRange(New String() {"HEVC · NVIDIA NVENC", "AV1 · NVIDIA NVENC", "HEVC · Intel QSV", "AV1 · Intel QSV", "HEVC · AMD AMF", "AV1 · AMD AMF", "HEVC · CPU (x265)", "AV1 · CPU (SVT-AV1)"})
             _cmbEncoder.SelectedIndex = 0
             AddHandler _cmbEncoder.SelectedIndexChanged, Sub() _btnQualityCaption.Text = If(_cmbEncoder.SelectedIndex >= 6, "质量(CRF)", "质量(CQ)")
 
-            For Each combo As ComboBox In New ComboBox() {_cmbEncoder, _cmbScale, _cmbSize, _cmbLayout}
-                combo.FlatStyle = FlatStyle.Flat
-                combo.BackColor = Color.FromArgb(51, 51, 51)
-                combo.ForeColor = Color.FromArgb(245, 245, 245)
-                combo.Font = New Font("Segoe UI", 10.0F)
+            For Each combo As ModernComboBox In New ModernComboBox() {_cmbEncoder, _cmbScale, _cmbSize, _cmbLayout}
+                ConfigureQuadCombo(combo)
             Next
 
             _numLine.Minimum = 1
             _numLine.Maximum = 32
             _numLine.Value = 4
             _numLine.AutoSize = False
-            _numLine.BackColor = Color.FromArgb(51, 51, 51)
+            _numLine.BackColor1 = Color.FromArgb(51, 51, 51)
             _numLine.ForeColor = Color.FromArgb(220, 220, 220)
-            _numLine.BorderStyle = BorderStyle.FixedSingle
+            _numLine.BorderColor = Color.FromArgb(76, 84, 94)
+            _numLine.BorderSize = 1
+            _numLine.BorderRadius = 7
+            _numLine.DecimalPlaces = 0
+            _numLine.Increment = 1
             AddHandler _numLine.ValueChanged, AddressOf OptionsChanged
             _numQuality.Minimum = 0
             _numQuality.Maximum = 51
             _numQuality.Value = 28
             _numQuality.AutoSize = False
-            _numQuality.BackColor = Color.FromArgb(51, 51, 51)
+            _numQuality.BackColor1 = Color.FromArgb(51, 51, 51)
             _numQuality.ForeColor = Color.FromArgb(232, 236, 241)
-            _numQuality.BorderStyle = BorderStyle.FixedSingle
+            _numQuality.BorderColor = Color.FromArgb(76, 84, 94)
+            _numQuality.BorderSize = 1
+            _numQuality.BorderRadius = 7
+            _numQuality.DecimalPlaces = 0
+            _numQuality.Increment = 1
 
             ConfigureControlHost(_timelineHost, _timeline, Color.Transparent)
             ConfigureControlHost(_encoderHost, _cmbEncoder, Color.FromArgb(51, 51, 51))
@@ -312,6 +343,9 @@ Namespace videoenhancer
             _chkBurnFileName.Text = "将文件名烧录到画面"
             _chkBurnFileName.AutoSize = False
             _chkBurnFileName.ForeColor = Color.Gainsboro
+            _chkBurnFileName.BackColor = Color.Transparent
+            _chkBurnFileName.BackgroundSource = Nothing
+            _chkBurnFileName.ClickAnywhere = True
             _btnOutput.Text = "开始生成"
             _btnOutput.ForeColor = Color.White
             _btnOutput.BackColor1 = Color.FromArgb(0, 120, 212)
@@ -352,28 +386,61 @@ Namespace videoenhancer
             ResumeLayout(False)
         End Sub
 
-        Private Shared Sub ConfigureSectionLabel(label As Label, text As String)
+        Private Shared Sub ConfigureSectionLabel(label As LakeTextLabel, text As String)
             label.Text = text
             label.AutoSize = False
             label.TextAlign = ContentAlignment.MiddleLeft
             label.ForeColor = Color.White
             label.BackColor = Color.Transparent
+            label.BackColor1 = Color.Transparent
+            label.BorderSize = 0
             label.Font = New Font("Segoe UI", 11.0F, FontStyle.Bold)
         End Sub
 
-        Private Shared Sub ConfigureCaptionLabel(label As Label, text As String)
+        Private Shared Sub ConfigureCaptionLabel(label As LakeTextLabel, text As String)
             label.Text = text
             label.ForeColor = Color.FromArgb(210, 210, 210)
             label.BackColor = Color.Transparent
+            label.BackColor1 = Color.Transparent
+            label.BorderSize = 0
             label.AutoSize = False
             label.Font = New Font("Segoe UI", 9.5F)
             label.TextAlign = ContentAlignment.MiddleLeft
         End Sub
 
-        Private Shared Sub ConfigureControlHost(host As Panel, child As Control, backColor As Color)
-            host.BackColor = backColor
-            host.BorderStyle = BorderStyle.None
+        Private Shared Sub ConfigureControlHost(host As ModernPanel, child As Control, backColor As Color)
+            host.BackColor = Color.Transparent
+            host.BackColor1 = backColor
+            host.BorderColor = Color.Transparent
+            host.BorderSize = 0
+            host.BorderRadius = 7
+            host.BackgroundSource = Nothing
+            host.Padding = New Padding(2)
             host.Controls.Add(child)
+        End Sub
+
+        Private Shared Sub ConfigureQuadCombo(combo As ModernComboBox)
+            combo.AutoSize = False
+            combo.Editable = False
+            combo.DropDownMode = ModernComboBox.DropDownDisplayMode.Overlay
+            combo.Font = New Font("Segoe UI", 10.0F)
+            combo.ForeColor = Color.FromArgb(245, 245, 245)
+            combo.WaterTextForeColor = Color.FromArgb(150, 157, 168)
+            combo.Padding = New Padding(10, 0, 10, 0)
+            combo.BackColor1 = Color.FromArgb(51, 51, 51)
+            combo.BackColor2 = Color.FromArgb(51, 51, 51)
+            combo.HoverBackColor1 = Color.FromArgb(62, 62, 62)
+            combo.HoverBackColor2 = Color.FromArgb(62, 62, 62)
+            combo.PressedBackColor1 = Color.FromArgb(42, 42, 42)
+            combo.PressedBackColor2 = Color.FromArgb(42, 42, 42)
+            combo.BorderColor = Color.FromArgb(76, 84, 94)
+            combo.BorderColorFocus = Color.FromArgb(96, 205, 255)
+            combo.HoverBorderColor = Color.FromArgb(96, 205, 255)
+            combo.ArrowColor = Color.FromArgb(180, 190, 202)
+            combo.HoverArrowColor = Color.White
+            combo.BorderRadius = 7
+            combo.BorderSize = 1
+            combo.MinimumSize = New Size(0, 32)
         End Sub
 
         Private Sub ConfigureTitleBar()
@@ -502,10 +569,9 @@ Namespace videoenhancer
                 Dim logical = New Rectangle(item.CenterX - item.Width \ 2, item.CenterY - item.Height \ 2, item.Width, item.Height)
                 If IsRightPaneItem(item.Name) Then logical = ScaleRightPaneBounds(logical)
                 control.Bounds = ScaleBounds(logical, scaleX, scaleY)
-                Dim combo = TryCast(control, ComboBox)
+                Dim combo = TryCast(control, ModernComboBox)
                 If combo IsNot Nothing Then
-                    combo.IntegralHeight = False
-                    combo.ItemHeight = Math.Max(12, control.Height - 8)
+                    combo.MinimumSize = New Size(0, Math.Max(30, control.Height))
                 End If
             Next
             LayoutHostedControl(_timelineHost, _timeline)
@@ -552,9 +618,9 @@ Namespace videoenhancer
             End Select
         End Function
 
-        Private Shared Sub LayoutHostedControl(host As Panel, child As Control)
+        Private Shared Sub LayoutHostedControl(host As ModernPanel, child As Control)
             If host.ClientSize.Width <= 0 OrElse host.ClientSize.Height <= 0 Then Return
-            If TypeOf child Is SmoothTimeline Then
+            If TypeOf child Is ExcellentTrackBar Then
                 child.Bounds = host.ClientRectangle
                 Return
             End If
@@ -729,8 +795,13 @@ Namespace videoenhancer
                 Try : old.Dispose() : Catch : End Try
                 _frameCache.Remove(idx)
             End If
+            Dim oldComposite = _compositeFrame
+            _compositeFrame = Nothing
+            If oldComposite IsNot Nothing Then Try : oldComposite.Dispose() : Catch : End Try
             UpdateLayoutCombo()
-            _preview.Invalidate()
+            _preview.Image = Nothing
+            _previewEmptyLabel.Visible = True
+            _previewEmptyLabel.BringToFront()
             ProbeDurationAsync(idx, path)
             LoadFirstFrameAsync(idx, path)
             SchedulePreviewRefresh()
@@ -739,6 +810,11 @@ Namespace videoenhancer
         Private Sub UpdatePreviewSurfaces()
             If _preview Is Nothing OrElse _preview.ClientSize.Width <= 0 OrElse _preview.ClientSize.Height <= 0 Then Return
             Dim inputs = CollectVideos()
+            _previewEmptyLabel.Text = If(inputs.Count = 0,
+                                        "拖入或浏览 1-4 个视频，实时预览四宫格布局",
+                                        "正在生成预览…")
+            _previewEmptyLabel.Visible = _compositeFrame Is Nothing
+            If _previewEmptyLabel.Visible Then _previewEmptyLabel.BringToFront()
             Dim logicalWidth As Integer = 0
             Dim logicalHeight As Integer = 0
             ParseSize(logicalWidth, logicalHeight)
@@ -761,8 +837,10 @@ Namespace videoenhancer
             Next
             _dividerPanels.Clear()
             For Each r In LineRects(kind, logicalWidth, logicalHeight, CInt(_numLine.Value))
-                Dim panel As New Panel() With {
-                    .BackColor = _lineColor,
+                Dim panel As New ModernPanel() With {
+                    .BackColor = Color.Transparent,
+                    .BackColor1 = _lineColor,
+                    .BorderSize = 0,
                     .Bounds = New Rectangle(originX + CInt(Math.Round(r.X * scale)), originY + CInt(Math.Round(r.Y * scale)),
                                             Math.Max(1, CInt(Math.Round(r.Width * scale))), Math.Max(1, CInt(Math.Round(r.Height * scale))))}
                 _preview.Controls.Add(panel)
@@ -895,7 +973,11 @@ Namespace videoenhancer
             _pendingSeek = TimeSpan.FromSeconds(Math.Max(0, _timeline.Value))
             _hasPendingSeek = True
             _lblTime.Text = FormatTime(_pendingSeek) & "/" & FormatTime(_previewDuration)
-            If Not _timelineDragging AndAlso Not _timeline.IsDragging Then CommitTimelineSeek()
+            ' ExcellentTrackBar 可能在 MouseDown 事件到达前就先发出 ValueChanged；
+            ' 鼠标左键仍按下时只更新视觉值，统一在 MouseUp 后提交 Seek。
+            If Not _timelineDragging AndAlso (Control.MouseButtons And MouseButtons.Left) = MouseButtons.None Then
+                CommitTimelineSeek()
+            End If
         End Sub
 
         Private Sub TimelineMouseDown(sender As Object, e As MouseEventArgs)
@@ -1305,6 +1387,9 @@ Namespace videoenhancer
             Dim old = _compositeFrame
             _compositeFrame = image
             If old IsNot Nothing Then Try : old.Dispose() : Catch : End Try
+            _preview.Image = image
+            _previewEmptyLabel.Visible = False
+            UpdatePreviewSurfaces()
             _preview.Invalidate()
         End Sub
 
@@ -1339,7 +1424,7 @@ Namespace videoenhancer
                                     If idx >= 0 AndAlso idx <= 3 AndAlso String.Equals(_videos(idx), path, StringComparison.OrdinalIgnoreCase) Then
                                         _slotLabels(idx).SetPreviewImage(img)
                                     End If
-                                    _preview.Invalidate()
+                                    UpdatePreviewSurfaces()
                                 End Sub))
                             End If
                         Catch
@@ -1418,109 +1503,6 @@ Namespace videoenhancer
             UpdatePreviewSurfaces()
             _preview.Invalidate()
             SchedulePreviewRefresh()
-        End Sub
-
-        Private Sub PreviewPaint(sender As Object, e As PaintEventArgs)
-            Dim g = e.Graphics
-            g.Clear(Color.FromArgb(16, 16, 18))
-            g.InterpolationMode = InterpolationMode.HighQualityBicubic
-            g.PixelOffsetMode = PixelOffsetMode.HighQuality
-            Dim inputs = CollectVideos()
-            If inputs.Count = 0 Then
-                DrawCenteredText(g, "拖入或浏览 1-4 个视频，实时预览四宫格布局", Color.FromArgb(150, 157, 168), 18)
-                Return
-            End If
-            Dim w As Integer = 0
-            Dim h As Integer = 0
-            ParseSize(w, h)
-            If w <= 0 OrElse h <= 0 Then
-                Return
-            End If
-            Dim kind = CurrentKind()
-            Dim rects = LayoutRects(kind, w, h)
-            Dim pw = _preview.ClientSize.Width
-            Dim ph = _preview.ClientSize.Height
-            If pw <= 0 OrElse ph <= 0 Then
-                Return
-            End If
-            Dim scale = Math.Min(pw / CDbl(w), ph / CDbl(h))
-            Dim ox = (pw - w * scale) / 2.0
-            Dim oy = (ph - h * scale) / 2.0
-
-            If _compositeFrame IsNot Nothing Then
-                Try
-                    Dim destination = New Rectangle(CInt(Math.Round(ox)), CInt(Math.Round(oy)),
-                                                    Math.Max(1, CInt(Math.Round(w * scale))), Math.Max(1, CInt(Math.Round(h * scale))))
-                    g.DrawImage(_compositeFrame, destination)
-                    Using pen = New Pen(Color.FromArgb(70, 70, 80))
-                        g.DrawRectangle(pen, destination)
-                    End Using
-                    Return
-                Catch
-                End Try
-            End If
-
-            For i As Integer = 0 To rects.Count - 1
-                Dim r = rects(i)
-                Dim sx = ox + r.X * scale
-                Dim sy = oy + r.Y * scale
-                Dim sw = r.Width * scale
-                Dim sh = r.Height * scale
-                Using brush = New SolidBrush(If(i Mod 2 = 0, Color.FromArgb(30, 32, 38), Color.FromArgb(24, 26, 32)))
-                    g.FillRectangle(brush, CSng(sx), CSng(sy), CSng(sw), CSng(sh))
-                End Using
-                Dim frame As Image = Nothing
-                If i < inputs.Count AndAlso _frameCache.TryGetValue(i, frame) AndAlso frame IsNot Nothing Then
-                    If String.Equals(_framePath(i), inputs(i), StringComparison.OrdinalIgnoreCase) Then
-                        Try
-                            ' 与输出滤镜完全相同：先把源映射为完整输出画布，再取本格对应区域。
-                            ' 例如四路时 1/2/3/4 分别取左上、右上、左下、右下，不缩放挤压整帧。
-                            Dim srcX = CSng(r.X / CDbl(w) * frame.Width)
-                            Dim srcY = CSng(r.Y / CDbl(h) * frame.Height)
-                            Dim srcW = CSng(r.Width / CDbl(w) * frame.Width)
-                            Dim srcH = CSng(r.Height / CDbl(h) * frame.Height)
-                            Dim destination = New Rectangle(CInt(Math.Round(sx)), CInt(Math.Round(sy)), Math.Max(1, CInt(Math.Round(sw))), Math.Max(1, CInt(Math.Round(sh))))
-                            g.DrawImage(frame, destination, srcX, srcY, srcW, srcH, GraphicsUnit.Pixel)
-                        Catch
-                        End Try
-                    End If
-                End If
-            Next
-
-            ' 分割线：实时渲染，宽度随预览缩放等比缩放
-            Dim dividerRects = LineRects(kind, w, h, CInt(_numLine.Value))
-            Using brush = New SolidBrush(_lineColor)
-                For Each r In dividerRects
-                    g.FillRectangle(brush, CSng(ox + r.X * scale), CSng(oy + r.Y * scale), CSng(r.Width * scale), CSng(r.Height * scale))
-                Next
-            End Using
-            Using pen = New Pen(Color.FromArgb(70, 70, 80))
-                g.DrawRectangle(pen, CSng(ox), CSng(oy), CSng(w * scale), CSng(h * scale))
-            End Using
-        End Sub
-
-        Private Shared Sub DrawCenteredText(g As Graphics, text As String, color As Color, size As Integer, Optional x As Single = 0, Optional y As Single = 0, Optional w As Single = 0, Optional h As Single = 0)
-            If String.IsNullOrWhiteSpace(text) Then
-                Return
-            End If
-            Using font = New Font("Microsoft YaHei UI", size, FontStyle.Regular, GraphicsUnit.Pixel)
-                Using brush = New SolidBrush(color)
-                    Dim format As New StringFormat()
-                    format.Alignment = StringAlignment.Center
-                    format.LineAlignment = StringAlignment.Center
-                    format.Trimming = StringTrimming.EllipsisCharacter
-                    If w > 0 Then
-                        Dim rect As New RectangleF(x, y, w, h)
-                        g.DrawString(text, font, brush, rect, format)
-                    Else
-                        Dim sizeF = g.MeasureString(text, font)
-                        Dim cx = (g.ClipBounds.Width - sizeF.Width) / 2.0F
-                        Dim cy = (g.ClipBounds.Height - sizeF.Height) / 2.0F
-                        g.DrawString(text, font, brush, cx, cy, format)
-                    End If
-                    format.Dispose()
-                End Using
-            End Using
         End Sub
 
         ' ────────────────────────── 布局计算 ──────────────────────────
@@ -1721,7 +1703,7 @@ Namespace videoenhancer
             _btnColor.BackColor2 = _lineColor
             _btnColor.Text = "#" & _lineColor.R.ToString("X2") & _lineColor.G.ToString("X2") & _lineColor.B.ToString("X2")
             For Each panel In _dividerPanels
-                panel.BackColor = _lineColor
+                panel.BackColor1 = _lineColor
             Next
         End Sub
 
@@ -1733,7 +1715,7 @@ Namespace videoenhancer
             End If
             Dim inputs = CollectVideos()
             If inputs.Count < 1 Then
-                MessageBox.Show(Me, "请先导入至少 1 个视频。", "对比视频", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                PluginPanel.ShowLakeInfo(Me, "请先导入至少 1 个视频。", "对比视频")
                 Return
             End If
             Using dlg As New SaveFileDialog()
@@ -2081,8 +2063,9 @@ Namespace videoenhancer
 
         Protected Overrides Sub OnFormClosing(e As FormClosingEventArgs)
             If _running AndAlso _process IsNot Nothing Then
-                Dim answer = MessageBox.Show(Me, "编码正在进行中，关闭窗口将停止编码（已写出的部分可能不完整）。确定关闭？", "制作四宫格比对视频", MessageBoxButtons.YesNo, MessageBoxIcon.Warning)
-                If answer <> DialogResult.Yes Then
+                If Not PluginPanel.ShowLakeConfirm(Me,
+                        "编码正在进行中，关闭窗口将停止编码（已写出的部分可能不完整）。确定关闭？",
+                        "制作四宫格比对视频", defaultYes:=False) Then
                     e.Cancel = True
                     Return
                 End If
@@ -2116,6 +2099,10 @@ Namespace videoenhancer
             End SyncLock
             If _compositeFrame IsNot Nothing Then Try : _compositeFrame.Dispose() : Catch : End Try
             _compositeFrame = Nothing
+            _preview.Image = Nothing
+            For Each slot As VideoSlotCard In _slotLabels
+                If slot IsNot Nothing Then slot.SetPreviewImage(Nothing)
+            Next
             For Each img As Image In _frameCache.Values
                 Try : img.Dispose() : Catch : End Try
             Next

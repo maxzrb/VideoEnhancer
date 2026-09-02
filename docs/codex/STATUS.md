@@ -1,22 +1,23 @@
 # Project Status
 
-Last updated: 2026-09-02 22:25
+Last updated: 2026-09-02 22:55
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 发布 1.2.0，纳入 LakeUI 5.1+ 全插件原生控件迁移和透明 GPU 表面渲染修复。
-- Current state: `PluginPanel` 六页、模型能力编辑器和四宫格窗口已迁移到 LakeUI 5.1+ 控件及 ModernPanel 布局骨架；旧 WinForms 可视控件和自绘卡片/进度条/时间轴已移除。构建脚本和运行时门禁以 LakeUI 5.1 为最低版本并允许后续 5.x；已用实际 3FUI 6.2.3 / LakeUI 5.3.0.0 构建、安装并打开插件，主界面和六个标签页切换保持响应。根据官方 LakeUI 5.x `ModernPanel`/`ModernTabControl` 源码，已移除超分根容器的 `Anchor.Right`，改为宿主布局完成后显式同步宽度，解决右半空白及宽度来回跳变；六个标签页根 `ModernPanel` 的默认 1px 灰色边框也已关闭，消除插件内容外沿白线。当前 1.2.0 版本源已更新，正在执行发布门禁；源码和记录尚未提交。
+- Current objective: 完成 1.2.0 双源发布并保留 LakeUI 5.1+ 全插件迁移的可回滚基线。
+- Current state: `PluginPanel` 六页、模型能力编辑器和四宫格窗口已迁移到 LakeUI 5.1+ 控件及 ModernPanel 布局骨架；旧 WinForms 可视控件和自绘卡片/进度条/时间轴已移除。构建脚本和运行时门禁以 LakeUI 5.1 为最低版本并允许后续 5.x；已用实际 3FUI 6.2.3 / LakeUI 5.3.0.0 构建、安装并打开插件，主界面和六个标签页切换保持响应。根据官方 LakeUI 5.x `ModernPanel`/`ModernTabControl` 源码，已移除超分根容器的 `Anchor.Right`，改为宿主布局完成后显式同步宽度，解决右半空白及宽度来回跳变；六个标签页根 `ModernPanel` 的默认 1px 灰色边框也已关闭，消除插件内容外沿白线。1.2.0 已创建 GitHub Release 并同步 ModelScope 双源，资产回读一致；Backend 保持 2026.08.26.1。DPI 矩阵、500 帧预览压力和四宫格完整鼠标流程仍未完成。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
 - Next recommended step: 补做 100%/125%/150% DPI 截图、四宫格拖放/预览/时间轴/模型编辑和 500 帧预览压力回归；确认后提交本轮源码与记录。
 
 ## Active TODO
 
-- [ ] Task: 发布 1.2.0 双源本体资产。
+- [x] Task: 发布 1.2.0 双源本体资产。
   - Owner: Codex
-  - Status: 版本源、Release Notes、插件/CLI 本地构建、静态控件门禁、CLI 18/18、发布门禁 5/5 和 Backend 事务 6/6 已通过；待生成候选 EXE、运行安装器/更新器隔离测试后提交并发布到 GitHub 与 ModelScope。
-  - Blockers: Backend 基线需用本机已安装 `2026.08.26.1` 目录做无变化审计；GitHub/ModelScope 尚未上传本次资产。
+  - Status: 1.2.0 已提交为 `10ed1f2`，推送 `fork/release/1.2.0` 与 `fork/main`，GitHub `v1.2.0` Release、ModelScope Releases 和 Models 备用 EXE 均已上传并回读核验；Backend 基线 2026.08.26.1 审计为 0 变化。
+  - Verification: EXE 16,882,467 bytes，SHA-256 `7cd35717ab2e3e268eb64a7ad7507c6655ce656906d4af18547e7a9041c6ec58`；stable.json 782 bytes，SHA-256 `add585dc126ca83ba8f9703fb31a9a6796d2f29157232f1c31e69be2beca25e8`；GitHub 与 ModelScope stable.json、GitHub/ModelScope 两份 EXE 内容一致；发布门禁 5/5、安装器和更新器测试通过。
+  - Blockers: 无发布阻塞；DPI 矩阵、500 帧预览压力、四宫格完整鼠标流程和运行时控件树递归仍属于迁移后续回归。
   - Relevant files: `VideoEnhancerPlugin/PluginVersion.vb`, `cli/VideoEnhancer.csproj`, `README.md`, `release/release-notes.txt`, `version/版本迭代记录.md`
 
 - [ ] Task: 完成 LakeUI 5.1 全插件原生控件迁移并完成宿主回归。
@@ -1558,3 +1559,10 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - 本地检查通过：LakeUI 5.3 插件构建、CLI Release 构建（0 错误，仅既有 Windows CA1416 警告）、旧 WinForms 控件静态门禁 `STATIC_SCAN_OK`、Python 测试 `18/18`、发布门禁 `RELEASE_GATE_TESTS_PASS|5`、Backend 更新事务 `BACKEND_UPDATER_TESTS_PASS|6`、`git diff --check`。
 - 认证检查通过：`gh auth status` 为 `maxzrb`，`modelscope whoami` 为 `AerithDream`。远端 Backend channel 当前为 `2026.08.26.1`；本次 UI-only 发布不改变 Backend，候选构建将使用实机同版本目录做零差异审计。
 - 尚未生成 1.2.0 双源资产、提交或上传；工作树包含本轮迁移源码、版本源和记录改动。下一步运行正式构建脚本生成 EXE/stable.json 并执行安装器、更新器隔离测试。
+
+### 2026-09-02 22:55 - Codex
+
+- 正式发布完成：提交 `10ed1f2 release: 1.2.0 LakeUI 5.1 migration` 已推送到 `fork/release/1.2.0` 和 `fork/main`；GitHub Release `v1.2.0` 已创建，远端标签指向同一提交。
+- 发布脚本使用实际 3FUI 6.2.3 / LakeUI 5.3.0.0 构建，Backend 2026.08.26.1 审计为 0 新增、0 替换、0 删除，未重复上传后端包。安装器 `INSTALLER_TESTS_PASS`、更新器六类场景 PASS、发布门禁 5/5 均通过。
+- 双源资产核验：`VideoEnhancer-1.2.0-win-x64.exe` 16,882,467 bytes，SHA-256 `7cd35717ab2e3e268eb64a7ad7507c6655ce656906d4af18547e7a9041c6ec58`；`stable.json` 782 bytes，SHA-256 `add585dc126ca83ba8f9703fb31a9a6796d2f29157232f1c31e69be2beca25e8`。GitHub 下载、ModelScope Releases、ModelScope Models 备用 EXE 均返回 200，三份 EXE 内容哈希一致，两个 stable.json 内容哈希一致；Release 资产仅包含版本 EXE 和 stable.json。
+- GitHub Release：`https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.2.0`；ModelScope Releases：`https://www.modelscope.cn/datasets/AerithDream/VideoEnhancer-Releases`；Models 备用路径：`Plugin/videoenhancer.exe`。当前工作树仅包含发布后记录更新，待提交并推送记录收尾提交；DPI/压力/四宫格完整回归仍待后续。

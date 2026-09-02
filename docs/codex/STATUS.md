@@ -24,7 +24,7 @@ Updated by: Codex
   - Owner: user / Codex
   - Status: `PluginPanel.vb`、`LakeLayoutPanel.vb`、`QuadGridControls.vb`、`QuadGridForm.vb` 和 `build.ps1` 已完成迁移；六页、编辑器和四宫格均只保留 LakeUI 可视控件或明确允许的宿主/系统外壳。
   - Verification: 实际 3FUI 6.2.3 + LakeUI `5.3.0.0` 构建并安装成功；LakeUI 5.1 最低版本门禁保留，旧 5.0/3.x 拒绝逻辑已验证；迁移源码及整个插件无旧 WinForms 可视控件/自绘视觉类静态命中；CLI Python 测试 18/18；六个标签页逐页点击后宿主均保持 `Responding=True`；组合框首字偏移、窄列末尾裁切和超分根容器右半空白已修复并截图确认；普通窗口/最大化/还原/宿主窄化连续采样时根内容宽度稳定；产物引用为 `FFmpegFreeUI 6.2.3.0`、`LakeUI 5.3.0.0`。
-  - Blockers: 尚未完成 100%/125%/150% DPI 截图矩阵、500 帧预览压力、四宫格完整鼠标流程和运行时控件树递归检查；工作树包含未提交源码改动。
+  - Blockers: 尚未完成 100%/125%/150% DPI 截图矩阵、500 帧预览压力、四宫格完整鼠标流程和运行时控件树递归检查；发布代码与记录已提交，工作树当前干净。
   - Relevant files: `VideoEnhancerPlugin/PluginPanel.vb`, `VideoEnhancerPlugin/LakeLayoutPanel.vb`, `VideoEnhancerPlugin/QuadGridControls.vb`, `VideoEnhancerPlugin/QuadGridForm.vb`, `VideoEnhancerPlugin/build.ps1`
 
 - [x] Task: 发布 1.1.3。
@@ -1565,4 +1565,4 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - 正式发布完成：提交 `10ed1f2 release: 1.2.0 LakeUI 5.1 migration` 已推送到 `fork/release/1.2.0` 和 `fork/main`；GitHub Release `v1.2.0` 已创建，远端标签指向同一提交。
 - 发布脚本使用实际 3FUI 6.2.3 / LakeUI 5.3.0.0 构建，Backend 2026.08.26.1 审计为 0 新增、0 替换、0 删除，未重复上传后端包。安装器 `INSTALLER_TESTS_PASS`、更新器六类场景 PASS、发布门禁 5/5 均通过。
 - 双源资产核验：`VideoEnhancer-1.2.0-win-x64.exe` 16,882,467 bytes，SHA-256 `7cd35717ab2e3e268eb64a7ad7507c6655ce656906d4af18547e7a9041c6ec58`；`stable.json` 782 bytes，SHA-256 `add585dc126ca83ba8f9703fb31a9a6796d2f29157232f1c31e69be2beca25e8`。GitHub 下载、ModelScope Releases、ModelScope Models 备用 EXE 均返回 200，三份 EXE 内容哈希一致，两个 stable.json 内容哈希一致；Release 资产仅包含版本 EXE 和 stable.json。
-- GitHub Release：`https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.2.0`；ModelScope Releases：`https://www.modelscope.cn/datasets/AerithDream/VideoEnhancer-Releases`；Models 备用路径：`Plugin/videoenhancer.exe`。当前工作树仅包含发布后记录更新，待提交并推送记录收尾提交；DPI/压力/四宫格完整回归仍待后续。
+- GitHub Release：`https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.2.0`；ModelScope Releases：`https://www.modelscope.cn/datasets/AerithDream/VideoEnhancer-Releases`；Models 备用路径：`Plugin/videoenhancer.exe`。发布后记录收尾提交为 `f797c78`，已推送到 `fork/release/1.2.0` 和 `fork/main`；DPI/压力/四宫格完整回归仍待后续。

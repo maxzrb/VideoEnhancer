@@ -2597,6 +2597,32 @@ Namespace videoenhancer
             AddWorkbenchControl(root, control, top, height, 0.0F, 1.0F)
         End Sub
 
+        ''' <summary>
+        ''' 按 LakeUI V5 的显式 BackgroundSource 语义，为滚动页内的每个 GPU 控件
+        ''' 注册同一个稳定背景源。LakeUI 的自动祖先取景不会注册坐标依赖，父级滚动
+        ''' 改变控件屏幕坐标后，子表面可能继续显示滚动前的背景采样。
+        ''' </summary>
+        Private Shared Sub BindScrollableGpuBackgroundSources(root As Control, source As Control)
+            If root Is Nothing OrElse source Is Nothing Then Return
+
+            Dim provider = TryCast(root, D3D_IBackgroundSourceProvider)
+            If provider IsNot Nothing Then
+                Dim currentSource As Control = Nothing
+                If Not provider.TryGetBackgroundSource(currentSource) OrElse currentSource Is Nothing Then
+                    Dim sourceProperty = root.GetType().GetProperty(
+                        "BackgroundSource", BindingFlags.Instance Or BindingFlags.Public)
+                    If sourceProperty IsNot Nothing AndAlso sourceProperty.CanWrite AndAlso
+                       sourceProperty.PropertyType.IsAssignableFrom(source.GetType()) Then
+                        sourceProperty.SetValue(root, source)
+                    End If
+                End If
+            End If
+
+            For Each child As Control In root.Controls
+                BindScrollableGpuBackgroundSources(child, source)
+            Next
+        End Sub
+
         ''' <summary>让超分页的固定内容根节点跟随宿主实际宽度变化。</summary>
         Private Sub SyncUpscaleRootBounds()
             Dim root = _upscaleRoot
@@ -2654,6 +2680,9 @@ Namespace videoenhancer
 
             ' 根容器保持固定内容高度；窗口较小时由页面滚动承载。
             ' 横向由一次性的宿主布局同步，避免 LakeUI 自定义 Dock/Anchor 布局重入。
+            ' LakeUI 的自动祖先背景路径明确使用 registerDependency:=False；滚动改变
+            ' 父级坐标时，自动取景不会让子级 GPU 表面失效。滚动根及其所有 V5 子控件
+            ' 在页面构建完成后统一显式映射到 ModernPanel1，交给 LakeUI 注册坐标依赖。
             ' 宽度由 SyncUpscaleRootBounds 明确提交；不使用 Anchor.Right，
             ' 避免 WinForms 默认布局恢复创建时的窄尺寸。
             Dim root As New ModernPanel With {
@@ -2664,7 +2693,6 @@ Namespace videoenhancer
                 .Height = 850,
                 .BackColor = Color.Transparent,
                 .BackColor1 = Color.Transparent,
-                .BackgroundSource = ModernPanel1,
                 .LayoutMode = ModernPanel.LayoutModeEnum.Absolute,
                 .ScrollBarMode = ModernPanel.ScrollMode.None,
                 .BorderSize = 0,
@@ -2945,6 +2973,7 @@ Namespace videoenhancer
             AddWorkbenchRow(root, progressRow, 808, 42)
 
             _pageUpscale.Controls.Add(root)
+            BindScrollableGpuBackgroundSources(root, ModernPanel1)
             ' 为 LakeUI 覆盖式滚动条保留绘制带，避免子窗口覆盖父面板的 GPU 滚动条。
             SyncUpscaleRootBounds()
             UpdateModeStateLabels()

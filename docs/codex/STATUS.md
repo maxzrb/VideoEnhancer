@@ -1,17 +1,38 @@
 # Project Status
 
-Last updated: 2026-09-02 22:55
+Last updated: 2026-09-05 18:43
 Updated by: Codex
 
 ## Current Snapshot
 
-- Current objective: 完成 1.2.0 双源发布并保留 LakeUI 5.1+ 全插件迁移的可回滚基线。
-- Current state: `PluginPanel` 六页、模型能力编辑器和四宫格窗口已迁移到 LakeUI 5.1+ 控件及 ModernPanel 布局骨架；旧 WinForms 可视控件和自绘卡片/进度条/时间轴已移除。构建脚本和运行时门禁以 LakeUI 5.1 为最低版本并允许后续 5.x；已用实际 3FUI 6.2.3 / LakeUI 5.3.0.0 构建、安装并打开插件，主界面和六个标签页切换保持响应。根据官方 LakeUI 5.x `ModernPanel`/`ModernTabControl` 源码，已移除超分根容器的 `Anchor.Right`，改为宿主布局完成后显式同步宽度，解决右半空白及宽度来回跳变；六个标签页根 `ModernPanel` 的默认 1px 灰色边框也已关闭，消除插件内容外沿白线。1.2.0 已创建 GitHub Release 并同步 ModelScope 双源，资产回读一致；Backend 保持 2026.08.26.1。DPI 矩阵、500 帧预览压力和四宫格完整鼠标流程仍未完成。
+- Current objective: 按发布流程完成 1.2.1 双源本体发布，保留两个独立修复提交并完成发布后回读。
+- Current state: 用户已确认滚动背景断层修好；模型选择框的短暂原生 Overlay 已按官方 LakeUI 5.6 `ModernComboBox` 的 300ms 默认动画和插件 `DropDownOpened -> DroppedDown=False -> 自定义菜单` 流程定位，并通过 `DropDownAnimationDuration=0` 修复。两个修复已分别提交为 `c5e9be8` 和 `fad5bff`。版本源已切换到 1.2.1；正式候选包已使用官方 FFmpegFreeUI 6.2.9/LakeUI 5.6.0.0 构建，Backend 2026.08.26.1 零差异审计通过，等待提交发布准备并上传双源。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 补做 100%/125%/150% DPI 截图、四宫格拖放/预览/时间轴/模型编辑和 500 帧预览压力回归；确认后提交本轮源码与记录。
+- Next recommended step: 提交 1.2.1 发布准备记录并推送 `fork/main`，创建 GitHub `v1.2.1`，同步 ModelScope Releases 和 Models 备用 EXE，随后回读双源版本/路径/大小/哈希；真实宿主的最终点击回归仍作为发布后实机确认。
 
 ## Active TODO
+
+- [x] Task: 按 LakeUI 官方背景映射链修复滚动断层。
+  - Owner: Codex
+  - Status: 第一版经用户实机截图否定后，按官方注册表的坐标依赖规则重新修改 `VideoEnhancerPlugin/PluginPanel.vb`；滚动页内每个 LakeUI V5 控件均显式绑定 `ModernPanel1`，让父级滚动触发所有子表面重绘。
+  - Verification: `git pull --ff-only` 已同步；官方 LakeUI 5.6、FFmpegFreeUI 6.2.9 和插件构建均 0 错误；`git diff --check` 通过；无宿主启动的对象树核对显示滚动根下 76 个控件全部具有显式来源且均指向 `ModernPanel1`；第二版源 DLL 与实际 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll` 均为 SHA-256 `A31B0CB0A0159AB1726424ED4BA6E343E3E987DBFE80E5D6B9DFA3FE6BB81828`。
+  - Blockers: 无本轮源码阻塞；DPI 矩阵、500 帧预览压力、四宫格完整鼠标流程仍属于后续实机回归。
+  - Relevant files: `VideoEnhancerPlugin/PluginPanel.vb`, `VideoEnhancerPlugin/build.ps1`
+
+- [ ] Task: 修复自定义模型菜单打开前 LakeUI 原生 Overlay 短暂闪现。
+  - Owner: Codex / user
+  - Status: 已确认原因是官方 `ModernComboBox` 默认 300ms 展开/关闭动画与插件 `DropDownOpened -> DroppedDown=False -> 自定义菜单` 流程叠加；仅对 `_cmbModel`、`_cmbInterp` 设置 `DropDownAnimationDuration=0`。
+  - Verification: 官方 LakeUI 5.6 源码对照完成；插件构建 0 错误；无宿主实例化核对显示两个模型框动画值均为 0 且仍为 Overlay；第三版 DLL 已部署，待用户实机确认。
+  - Blockers: 当前 computer-use 原生管道不可用，无法代替用户确认点击动画；需用户在真实 3FUI 点击模型菜单并再次滚动。
+  - Relevant files: `VideoEnhancerPlugin/PluginPanel.vb`, `VideoEnhancerPlugin/LakeLayoutPanel.vb`
+
+- [ ] Task: 发布 1.2.1 双源本体资产。
+  - Owner: Codex
+  - Status: 版本源、README、Release Notes 和版本记录已更新到 1.2.1；本地候选包已生成，待提交/推送后创建 GitHub Release 并同步 ModelScope。
+  - Verification: EXE `16,865,524` bytes，SHA-256 `c67c8dffd05f8b52ab3ad3c657e51048c922677bca3afea89a2ad71f7a3ee005`；stable.json `518` bytes，SHA-256 `e80955ea69aba4b19dad68725c74d3f5cb961f34276117447ab40aca82730433`；Backend 2026.08.26.1 审计 `0 add / 0 replace / 0 delete`；安装器、更新器、发布门禁和 Backend 事务测试通过；全量 Python 测试 `18/18`。
+  - Blockers: 尚未上传双源，也尚未回读远端资产；发布后需补充 GitHub/ModelScope URL、版本、大小和哈希。
+  - Relevant files: `VideoEnhancerPlugin/PluginVersion.vb`, `cli/VideoEnhancer.csproj`, `README.md`, `release/release-notes.txt`, `version/版本迭代记录.md`
 
 - [x] Task: 发布 1.2.0 双源本体资产。
   - Owner: Codex
@@ -1566,3 +1587,50 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - 发布脚本使用实际 3FUI 6.2.3 / LakeUI 5.3.0.0 构建，Backend 2026.08.26.1 审计为 0 新增、0 替换、0 删除，未重复上传后端包。安装器 `INSTALLER_TESTS_PASS`、更新器六类场景 PASS、发布门禁 5/5 均通过。
 - 双源资产核验：`VideoEnhancer-1.2.0-win-x64.exe` 16,882,467 bytes，SHA-256 `7cd35717ab2e3e268eb64a7ad7507c6655ce656906d4af18547e7a9041c6ec58`；`stable.json` 782 bytes，SHA-256 `add585dc126ca83ba8f9703fb31a9a6796d2f29157232f1c31e69be2beca25e8`。GitHub 下载、ModelScope Releases、ModelScope Models 备用 EXE 均返回 200，三份 EXE 内容哈希一致，两个 stable.json 内容哈希一致；Release 资产仅包含版本 EXE 和 stable.json。
 - GitHub Release：`https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.2.0`；ModelScope Releases：`https://www.modelscope.cn/datasets/AerithDream/VideoEnhancer-Releases`；Models 备用路径：`Plugin/videoenhancer.exe`。发布后记录收尾提交为 `f797c78`，已推送到 `fork/release/1.2.0` 和 `fork/main`；DPI/压力/四宫格完整回归仍待后续。
+
+### 2026-09-05 17:25 - Codex
+
+- Startup/sync: 已阅读 `AGENTS.md`、`docs/codex/INDEX.md`、`docs/codex/STATUS.md`，执行 `git pull --ff-only` 并切换到 `main` 后再次同步；当前 `main...fork/main`，基线为 `9402a74`，未使用破坏性 Git 操作。
+- LakeUI research: 临时检出官方 LakeUI 5.6（tag `cce294a`）和 FFmpegFreeUI 6.2.9 源码。LakeUI 的 `ModernPanel.TryGetTransparentBackgroundForward` 明确排除滚动面板；V5 表面在几何/位置变化时使背景消费者失效；官方 FFmpegFreeUI 的滚动页面只绑定根 `ModernPanel1`，没有让内部固定内容根再次直连宿主背景。
+- Diagnosis/fix: `VideoEnhancerPlugin/PluginPanel.vb` 的 `_pageUpscale` 和 `_upscaleRoot` 原先同时设置 `BackgroundSource = ModernPanel1`。滚轮改变子根位置后，两层独立 GPU 表面分别按宿主坐标裁剪，控件边界处会出现不同采样链的背景断层。已删除 `_upscaleRoot` 的直接宿主映射，保留透明背景，让 LakeUI 自动从滚动页父级表面取样；布局、宽度同步、滚动条和业务逻辑未改动。
+- Verification: LakeUI 5.6 构建 0 错误；FFmpegFreeUI 6.2.9 构建 0 错误；插件 `build.ps1 -HostBin <官方 6.2.9 Debug 输出> -SkipInstall` 构建 0 错误；LakeUI.Tests 输出 `LakeUI tests passed.`；CLI Python 测试 `18/18 OK`；插件实例化/反射确认 `PageSource=ModernPanel1`、`RootSource=<null>`、`RootParent=ModernPanel`、`PageScrollMode=Vertical`；`git diff --check` 通过。
+- Runtime limitation: 本轮 computer-use 原生管道报“系统找不到指定的文件”，无法自动操作真实 3FUI 完成滚轮截图；未覆盖实际安装目录，也未声称实机视觉回归完成。生成 DLL 位于被 `.gitignore` 忽略的 `VideoEnhancerPlugin/out/videoenhancer.dll` 和根目录构建产物，源码仅修改 `VideoEnhancerPlugin/PluginPanel.vb`。
+- Git/next: 工作树包含源码改动和本轮 HandShake 记录，尚未提交、未推送；建议先检查并提交，再关闭实际 3FUI 后部署 DLL 做鼠标滚轮回归。
+
+### 2026-09-05 17:34 - Codex
+
+- Deployment: 确认实际 3FUI 进程未运行后，将 `VideoEnhancerPlugin/out/videoenhancer.dll` 覆盖到 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll`；未强制结束任何进程。
+- Deployment verification: 源 DLL 与安装 DLL 均为 4,621,312 bytes，SHA-256 均为 `363420DDF7F438568246E781555D271953D6BD9E58291309805DA30D4C67EDEE`。覆盖前的安装 DLL 已备份到 `C:\Users\maxzr\AppData\Local\Temp\3fui-plugin-backup-20260905-173400\videoenhancer.3fui.dll`。
+- User test: 已将实机测试入口交给用户；待用户启动 3FUI 后用真实鼠标滚轮检查超分工作台控件与背景之间的断层。尚未把部署视为视觉回归通过。
+- Git: `main...fork/main`，基线 `9402a74`；源码 `PluginPanel.vb` 与 HandShake 记录仍未提交、未推送。测试确认后建议提交源码和记录。
+
+### 2026-09-05 17:56 - Codex
+
+- User regression: 用户在实际 3FUI + 最新插件中确认第一版仍有明显背景断层，因此不能把“移除 `_upscaleRoot` 的直接宿主映射”视为完成。
+- LakeUI evidence: 官方 5.6 `D3D_ControlSurfaceRegistry.TryDrawAutomaticGpuBackdrop` 明确以 `registerDependency:=False` 调用背景采样；显式 `BackgroundSource` 则在 `TryDrawBackground` 中注册来源和坐标链，`控件几何已变化` 会向所有采样消费者请求重绘。滚轮移动 `_upscaleRoot` 时，自动祖先取景不足以使其子控件表面同步，这是截图所对应的原因。
+- Second fix: 新增 `BindScrollableGpuBackgroundSources`，递归遍历超分滚动内容根及其 LakeUI V5 子控件；对尚无显式来源的控件设置 `BackgroundSource = ModernPanel1`，从稳定宿主映射根直接采样并注册坐标依赖。已有显式来源不覆盖；布局、滚动步长、业务逻辑未改动。
+- Verification/deployment: `git diff --check` 通过；以官方 FFmpegFreeUI 6.2.9/LakeUI 5.6.0.0 构建插件 0 错误；确认 3FUI/FFmpegFreeUI 未运行后备份并覆盖 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll`。源/目标 DLL 均 4,621,312 bytes，SHA-256 `A31B0CB0A0159AB1726424ED4BA6E343E3E987DBFE80E5D6B9DFA3FE6BB81828`；旧 DLL 备份在 `%TEMP%\3fui-plugin-backup-20260905-175631\videoenhancer.3fui.dll`。
+- Runtime object check: 未启动宿主实例化第二版插件并遍历 `_upscaleRoot`，结果为 76/76 控件具有 `BackgroundSource` 属性、76/76 已显式绑定、0 个指向其他来源；首次 PowerShell 解析器回调探针因加载资源递归失败，改用纯 .NET 文件解析后核对通过。
+- Next: 用户完全退出并重启 3FUI 后，在超分工作台滚动到截图位置来回滚动；未取得用户确认前不宣称视觉回归通过。版本号未变，因此未更新版本迭代记录。
+- Git: `main...fork/main`，基线 `9402a74`；`PluginPanel.vb`、`docs/codex/STATUS.md`、`version/工作进度.md` 均未提交、未推送。
+
+### 2026-09-05 18:18 - Codex
+
+- User regression: 用户确认第二版已修好滚动背景断层，但反馈放大模型交互框在自定义菜单出现前会短暂显示浅灰蓝色、带当前模型名称的覆盖框；图 2 是期望状态。
+- LakeUI evidence: 官方 5.6 `ModernComboBox` 的 `DropDownAnimationDuration` 默认值为 300ms；Overlay 模式在选中项区域绘制当前模型文本和 `DropDownSelectedColor`。插件的 `DropDownOpened` 处理器随后调用 `DroppedDown=False`，再打开自定义 `ModernContextMenu`，因此原生 Overlay 关闭动画会在锚点上短暂可见。
+- Fix: 新增 `ConfigureModelSelector`，在复用通用组合框样式后只将 `_cmbModel` 和 `_cmbInterp` 的 `DropDownAnimationDuration` 设为 0；普通后端、倍率、阈值等原生组合框仍保留 LakeUI 默认动画。
+- Verification: `git pull --ff-only` 已同步；插件以官方 FFmpegFreeUI 6.2.9/LakeUI 5.6.0.0 构建 0 错误；`git diff --check` 通过；无宿主实例化核对显示两个模型框动画值均为 0、下拉模式仍为 Overlay。
+- Deployment: 确认 3FUI/FFmpegFreeUI 未运行后备份并覆盖 `C:\Program portable\3FUI\plugin\videoenhancer.3fui.dll`。源/目标 DLL 均 4,621,312 bytes，SHA-256 `456D3E08DABC36AFACC9B9072561860B9BB916FDFCE250EF1C7EB345CDC644E0`；旧 DLL 备份在 `%TEMP%\3fui-plugin-backup-20260905-181755\videoenhancer.3fui.dll`。
+- Post-deployment state: 最终只读检查发现用户随后启动了 `FFmpegFreeUI` PID `35744`；未强制结束进程、未再次覆盖正在使用的 DLL。用户需退出并重新启动宿主以明确加载第三版。
+- Next: 用户重启 3FUI，点击放大模型/补帧模型确认图 2 样式，并再次滚动确认背景断层未回退；未取得用户确认前不宣称视觉回归完成。版本号未变，因此未更新版本迭代记录。
+- Git: `main...fork/main`，基线 `9402a74`；`PluginPanel.vb`、`docs/codex/STATUS.md`、`version/工作进度.md` 均未提交、未推送。
+
+### 2026-09-05 18:43 - Codex
+
+- Commit split: 滚动背景修复已独立提交为 `c5e9be8 fix: repair LakeUI scrolling background dependencies`；模型选择框 Overlay 修复已独立提交为 `fad5bff fix: suppress model selector overlay animation`。两个修复没有混入版本发布提交。
+- Version prep: `PluginVersion.Current`、`cli/VideoEnhancer.csproj`、根 README 和 `release/release-notes.txt` 已统一为 1.2.1；1.2.0 已移入版本历史，1.2.1 记录已建立。
+- Build: 使用 `pwsh 7.6.4` 执行官方 `release/build-modelscope-release.ps1`，因为 Windows PowerShell 5.1 会错误解析仓库无 BOM UTF-8 中文脚本；Backend 2026.08.26.1 同目录基线/候选审计为 `0 add / 0 replace / 0 delete`；LakeUI 5.6 插件构建 0 错误；CLI 发布并由 EXE `--version` 报告 1.2.1。
+- Candidate assets: `VideoEnhancer-1.2.1-win-x64.exe` 16,865,524 bytes，SHA-256 `c67c8dffd05f8b52ab3ad3c657e51048c922677bca3afea89a2ad71f7a3ee005`；stable.json 518 bytes，SHA-256 `e80955ea69aba4b19dad68725c74d3f5cb961f34276117447ab40aca82730433`；Release Notes 格式校验通过。
+- Verification: 安装器 `INSTALLER_TESTS_PASS` 6 场景、更新器 `PASS` 7 场景、发布门禁 `RELEASE_GATE_TESTS_PASS|5`、Backend 事务 `BACKEND_UPDATER_TESTS_PASS|6`、`python -m unittest discover -s cli/tests -p 'test_*.py' -v` 为 18/18、`git diff --check` 均通过。发布文档列出的四个历史 Python 文件在当前仓库不存在，未将该旧路径的 py_compile 命令计为通过；本次未修改 Python 工具。
+- Next: 提交并推送 1.2.1 发布准备，创建 GitHub `v1.2.1`，同步 ModelScope Releases 与 Models 备用 EXE；上传后回读两处 stable.json、EXE 和 Release Notes，并补充最终发布记录。
+- Git: 当前 `main` 相对 `fork/main` ahead 2（两个独立修复 commit）；版本/发布记录仍未提交，候选 dist 及构建 DLL/EXE 均被 `.gitignore` 排除。

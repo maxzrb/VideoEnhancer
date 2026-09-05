@@ -1,15 +1,15 @@
 # Project Status
 
-Last updated: 2026-09-05 18:43
+Last updated: 2026-09-05 18:47
 Updated by: Codex
 
 ## Current Snapshot
 
 - Current objective: 按发布流程完成 1.2.1 双源本体发布，保留两个独立修复提交并完成发布后回读。
-- Current state: 用户已确认滚动背景断层修好；模型选择框的短暂原生 Overlay 已按官方 LakeUI 5.6 `ModernComboBox` 的 300ms 默认动画和插件 `DropDownOpened -> DroppedDown=False -> 自定义菜单` 流程定位，并通过 `DropDownAnimationDuration=0` 修复。两个修复已分别提交为 `c5e9be8` 和 `fad5bff`。版本源已切换到 1.2.1；正式候选包已使用官方 FFmpegFreeUI 6.2.9/LakeUI 5.6.0.0 构建，Backend 2026.08.26.1 零差异审计通过，等待提交发布准备并上传双源。
+- Current state: 1.2.1 已完成本地构建、提交、推送和双源发布。两个修复分别为 `c5e9be8` 和 `fad5bff`，版本/发布准备为 `bcb4e42`；GitHub `v1.2.1`、ModelScope Releases 稳定通道和 Models 备用 EXE 均已上传并回读一致。滚动背景修复已获用户实机确认；模型框修复已完成官方 LakeUI 证据、构建和反射核对，真实宿主点击回归仍待用户重启后确认。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 提交 1.2.1 发布准备记录并推送 `fork/main`，创建 GitHub `v1.2.1`，同步 ModelScope Releases 和 Models 备用 EXE，随后回读双源版本/路径/大小/哈希；真实宿主的最终点击回归仍作为发布后实机确认。
+- Next recommended step: 用户完全退出并重新启动当前已运行的 `FFmpegFreeUI`，点击放大模型/补帧模型并再次滚动确认第三版 DLL；发布资产无需重复生成。DPI 矩阵、500 帧预览压力和四宫格完整鼠标流程仍是后续回归。
 
 ## Active TODO
 
@@ -27,11 +27,12 @@ Updated by: Codex
   - Blockers: 当前 computer-use 原生管道不可用，无法代替用户确认点击动画；需用户在真实 3FUI 点击模型菜单并再次滚动。
   - Relevant files: `VideoEnhancerPlugin/PluginPanel.vb`, `VideoEnhancerPlugin/LakeLayoutPanel.vb`
 
-- [ ] Task: 发布 1.2.1 双源本体资产。
+- [x] Task: 发布 1.2.1 双源本体资产。
   - Owner: Codex
-  - Status: 版本源、README、Release Notes 和版本记录已更新到 1.2.1；本地候选包已生成，待提交/推送后创建 GitHub Release 并同步 ModelScope。
-  - Verification: EXE `16,865,524` bytes，SHA-256 `c67c8dffd05f8b52ab3ad3c657e51048c922677bca3afea89a2ad71f7a3ee005`；stable.json `518` bytes，SHA-256 `e80955ea69aba4b19dad68725c74d3f5cb961f34276117447ab40aca82730433`；Backend 2026.08.26.1 审计 `0 add / 0 replace / 0 delete`；安装器、更新器、发布门禁和 Backend 事务测试通过；全量 Python 测试 `18/18`。
-  - Blockers: 尚未上传双源，也尚未回读远端资产；发布后需补充 GitHub/ModelScope URL、版本、大小和哈希。
+  - Status: `bcb4e42` 已推送到 `fork/main`；GitHub `v1.2.1`、ModelScope Releases 和 Models 备用 EXE 均已正式发布。
+  - Verification: EXE `16,865,524` bytes，SHA-256 `c67c8dffd05f8b52ab3ad3c657e51048c922677bca3afea89a2ad71f7a3ee005`；stable.json `518` bytes，SHA-256 `e80955ea69aba4b19dad68725c74d3f5cb961f34276117447ab40aca82730433`；Backend 2026.08.26.1 审计 `0 add / 0 replace / 0 delete`；安装器、更新器、发布门禁和 Backend 事务测试通过；全量 Python 测试 `18/18`；GitHub、ModelScope Releases 和 Models 备用 EXE 三处远端回读大小/哈希一致，Release Notes 一致。
+  - Blockers: 无发布阻塞；真实宿主第三版 DLL 的模型菜单点击回归仍待用户重启后确认。
+  - Links: GitHub `https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.2.1`；ModelScope Releases `https://www.modelscope.cn/datasets/AerithDream/VideoEnhancer-Releases`；Models 备用路径 `Plugin/videoenhancer.exe`
   - Relevant files: `VideoEnhancerPlugin/PluginVersion.vb`, `cli/VideoEnhancer.csproj`, `README.md`, `release/release-notes.txt`, `version/版本迭代记录.md`
 
 - [x] Task: 发布 1.2.0 双源本体资产。
@@ -1634,3 +1635,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Verification: 安装器 `INSTALLER_TESTS_PASS` 6 场景、更新器 `PASS` 7 场景、发布门禁 `RELEASE_GATE_TESTS_PASS|5`、Backend 事务 `BACKEND_UPDATER_TESTS_PASS|6`、`python -m unittest discover -s cli/tests -p 'test_*.py' -v` 为 18/18、`git diff --check` 均通过。发布文档列出的四个历史 Python 文件在当前仓库不存在，未将该旧路径的 py_compile 命令计为通过；本次未修改 Python 工具。
 - Next: 提交并推送 1.2.1 发布准备，创建 GitHub `v1.2.1`，同步 ModelScope Releases 与 Models 备用 EXE；上传后回读两处 stable.json、EXE 和 Release Notes，并补充最终发布记录。
 - Git: 当前 `main` 相对 `fork/main` ahead 2（两个独立修复 commit）；版本/发布记录仍未提交，候选 dist 及构建 DLL/EXE 均被 `.gitignore` 排除。
+
+### 2026-09-05 18:47 - Codex
+
+- Publish commit: `bcb4e42 release: 1.2.1 UI fixes` 已推送到 `fork/main`；前置两个修复仍保持独立提交 `c5e9be8`、`fad5bff`。
+- GitHub: 已创建正式、非草稿、非预发布 `v1.2.1`，资产仅为版本 EXE 与 stable.json；Release Notes 与本地文件逐行一致。
+- ModelScope: `AerithDream/VideoEnhancer-Releases` 已同步 1.2.1 目录、stable.json、README 和 Release Notes；`AerithDream/VideoEnhancer-Models/Plugin/videoenhancer.exe` 已同步备用 EXE，上传均无失败。
+- Cross-source readback: GitHub stable.json、ModelScope stable.json 与本地清单均为 version `1.2.1`、package size `16865524`、SHA-256 `c67c8dffd05f8b52ab3ad3c657e51048c922677bca3afea89a2ad71f7a3ee005`；GitHub EXE、ModelScope Releases EXE、Models 备用 EXE 下载回读三者大小和哈希一致；ModelScope README 的 GitHub 首选/稳定清单兜底说明通过。
+- Post-release: 3FUI 当前仍可能加载发布前部署的第三版 DLL，用户需完全退出并重启后实测模型菜单动画和滚动背景；发布资产本身无需重新生成。
+- Git: 收尾文档尚未提交；当前应新增一个纯文档 closeout commit，推送后保持 `main...fork/main` 一致并确认工作树干净。

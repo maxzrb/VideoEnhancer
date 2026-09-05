@@ -2175,6 +2175,14 @@ Namespace videoenhancer
             combo.DropDownScrollBarTrackColor = Color.Transparent
         End Sub
 
+        Private Shared Sub ConfigureModelSelector(combo As ModernComboBox)
+            ConfigureCombo(combo)
+            ' 模型框的 DropDownOpened 会立即关闭 LakeUI 原生列表并打开自定义模型菜单。
+            ' LakeUI 默认的 300ms Overlay 关闭动画会把当前模型项短暂绘制在锚点上，
+            ' 因此这里关闭原生动画，避免自定义菜单出现前闪出一层浅灰蓝色模型框。
+            combo.DropDownAnimationDuration = 0
+        End Sub
+
         Private Sub OnInterpBackendSelected(sender As Object, e As EventArgs)
             If _syncingInterpBackend Then Return
             Dim backend = InterpBackendValue(_cmbInterpBackend.SelectedItem)
@@ -2755,7 +2763,7 @@ Namespace videoenhancer
             _cmbBackend.Items.Add("BasicVSR++ (NVIDIA · 视频)")
             AddHandler _cmbBackend.SelectedIndexChanged, AddressOf OnBackendSelected
             _cmbModel.WaterText = "选择放大模型…"
-            ConfigureCombo(_cmbModel)
+            ConfigureModelSelector(_cmbModel)
             AddHandler _cmbModel.DropDownOpened, AddressOf OnModelDropDownOpened
             AddHandler _cmbModel.Click, AddressOf OnModelComboClicked
             AddHandler _cmbModel.SelectedIndexChanged, AddressOf OnModelSelected
@@ -2794,7 +2802,7 @@ Namespace videoenhancer
             _cmbInterpBackend.Items.Add("TensorRT (NVIDIA)")
             AddHandler _cmbInterpBackend.SelectedIndexChanged, AddressOf OnInterpBackendSelected
             _cmbInterp.WaterText = "选择补帧模型…"
-            ConfigureCombo(_cmbInterp)
+            ConfigureModelSelector(_cmbInterp)
             AddHandler _cmbInterp.DropDownOpened, AddressOf OnInterpDropDownOpened
             AddHandler _cmbInterp.Click, AddressOf OnInterpComboClicked
             AddHandler _cmbInterp.SelectedIndexChanged, AddressOf OnInterpModelSelected

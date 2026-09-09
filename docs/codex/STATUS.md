@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-09 12:12
+Last updated: 2026-09-09 12:29
 Updated by: Codex
 
 ## Current Snapshot
@@ -8,18 +8,18 @@ Updated by: Codex
 - Latest UI fix: CreateOfficialValueBox 内的 HtmlColorLabel 显式绑定外层文件框 BackgroundSource，避免被滚动页直接绑定宿主而跳过半透明底色；5 处同类路径/文件显示共用修复。已构建、验证背景依赖关系并备份安装，待用户确认实际视觉效果。
 
 - Current objective: 按正式流程发布 VideoEnhancer 1.2.2，并保留 3FUI 核心兼容和路径框背景修复。
-- Current state: `release/1.2.2` 已完成版本源、README、Release Notes 和版本记录更新；候选 EXE 已构建，后端 2026.08.26.1 审计为 0 add / 0 replace / 0 delete。插件队列兼容修复、路径框背景修复和 HostCompatibility 回归测试已纳入候选提交。远端 GitHub/ModelScope 尚未上传。
+- Current state: `release/1.2.2` 已提交并推送；GitHub `v1.2.2`、ModelScope Releases 版本目录和 Models 备用 EXE 均已正式发布。后端 2026.08.26.1 审计为 0 add / 0 replace / 0 delete，未重复上传后端包。插件队列兼容修复、路径框背景修复和 HostCompatibility 回归测试已纳入提交 `6bc7b3a`。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
-- Next recommended step: 提交并推送 `release/1.2.2`，创建 GitHub `v1.2.2`，同步 ModelScope Releases 和 Models 备用 EXE，完成三源资产回读；发布后再由用户重启 3FUI 做实际视觉和队列按钮回归。8K NVENC 的 `uhq` 风险已记录，DPI、500 帧预览压力和四宫格回归仍待后续。
+- Next recommended step: 用户完全退出并重启 3FUI，确认路径框背景、实时预览和暂停/恢复/停止按钮；随后可合并或保留 `release/1.2.2` 分支。8K NVENC 的 `uhq` 风险已记录，DPI、500 帧预览压力和四宫格回归仍待后续。
 
 ## Active TODO
 
-- [ ] Task: 发布 1.2.2 双源本体资产。
+- [x] Task: 发布 1.2.2 双源本体资产。
   - Owner: Codex
-  - Status: 候选资产和所有本地门禁已完成，待提交/推送后上传 GitHub 和 ModelScope。
-  - Verification: Backend 2026.08.26.1 审计 `0 add / 0 replace / 0 delete`；Release Gate `5/5`；安装器 6 场景；更新器 7 场景；Backend 事务 `6/6`；Python `18/18`；双宿主 HostCompatibility 通过；CLI `--version` 为 1.2.2。候选 EXE 16,882,374 bytes，SHA-256 `1d0e9699ebc640df401fce3f100a1fad12b2555cd63b3a6864ab8d3060b75936`。
-  - Blockers: 远端上传和回读尚未执行；实际宿主视觉/按钮回归不作为发布前自动门禁。
+  - Status: 提交 `6bc7b3a` 已推送到 `fork/release/1.2.2`；GitHub `v1.2.2`、ModelScope Releases 和 Models 备用 EXE 均已上传并回读一致。
+  - Verification: Backend 2026.08.26.1 审计 `0 add / 0 replace / 0 delete`；Release Gate `5/5`；安装器 6 场景；更新器 7 场景；Backend 事务 `6/6`；Python `18/18`；双宿主 HostCompatibility 通过；CLI `--version` 为 1.2.2。最终 EXE 16,882,376 bytes，SHA-256 `47e314bcc29ab3434d209328029a0a94c6a3575ccf7c087a1e6ad549e87fa1f9`；stable.json 755 bytes，SHA-256 `f1ffbb13287e9540ba22309d80d6976882d4f06cd72ba125f0e7725353a0297f`。GitHub API、ModelScope Releases、Models 备用 EXE 与本地资产三源一致。
+  - Blockers: 无发布阻塞；实际宿主视觉/按钮回归不作为发布前自动门禁。
   - Relevant files: `VideoEnhancerPlugin/PluginVersion.vb`, `cli/VideoEnhancer.csproj`, `README.md`, `release/release-notes.txt`, `version/版本迭代记录.md`
 
 - [ ] Task: 3FUI 6.2.16 核心兼容修复及实机回归。
@@ -1692,3 +1692,10 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Verification: 旧宿主引用构建成功；使用当前实机 LakeUI 5.9，在临时独立 .NET 进程调用真实工厂及滚动绑定方法，VALUEBOX_BACKGROUND_PASS，确认文字来源仍为父框、父框来源为宿主。最终 DLL 在 3FUI 6.2.16 的 HOST_COMPATIBILITY_PASS，388 个成员签名及原队列回归通过；git diff --check 通过。未声称真实窗口截图视觉回归完成。
 - Install: 确认宿主未运行后备份至 C:/Users/maxzr/AppData/Local/Temp/3fui-valuebox-backup-20260909-112546/videoenhancer.3fui.dll，覆盖 C:/Program portable/3FUI/3FUI/Plugin/videoenhancer.3fui.dll；源文件与安装文件 SHA-256 均为 4F62817A3DA264B94CD3F8B6D436F126EA1DED79426C47202558E630D576F86B。临时验证项目位于本机 TEMP/3fui-valuebox-check，不属于项目测试要求。
 - Git/next: fix/3fui-core-compat 仍有前次及本次修改，工作树不干净、未提交、未发布；建议重新打开插件确认路径框底色连续并滚动检查，然后提交。
+
+### 2026-09-09 12:29 - Codex
+
+- Release: 按 `release/发布流程.md` 执行 1.2.2 正式发布。后端基线 `2026.08.26.1` 与目标一致，逐文件审计为 `0 add / 0 replace / 0 delete`，因此未重复上传后端。
+- Build: 正式发布脚本重新构建最终 EXE；插件/CLI 构建通过，CLI `--version` 为 1.2.2；安装器 6 场景、更新器 7 场景、发布门禁 5/5、Backend 事务 6/6、Python 测试 18/18 及 3FUI 6.2.3/6.2.16 双宿主 HostCompatibility 回归通过。
+- Publish: `6bc7b3a` 已推送到 `fork/release/1.2.2`；GitHub `v1.2.2`、ModelScope Releases 版本目录和 Models 备用 EXE 已上传并回读。最终 EXE `16,882,376` bytes，SHA-256 `47e314bcc29ab3434d209328029a0a94c6a3575ccf7c087a1e6ad549e87fa1f9`；stable.json `755` bytes，SHA-256 `f1ffbb13287e9540ba22309d80d6976882d4f06cd72ba125f0e7725353a0297f`。
+- Follow-up: GitHub API 显示 `v1.2.2` 标签当前仍指向旧 `main` 提交 `1a475e9`，发布元数据的 `target_commitish` 也为 `main`；正式收尾前必须把标签修正到本次发布分支的最终提交，再回读 Release、标签和工作树。

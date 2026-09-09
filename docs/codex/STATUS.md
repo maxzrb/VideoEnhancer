@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-09-09 12:42
+Last updated: 2026-09-09 12:47
 Updated by: Codex
 
 ## Current Snapshot
@@ -8,7 +8,7 @@ Updated by: Codex
 - Latest UI fix: CreateOfficialValueBox 内的 HtmlColorLabel 显式绑定外层文件框 BackgroundSource，避免被滚动页直接绑定宿主而跳过半透明底色；5 处同类路径/文件显示共用修复。已构建、验证背景依赖关系并备份安装，待用户确认实际视觉效果。
 
 - Current objective: 按正式流程发布 VideoEnhancer 1.2.2，并保留 3FUI 核心兼容和路径框背景修复。
-- Current state: `release/1.2.2` 已提交并推送；GitHub `v1.2.2`、ModelScope Releases 版本目录和 Models 备用 EXE 均已正式发布。GitHub 标签已从旧 `main` 提交修正为本次发布提交 `6bc7b3a2786daf7f240bed0fc05dd9bd7648e189`，Release 的目标分支元数据已设为 `release/1.2.2`。后端 2026.08.26.1 审计为 0 add / 0 replace / 0 delete，未重复上传后端包。插件队列兼容修复、路径框背景修复和 HostCompatibility 回归测试已纳入提交 `6bc7b3a`。
+- Current state: `release/1.2.2` 已提交并推送至 `fork/release/1.2.2`；GitHub `v1.2.2`、ModelScope Releases 版本目录和 Models 备用 EXE 均已正式发布。GitHub 标签已从旧 `main` 提交修正为本次发布提交 `6bc7b3a2786daf7f240bed0fc05dd9bd7648e189`，Release 的目标分支元数据已设为 `release/1.2.2`。后端 2026.08.26.1 审计为 0 add / 0 replace / 0 delete，未重复上传后端包。插件队列兼容修复、路径框背景修复和 HostCompatibility 回归测试已纳入提交 `6bc7b3a`。
 - Last active agent: Codex
 - Likely next agent: user / Codex / ZCode
 - Next recommended step: 用户完全退出并重启 3FUI，确认路径框背景、实时预览和暂停/恢复/停止按钮；随后可合并或保留 `release/1.2.2` 分支。8K NVENC 的 `uhq` 风险已记录，DPI、500 帧预览压力和四宫格回归仍待后续。
@@ -1704,3 +1704,9 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 
 - Tag correction: 使用 GitHub API 将 `v1.2.2` 从旧 `1a475e9` 移到发布代码提交 `6bc7b3a2786daf7f240bed0fc05dd9bd7648e189`，并将 Release `target_commitish` 修正为 `release/1.2.2`；API 回读已确认标签类型为 commit 且指向该完整 SHA。
 - Closeout: 发布资产和三源哈希保持不变；本地待推送的仅是状态/进度记录收尾提交，随后核对远端分支、标签、Release 和工作树清洁状态。
+
+### 2026-09-09 12:47 - Codex
+
+- Remote verification: 远端分支 `fork/release/1.2.2` 已到 `4e0b73b`；GitHub `v1.2.2` 标签确认为 commit `6bc7b3a2786daf7f240bed0fc05dd9bd7648e189`，Release 为正式版且目标分支为 `release/1.2.2`。GitHub 两个资产的大小和 SHA-256 与本地一致。
+- ModelScope verification: Releases `stable.json`、1.2.2 EXE 和 Models `Plugin/videoenhancer.exe` 均成功下载；`MODELSCOPE_READBACK_PASS`，三份本体内容一致，EXE 为 16,882,376 bytes，SHA-256 `47e314bcc29ab3434d209328029a0a94c6a3575ccf7c087a1e6ad549e87fa1f9`。
+- Closeout: 发布代码、发布资产、标签、Release 元数据和双源回读均已完成；提交最后的状态记录后保持工作树清洁，并交由用户重启 3FUI 做实际窗口与按钮回归。

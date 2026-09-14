@@ -169,20 +169,30 @@
 
 ## 构建
 
-在 `VideoEnhancerPlugin\` 目录执行：
+推荐在仓库根目录通过解决方案构建：
 
+```powershell
+dotnet build .\VideoEnhancer.slnx -c Release `
+  "-p:HostBin=C:\path\to\3FUI\bin"
 ```
-pwsh -ExecutionPolicy Bypass -File .\build.ps1
+
+也可以只构建插件：
+
+```powershell
+dotnet build .\VideoEnhancerPlugin\VideoEnhancerPlugin.vbproj -c Release `
+  "-p:HostBin=C:\path\to\3FUI\bin"
 ```
 
-产物：`out\videoenhancer.dll`，脚本自动复制为
-`..\Video Enhancer GUI\Plugin\videoenhancer.3fui.dll`。
+项目会生成
+`VideoEnhancerPlugin\bin\Release\net10.0-windows\videoenhancer.dll`，
+CLI 发布时会将其作为 `videoenhancer.3fui.dll` 放入
+`Artifacts\VideoEnhancer.zip`。附加
+`"-p:PluginInstallDir=C:\path\to\3FUI\Plugin"` 可直接复制到测试宿主，
+不需要从 ZIP 中手动提取。
 
-依赖：
-- .NET SDK 10（使用自带 Roslyn vbc，无需 NuGet restore）；
-- 3FUI 开发版程序集：
-  `FFmpegFreeUI\FFmpegFreeUI\bin\Debug\net10.0-windows10.0.26100.0\FFmpegFreeUI.dll` 与 `LakeUI.dll`。
-- LakeUI `5.1` 是当前最低构建与运行时基线，允许后续 5.x 版本；脚本会拒绝 3.x、5.0.x 或其他版本的 `LakeUI.dll`。
+`HostBin` 目录必须包含 `FFmpegFreeUI.dll` 和 `LakeUI.dll`。它也可以通过
+`VIDEOENHANCER_HOST_BIN` 环境变量提供；仓库与 FFmpegFreeUI 并列时会自动查找
+相邻 Release/Debug 输出。LakeUI `5.1` 是最低基线，只接受后续 5.x 版本。
 
 ## 宿主兼容说明
 
@@ -222,16 +232,15 @@ pwsh -ExecutionPolicy Bypass -File .\build.ps1
   回退链（修复输出文件写入期间 `-sseof` 必然失败导致的持续黑屏）；CLI 中转任务
   用遥测帧号换算内容位置；抽帧失败原因显示在状态栏；编码队列右键新增「预览输出」
   （先切 3FUI 主界面左侧导航到「视频超分」页，再切到「实时预览」选项卡并选中该任务）；
-  设计器（PluginDesigner）的 PreviewLayoutForm 改为绝对坐标布局（无 Dock），
-  可在 Visual Studio 设计视图中直接拖动控件；编译产物不含任何运行时调节功能。
+  当时的预览页布局稿改为绝对坐标布局（无 Dock），用于核对真实页面的控件位置。
 - 1.1（实时预览修复 + 四宫格比对工具）：实时预览改用原生 .NET `PictureBox` 抽帧切换
   （修复永远停在第一帧）；新增「选择预览哪个」下拉（多任务时默认最上面一个）；
   支持预览 3FUI 原生 ffmpeg 任务（读取队列进度 + ffprobe 输入帧率估算）；
   切页动画卡顿修复（页面不可见时暂停轮询、动画时长归零）；「补帧开关」标签加宽
   回到一行；exe 路径与说明移回「超分主界面」页；状态提示 5 秒后/切页后自动消失；
   高级功能页新增「制作四宫格比对视频」二级窗口（拖入/浏览、输出大小/缩放算法/
-  分割线宽度颜色实时预览、xstack 滤镜、2/3/4 视频排版自适应）；新增实时预览页
-  原生布局设计器（PluginDesigner\PreviewLayoutForm）。
+  分割线宽度颜色实时预览、xstack 滤镜、2/3/4 视频排版自适应）；并同步整理
+  实时预览页的原生控件布局。
 - 1.1（ModernTabControl 三分栏 + 实时预览）：插件页面重构为「超分主界面 / 实时预览 / 高级功能」
   三个选项卡；全部文字改用 LakeUI `HtmlColorLabel`（HTML 颜色字体 + 文字对齐 + Dock 自适应）；
   「插件总开关」置顶且仅控制超分主界面页，「实时预览」「高级功能」页不依赖总开关；

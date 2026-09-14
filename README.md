@@ -196,20 +196,47 @@ BasicVSR++ 不支持与补帧组合。切换到 TensorRT、CUDA、NCNN 或其他
 
 ## 从源码构建
 
-CLI 要求 .NET 10 SDK：
+要求安装 .NET 10 SDK。插件还需要 3FUI 构建目录中的
+`FFmpegFreeUI.dll` 和 LakeUI 5.1+（仅支持 5.x）。
+
+仓库根目录的 `VideoEnhancer.slnx` 包含插件与 CLI；CLI 对插件声明了构建依赖，
+因此不会再依赖预先存在的 `videoenhancer.3fui.dll`：
 
 ```powershell
-dotnet build .\cli\VideoEnhancer.csproj -c Release --no-restore
-& .\cli\build.ps1
+dotnet build .\VideoEnhancer.slnx -c Release `
+  "-p:HostBin=C:\path\to\FFmpegFreeUI\bin\Release\net10.0-windows10.0.26100.0"
 ```
 
-插件构建需要 .NET 10 SDK、Roslyn VB 编译器和 3FUI 开发版 `FFmpegFreeUI.dll`、`LakeUI.dll`：
+生成安装程序和手动安装包：
 
 ```powershell
-& .\VideoEnhancerPlugin\build.ps1 `
-  -HostBin 'C:\path\to\FFmpegFreeUI.6.1.39.extracted' `
-  -SkipInstall
+dotnet publish .\VideoEnhancer.slnx -c Release `
+  "-p:HostBin=C:\path\to\FFmpegFreeUI\bin\Release\net10.0-windows10.0.26100.0"
 ```
+
+`HostBin` 也可以通过环境变量 `VIDEOENHANCER_HOST_BIN` 设置。若仓库与
+`FFmpegFreeUI` 并列放置，项目会优先自动发现相邻的 Release、其次 Debug 输出。
+CLI 发布完成后会在仓库根目录的 `Artifacts` 中生成：
+
+```text
+Artifacts\
+  VideoEnhancerInstaller.exe
+  VideoEnhancer.zip
+```
+
+`VideoEnhancer.zip` 已包含手动安装所需的插件 DLL、CLI EXE 和安装说明。
+如果只需要未改名的 CLI 单文件，可执行
+`dotnet publish .\cli\VideoEnhancer.csproj -c Release`，产物位于 CLI 的标准
+`bin\Release\net10.0-windows\win-x64\publish` 目录，不会生成 `Artifacts`。
+只构建插件时可直接运行：
+
+```powershell
+dotnet build .\VideoEnhancerPlugin\VideoEnhancerPlugin.vbproj -c Release `
+  "-p:HostBin=C:\path\to\3FUI\bin"
+```
+
+如需同时安装插件 DLL，可附加
+`"-p:PluginInstallDir=C:\path\to\3FUI\Plugin"`。
 
 完整发布和门禁流程见 [`release/发布流程.md`](release/发布流程.md)。
 

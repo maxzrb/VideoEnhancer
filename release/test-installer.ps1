@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($Installer)) {
-    $Installer = Join-Path $root 'videoenhancer.exe'
+    $Installer = Join-Path $root 'Artifacts\VideoEnhancerInstaller.exe'
 }
 $Installer = [System.IO.Path]::GetFullPath($Installer)
 if (-not (Test-Path -LiteralPath $Installer)) {

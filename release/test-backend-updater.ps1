@@ -1,5 +1,5 @@
 param(
-    [string]$BuildOutput = (Join-Path $PSScriptRoot '..\cli\bin\Release\net10.0\win-x64'),
+    [string]$BuildOutput = (Join-Path $PSScriptRoot '..\cli\bin\Release\net10.0-windows\win-x64'),
     [string]$SevenZip = '7z'
 )
 

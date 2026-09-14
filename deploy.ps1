@@ -13,25 +13,29 @@ if (-not $Version) {
 }
 $archiveRoot = 'C:\Users\ARXChem\Documents\LakeUI-2\videoenhancer.3fui'
 $archive = Join-Path $archiveRoot $Version
+$artifactsRoot = Join-Path $base 'Artifacts'
+$installerArtifact = Join-Path $artifactsRoot 'VideoEnhancerInstaller.exe'
+$manualArtifact = Join-Path $artifactsRoot 'VideoEnhancer.zip'
+$pluginDll = Join-Path $base 'VideoEnhancerPlugin\obj\plugin-artifact\videoenhancer.3fui.dll'
 New-Item -ItemType Directory -Force -Path $archive | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $archive 'cli') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $archive 'VideoEnhancerPlugin') | Out-Null
 
-# 1) 主程序产物（CLI 单文件 + 3FUI 插件 DLL）
-Copy-Item -LiteralPath (Join-Path $base 'videoenhancer.exe') -Destination (Join-Path $archive 'videoenhancer.exe') -Force
-Copy-Item -LiteralPath (Join-Path $base 'videoenhancer.3fui.dll') -Destination (Join-Path $archive 'videoenhancer.3fui.dll') -Force
-$layoutJson = Join-Path $base 'PluginDesigner\bin\Release\net10.0-windows\videoenhancer-layout.json'
+# 1) 主程序产物（安装程序 + 手动安装包）
+Copy-Item -LiteralPath $installerArtifact -Destination (Join-Path $archive 'VideoEnhancerInstaller.exe') -Force
+Copy-Item -LiteralPath $manualArtifact -Destination (Join-Path $archive 'VideoEnhancer.zip') -Force
+Copy-Item -LiteralPath (Join-Path $base 'VideoEnhancer.slnx') -Destination (Join-Path $archive 'VideoEnhancer.slnx') -Force
+$layoutJson = Join-Path $base 'videoenhancer-layout.json'
 if (Test-Path -LiteralPath $layoutJson) {
     Copy-Item -LiteralPath $layoutJson -Destination (Join-Path $archive 'videoenhancer-layout.json') -Force
 }
 
-# 2) CLI 源码（Program.cs / README / build.ps1 / csproj）
+# 2) CLI 源码（Program.cs / README / csproj）
 Copy-Item -LiteralPath (Join-Path $base 'cli\Program.cs') -Destination (Join-Path $archive 'cli\Program.cs') -Force
 Copy-Item -LiteralPath (Join-Path $base 'cli\README.md') -Destination (Join-Path $archive 'cli\README.md') -Force
-Copy-Item -LiteralPath (Join-Path $base 'cli\build.ps1') -Destination (Join-Path $archive 'cli\build.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $base 'cli\VideoEnhancer.csproj') -Destination (Join-Path $archive 'cli\VideoEnhancer.csproj') -Force
 
-# 3) 插件源码 + 构建脚本 + 说明
+# 3) 插件源码、项目文件与说明
 $pluginSrc = Join-Path $base 'VideoEnhancerPlugin'
 $pluginDst = Join-Path $archive 'VideoEnhancerPlugin'
 Get-ChildItem -LiteralPath $pluginSrc -File | ForEach-Object {
@@ -46,7 +50,6 @@ if (Test-Path -LiteralPath $assetSrc) {
 Copy-Item -LiteralPath $MyInvocation.MyCommand.Path -Destination (Join-Path $archive 'deploy.ps1') -Force
 
 # 5) 插件 DLL 复制到运行目录：开发版 GUI 插件目录 + 最新发布版 ReadyToRun 插件目录
-$pluginDll = Join-Path $base 'videoenhancer.3fui.dll'
 $pluginTargets = @(
     'C:\Users\ARXChem\Documents\LakeUIApps\Video Enhancer GUI\Plugin\videoenhancer.3fui.dll',
     'C:\PortableSoft\FFmpegFreeUI ReadyToRun x64\plugin\videoenhancer.3fui.dll'

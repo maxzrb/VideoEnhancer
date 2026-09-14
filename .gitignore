@@ -16,7 +16,10 @@
 # 本机 AI 会话目录
 /.zcode/
 
-# Root build artifacts
+# Default build artifacts
+/Artifacts/
+
+# Legacy root build artifacts
 /videoenhancer.exe
 /videoenhancer.3fui.dll
 /videoenhancer-manual-install.zip

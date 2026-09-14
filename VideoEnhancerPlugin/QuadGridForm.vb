@@ -543,12 +543,6 @@ Namespace videoenhancer
             result.Add(Path.Combine(baseDir, "videoenhancer-layout.json"))
             Dim assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)
             If Not String.IsNullOrWhiteSpace(assemblyDir) Then result.Add(Path.Combine(assemblyDir, "videoenhancer-layout.json"))
-            Dim cursor = New DirectoryInfo(If(String.IsNullOrWhiteSpace(assemblyDir), baseDir, assemblyDir))
-            For depth As Integer = 0 To 7
-                If cursor Is Nothing Then Exit For
-                result.Add(Path.Combine(cursor.FullName, "PluginDesigner", "bin", "Release", "net10.0-windows", "videoenhancer-layout.json"))
-                cursor = cursor.Parent
-            Next
             Return result
         End Function
 

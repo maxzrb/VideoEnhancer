@@ -12,13 +12,17 @@ if (-not $Version) {
     if ($text -notmatch 'Public Const Current As String = "([^"]+)"') { throw '无法从 PluginVersion.vb 读取版本号' }
     $Version = $Matches[1]
 }
-$updater = Join-Path $root 'videoenhancer.exe'
+$artifactsRoot = Join-Path $root 'Artifacts'
+$updater = Join-Path $artifactsRoot 'VideoEnhancerInstaller.exe'
+$pluginDll = Join-Path $root 'VideoEnhancerPlugin\obj\plugin-artifact\videoenhancer.3fui.dll'
 $package = if ([string]::IsNullOrWhiteSpace($Package)) {
     Join-Path $PSScriptRoot "dist\modelscope\releases\$Version\VideoEnhancer-$Version-win-x64.exe"
 } else {
     [System.IO.Path]::GetFullPath($Package)
 }
-if (-not (Test-Path -LiteralPath $updater) -or -not (Test-Path -LiteralPath $package)) {
+if (-not (Test-Path -LiteralPath $updater) -or
+    -not (Test-Path -LiteralPath $pluginDll) -or
+    -not (Test-Path -LiteralPath $package)) {
     throw '请先运行 release\build-modelscope-release.ps1'
 }
 
@@ -49,10 +53,10 @@ function New-DummyTarget([string]$name) {
 
 function Assert-UpdatedLayout([string]$target) {
     $applicationRoot = Join-Path $target 'videoenhancer'
-    $expectedExe = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root 'videoenhancer.exe')).Hash
+    $expectedExe = (Get-FileHash -Algorithm SHA256 -LiteralPath $updater).Hash
     $actualExe = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $applicationRoot 'videoenhancer.exe')).Hash
     if ($actualExe -ne $expectedExe) { throw '新布局 EXE 哈希不一致' }
-    $expectedDll = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root 'videoenhancer.3fui.dll')).Hash
+    $expectedDll = (Get-FileHash -Algorithm SHA256 -LiteralPath $pluginDll).Hash
     $actualDll = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $target 'videoenhancer.3fui.dll')).Hash
     if ($actualDll -ne $expectedDll) { throw 'Plugin 根目录 DLL 哈希不一致' }
     if (Test-Path -LiteralPath (Join-Path $target 'videoenhancer.exe')) { throw '更新后仍残留旧平铺 EXE' }

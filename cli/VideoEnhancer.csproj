@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>videoenhancer</AssemblyName>
@@ -24,11 +24,19 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
+    <VideoEnhancerRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</VideoEnhancerRepositoryRoot>
+    <ArtifactsDirectory>$(VideoEnhancerRepositoryRoot)Artifacts\</ArtifactsDirectory>
+    <PluginArtifactPath>$(VideoEnhancerRepositoryRoot)VideoEnhancerPlugin\obj\plugin-artifact\videoenhancer.3fui.dll</PluginArtifactPath>
+    <InstallerArtifactPath>$(ArtifactsDirectory)VideoEnhancerInstaller.exe</InstallerArtifactPath>
+    <ManualPackagePath>$(ArtifactsDirectory)VideoEnhancer.zip</ManualPackagePath>
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\VideoEnhancerPlugin\VideoEnhancerPlugin.vbproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
     <!-- 双击安装时释放到所选 FFmpegFreeUI 程序旁的 plugin 目录。 -->
-    <EmbeddedResource Include="..\videoenhancer.3fui.dll"
+    <EmbeddedResource Include="$(PluginArtifactPath)"
                       LogicalName="VideoEnhancer.Embedded.videoenhancer.3fui.dll" />
     <EmbeddedResource Include="embedded-tools\aria2-next.exe"
                       LogicalName="VideoEnhancer.Embedded.aria2-next.exe" />
@@ -49,5 +57,51 @@
     <EmbeddedResource Include="model-capabilities.json"
                       LogicalName="VideoEnhancer.Embedded.model-capabilities.json" />
   </ItemGroup>
+
+  <Target Name="ValidateEmbeddedPlugin" BeforeTargets="CoreCompile"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Error Condition="!Exists('$(PluginArtifactPath)')"
+           Text="插件产物不存在：$(PluginArtifactPath)。项目引用本应先构建 VideoEnhancerPlugin；请检查 HostBin 配置。" />
+  </Target>
+
+  <Target Name="CreateSolutionArtifacts"
+          AfterTargets="Publish"
+          Condition="'$(BuildingSolutionFile)' == 'true'">
+    <PropertyGroup>
+      <PublishedExecutable>$(PublishDir)$(AssemblyName).exe</PublishedExecutable>
+      <ManualPackageStage>$(IntermediateOutputPath)manual-install\</ManualPackageStage>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(PublishedExecutable)')"
+           Text="发布产物不存在：$(PublishedExecutable)" />
+    <Error Condition="!Exists('$(PluginArtifactPath)')"
+           Text="手动安装包缺少插件 DLL：$(PluginArtifactPath)" />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)manual-install-readme.txt')"
+           Text="手动安装说明不存在：$(MSBuildThisFileDirectory)manual-install-readme.txt" />
+    <MakeDir Directories="$(ArtifactsDirectory)" />
+    <Copy SourceFiles="$(PublishedExecutable)"
+          DestinationFiles="$(InstallerArtifactPath)"
+          SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="安装程序：$(InstallerArtifactPath)" />
+
+    <RemoveDir Directories="$(ManualPackageStage)" />
+    <MakeDir Directories="$(ManualPackageStage)plugin\videoenhancer" />
+    <Copy SourceFiles="$(PluginArtifactPath)"
+          DestinationFiles="$(ManualPackageStage)plugin\videoenhancer.3fui.dll" />
+    <Copy SourceFiles="$(PublishedExecutable)"
+          DestinationFiles="$(ManualPackageStage)plugin\videoenhancer\videoenhancer.exe" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)manual-install-readme.txt"
+          DestinationFiles="$(ManualPackageStage)手动安装说明.txt" />
+    <ZipDirectory SourceDirectory="$(ManualPackageStage)"
+                  DestinationFile="$(ManualPackagePath)"
+                  Overwrite="true" />
+    <RemoveDir Directories="$(ManualPackageStage)" />
+    <Message Importance="high" Text="手动安装包：$(ManualPackagePath)" />
+  </Target>
+
+  <Target Name="CleanSolutionArtifacts"
+          AfterTargets="Clean"
+          Condition="'$(BuildingSolutionFile)' == 'true'">
+    <Delete Files="$(InstallerArtifactPath);$(ManualPackagePath)" />
+  </Target>
 
 </Project>

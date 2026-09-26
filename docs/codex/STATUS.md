@@ -1,9 +1,11 @@
 # Project Status
 
-Last updated: 2026-09-24 19:34
+Last updated: 2026-09-26 18:20
 Updated by: Codex
 
 ## Current Snapshot
+
+- Latest installer follow-up (2026-09-26 18:20): 用户用安装器实测后发现实时预览报旧版 FFmpeg 缺失提示，且关闭插件总开关时补帧模型与 HDR 处理方式仍亮起。实机 `Settings.json` 的工作目录为空，3FUI 根/Plugin 内均无 ffmpeg.exe；系统 Machine PATH 有独立 FFmpeg 8.1.1 的 bin。已安装 DLL 哈希 `6F75B6A1...` 含旧版 `bin` 提示；当前源码的解析器会继续查 PATH。已在 `PluginPanel.UpscalePage.vb` 为两个下拉框补齐总开关与各自功能开关门禁，Release 插件构建 0/0。完整 Release publish 0/0，候选安装器 `Artifacts/VideoEnhancerInstaller.exe` SHA-256 `8591CA72...`，安装器门禁、有效目录文件哈希与回滚测试通过；ZIP 中插件 DLL 与新构建 SHA-256 同为 `FE8241D8...`。PR #7 隔离 worktree 的提交已在 main 且干净，已移除该测试 worktree，当前开发目录为本仓库 main。版本仍 1.3.5，未创建新 Release；用户须用本地候选重新安装并重启 3FUI，复验预览和按钮视觉。其余 2026-09-19 旧 PR 审查 worktree 未动。
 
 - Latest copy audit (2026-09-24 19:34): 用户追问是否仍有防御性文字。审查 README、插件 README/教程、安装器 RTF/WiX、备用安装确认框、CLI/手动安装说明、第三方声明与 ModelScope 说明。清理备用确认框“不注册 Windows 应用”、教程“不是故障/设计上的能力限制”、README 的长否定式目录/授权解释、插件 README/CLI README 中多余实现历史、日志里的 Python pipe 解释、第三方声明里的二进制边界辩解。必要的兼容限制、错误原因、迁移冲突规则和第三方许可证保留。完整 Release publish 0/0，安装器目录/哈希/回滚门禁通过，`--third-party-notices` 输出新文字，git diff --check 无错误。改动提交 d324eb1 已推送至 fork/main，`git ls-remote` 核对一致；无新版本/Release。
 
@@ -2386,3 +2388,12 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 
 - Closeout: 本轮用户文案清理提交 d324eb1 `docs: simplify user-facing installation copy`，`git push fork main` 快进 6e62d36..d324eb1；`git ls-remote fork refs/heads/main` 与 d324eb1 一致。工作树在推送后干净。origin=user-Wing 未推送，版本仍 1.3.5，无新 Release。
 - Remaining: 当前记录收尾会追加一个 docs 提交并推送；真实 3FUI/UAC 及新安装说明可见窗口目视验收仍未完成。技术开发文档/源码注释中的 Burn、MSI 信息用于维护和测试，用户可见错误原因及第三方许可证仍保留。
+
+### 2026-09-26 18:20 - Codex
+
+- Request: 修复安装器实测后实时预览的 FFmpeg 缺失问题与总开关关闭时两处下拉框仍亮的问题；PR #7 已测试完，回到当前项目目录。
+- Orientation/Git: 同工具续作，读取 AGENTS.md、docs/codex/INDEX.md、STATUS.md 与 HandShake；`git pull --ff-only fork main` 已最新，起始 main=17af84a 且干净。独立 `fix/pr7-portable-installer` worktree 无未提交文件，HEAD 3bf2951 已被 main 包含，移除前核验绝对路径和 Git 状态；主工作树一直为 `C:\Codex Program\3fui plugin`。
+- Diagnosis: 安装的 DLL 与本轮构建 SHA-256 不同，含旧版 `bin` 核心组件提示；实机 3FUI Settings.json 的工作目录为空，宿主与 Plugin 目录无 ffmpeg.exe，系统 Machine PATH 有 FFmpeg 8.1.1。当前源码解析器已支持工作目录、宿主、PATH 等查找；新候选安装后需重启宿主复验。`PluginPanel.UpscalePage.vb` 遗漏 `_cmbInterp` 状态更新，`_cmbRtxHdrMode` 初始化强制 Enabled=True。
+- Changes: 为补帧模型及 HDR 处理方式补充总开关和各功能开关门禁；保留原 UTF-8 与 CRLF。移除已完成的 PR #7 隔离 worktree；未改其他旧 PR 审查 worktree 或真实安装目录。文件：`VideoEnhancerPlugin/Pages/PluginPanel.UpscalePage.vb`、本 STATUS、`version/工作进度.md`。
+- Verification: 插件 Release 构建 0 警告/0 错误；解决方案 Release publish 成功，WiX 0/0；`release/test-installer.ps1` 通过 PR7 主题、无 MSI、空/错误目录、有效目录哈希与回滚；ZIP 内 DLL 哈希 `FE8241D8632ED290E2F732F7AA18915B771A4A49E8950DF75B5B675DDB4DC9AD` 与新构建一致。候选安装器 `Artifacts/VideoEnhancerInstaller.exe` 11,781,326 bytes / `8591CA72F2B6DF44F3378C22541DD43908CE34E5BD2CE3371670DE7C55D5B24C`。真实窗口视觉和预览运行待用户安装候选并重启 3FUI 验收。
+- Git/release: 版本仍 1.3.5，无新 Release；当前源码和记录待提交推送 fork/main，origin 未推送。旧发布安装器尚不含本次修复。

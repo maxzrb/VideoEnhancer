@@ -1943,7 +1943,7 @@ Namespace videoenhancer
             _cmbRtxHdrMode.Items.Add("RTX Video HDR")
             _cmbRtxHdrMode.SelectedIndex = 0
             ConfigureCombo(_cmbRtxHdrMode)
-            _cmbRtxHdrMode.Enabled = True
+            _cmbRtxHdrMode.Enabled = _config.Enabled AndAlso _config.RtxHdrEnabled
             Dim hdrModeField = CreateOfficialField("HDR 处理方式", _cmbRtxHdrMode)
             ConfigureRtxHdrNumeric(_numRtxHdrContrast, 0, 200, _config.RtxHdrContrast, 1)
             ConfigureRtxHdrNumeric(_numRtxHdrSaturation, 0, 200, _config.RtxHdrSaturation, 1)
@@ -2290,11 +2290,13 @@ Namespace videoenhancer
             _cmbRtxTarget.Enabled = _config.Enabled AndAlso _config.UpscaleEnabled AndAlso rtxVsr
             _cmbRtxQuality.Enabled = _config.Enabled AndAlso _config.UpscaleEnabled AndAlso rtxVsr
             Dim hdrParametersEnabled = _config.Enabled AndAlso _config.RtxHdrEnabled
+            _cmbRtxHdrMode.Enabled = hdrParametersEnabled
             _numRtxHdrContrast.Enabled = hdrParametersEnabled
             _numRtxHdrSaturation.Enabled = hdrParametersEnabled
             _numRtxHdrMiddleGray.Enabled = hdrParametersEnabled
             _numRtxHdrMaxLuminance.Enabled = hdrParametersEnabled
             _cmbModel.Enabled = _config.Enabled AndAlso _config.UpscaleEnabled AndAlso Not rtxVsr
+            _cmbInterp.Enabled = _config.Enabled AndAlso _config.InterpEnabled
             _cmbDynamicOpticalFlow.Enabled = _config.Enabled AndAlso _config.InterpEnabled AndAlso String.Equals(_config.InterpBackend, "cuda", StringComparison.OrdinalIgnoreCase)
             _cmbSceneThreshold.Enabled = _config.Enabled AndAlso _config.InterpEnabled
             Dim tileBackend = String.Equals(_config.Backend, "ncnn", StringComparison.OrdinalIgnoreCase) OrElse

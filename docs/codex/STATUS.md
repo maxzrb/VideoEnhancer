@@ -5,7 +5,7 @@ Updated by: Codex
 
 ## Current Snapshot
 
-- Latest PATH clarification (2026-09-26 18:25): 用户提醒 3FUI 还可使用环境变量中的 FFmpeg；实机 Machine PATH 确有 `ffmpeg.exe`，当前插件/CLI 源码均会搜索 PATH。把预览及四宫格缺失提示改为同时列出 3FUI 工作目录、程序目录、系统 PATH。重建完整候选安装器 0 警告/0 错误，安装器空/错误/正确目录哈希及回滚通过；最新 `Artifacts/VideoEnhancerInstaller.exe` SHA-256 `A4F39F74498A8DBE7315AC81632441134FA2DCD4CA064BDFDA800BAFAC76C9D1`，DLL `ACA73BFF15B33EB23C4E2B19A9115E389BC9AB45BE653455ED285842A2A95323`。真实 3FUI 预览与视觉仍待重新安装候选后验收。
+- Latest PATH clarification (2026-09-26 18:25): 用户提醒 3FUI 还可使用环境变量中的 FFmpeg；实机 Machine PATH 确有 `ffmpeg.exe`，当前插件/CLI 源码均会搜索 PATH。把预览及四宫格缺失提示改为同时列出 3FUI 工作目录、程序目录、系统 PATH，提交 `5a23acb` 已推送 fork/main 并核对远端一致。重建完整候选安装器 0 警告/0 错误，安装器空/错误/正确目录哈希及回滚通过；最新 `Artifacts/VideoEnhancerInstaller.exe` SHA-256 `A4F39F74498A8DBE7315AC81632441134FA2DCD4CA064BDFDA800BAFAC76C9D1`，DLL `ACA73BFF15B33EB23C4E2B19A9115E389BC9AB45BE653455ED285842A2A95323`。真实 3FUI 预览与视觉仍待重新安装候选后验收。
 
 - Latest installer follow-up (2026-09-26 18:20): 用户用安装器实测后发现实时预览报旧版 FFmpeg 缺失提示，且关闭插件总开关时补帧模型与 HDR 处理方式仍亮起。实机 `Settings.json` 的工作目录为空，3FUI 根/Plugin 内均无 ffmpeg.exe；系统 Machine PATH 有独立 FFmpeg 8.1.1 的 bin。已安装 DLL 哈希 `6F75B6A1...` 含旧版 `bin` 提示；当前源码的解析器会继续查 PATH。已在 `PluginPanel.UpscalePage.vb` 为两个下拉框补齐总开关与各自功能开关门禁，Release 插件构建 0/0。完整 Release publish 0/0，候选安装器 `Artifacts/VideoEnhancerInstaller.exe` SHA-256 `8591CA72...`，安装器门禁、有效目录文件哈希与回滚测试通过；ZIP 中插件 DLL 与新构建 SHA-256 同为 `FE8241D8...`。PR #7 隔离 worktree 的提交已在 main 且干净，已移除该测试 worktree，当前开发目录为本仓库 main。源码与记录提交 `1b97064` 已推送 fork/main 并核对远端一致。版本仍 1.3.5，未创建新 Release；用户须用本地候选重新安装并重启 3FUI，复验预览和按钮视觉。其余 2026-09-19 旧 PR 审查 worktree 未动。
 
@@ -2411,3 +2411,7 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Changes: `PreviewEngine.vb`、`QuadGridForm.vb` 的 FFmpeg 缺失提示列出工作目录、程序目录和系统 PATH；更新本 STATUS 与 `version/工作进度.md`。此前界面门禁提交 `1b97064` 已推送到 fork/main。
 - Verification: `dotnet publish VideoEnhancer.slnx -c Release -p:HostBin=...` 通过，WiX 0 警告/0 错误；`release/test-installer.ps1` 所有门禁/哈希/回滚通过；`git diff --check` 无错误。候选安装器 11,781,660 bytes / SHA-256 `A4F39F74498A8DBE7315AC81632441134FA2DCD4CA064BDFDA800BAFAC76C9D1`，DLL `ACA73BFF15B33EB23C4E2B19A9115E389BC9AB45BE653455ED285842A2A95323`。真实预览和界面视觉仍待用户重新安装本地候选并重启 3FUI 验收；版本 1.3.5，无新 Release。
 - Git: 当前只有两处提示文案和交接记录待提交推送，origin 不推送。
+
+### 2026-09-26 18:27 - Codex
+
+- Closeout: PATH 提示与交接记录提交 `5a23acb` (`fix: clarify FFmpeg lookup paths in preview`) 已推送 fork/main，`git ls-remote` 与本地 HEAD 精确一致，推送后工作树干净。当前本地候选安装器已更新，GitHub 既有 Release 资产未替换；真实 3FUI 复验仍待完成。

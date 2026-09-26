@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-09-26 18:20
+Last updated: 2026-09-26 18:25
 Updated by: Codex
 
 ## Current Snapshot
 
-- Latest installer follow-up (2026-09-26 18:20): 用户用安装器实测后发现实时预览报旧版 FFmpeg 缺失提示，且关闭插件总开关时补帧模型与 HDR 处理方式仍亮起。实机 `Settings.json` 的工作目录为空，3FUI 根/Plugin 内均无 ffmpeg.exe；系统 Machine PATH 有独立 FFmpeg 8.1.1 的 bin。已安装 DLL 哈希 `6F75B6A1...` 含旧版 `bin` 提示；当前源码的解析器会继续查 PATH。已在 `PluginPanel.UpscalePage.vb` 为两个下拉框补齐总开关与各自功能开关门禁，Release 插件构建 0/0。完整 Release publish 0/0，候选安装器 `Artifacts/VideoEnhancerInstaller.exe` SHA-256 `8591CA72...`，安装器门禁、有效目录文件哈希与回滚测试通过；ZIP 中插件 DLL 与新构建 SHA-256 同为 `FE8241D8...`。PR #7 隔离 worktree 的提交已在 main 且干净，已移除该测试 worktree，当前开发目录为本仓库 main。版本仍 1.3.5，未创建新 Release；用户须用本地候选重新安装并重启 3FUI，复验预览和按钮视觉。其余 2026-09-19 旧 PR 审查 worktree 未动。
+- Latest PATH clarification (2026-09-26 18:25): 用户提醒 3FUI 还可使用环境变量中的 FFmpeg；实机 Machine PATH 确有 `ffmpeg.exe`，当前插件/CLI 源码均会搜索 PATH。把预览及四宫格缺失提示改为同时列出 3FUI 工作目录、程序目录、系统 PATH。重建完整候选安装器 0 警告/0 错误，安装器空/错误/正确目录哈希及回滚通过；最新 `Artifacts/VideoEnhancerInstaller.exe` SHA-256 `A4F39F74498A8DBE7315AC81632441134FA2DCD4CA064BDFDA800BAFAC76C9D1`，DLL `ACA73BFF15B33EB23C4E2B19A9115E389BC9AB45BE653455ED285842A2A95323`。真实 3FUI 预览与视觉仍待重新安装候选后验收。
+
+- Latest installer follow-up (2026-09-26 18:20): 用户用安装器实测后发现实时预览报旧版 FFmpeg 缺失提示，且关闭插件总开关时补帧模型与 HDR 处理方式仍亮起。实机 `Settings.json` 的工作目录为空，3FUI 根/Plugin 内均无 ffmpeg.exe；系统 Machine PATH 有独立 FFmpeg 8.1.1 的 bin。已安装 DLL 哈希 `6F75B6A1...` 含旧版 `bin` 提示；当前源码的解析器会继续查 PATH。已在 `PluginPanel.UpscalePage.vb` 为两个下拉框补齐总开关与各自功能开关门禁，Release 插件构建 0/0。完整 Release publish 0/0，候选安装器 `Artifacts/VideoEnhancerInstaller.exe` SHA-256 `8591CA72...`，安装器门禁、有效目录文件哈希与回滚测试通过；ZIP 中插件 DLL 与新构建 SHA-256 同为 `FE8241D8...`。PR #7 隔离 worktree 的提交已在 main 且干净，已移除该测试 worktree，当前开发目录为本仓库 main。源码与记录提交 `1b97064` 已推送 fork/main 并核对远端一致。版本仍 1.3.5，未创建新 Release；用户须用本地候选重新安装并重启 3FUI，复验预览和按钮视觉。其余 2026-09-19 旧 PR 审查 worktree 未动。
 
 - Latest copy audit (2026-09-24 19:34): 用户追问是否仍有防御性文字。审查 README、插件 README/教程、安装器 RTF/WiX、备用安装确认框、CLI/手动安装说明、第三方声明与 ModelScope 说明。清理备用确认框“不注册 Windows 应用”、教程“不是故障/设计上的能力限制”、README 的长否定式目录/授权解释、插件 README/CLI README 中多余实现历史、日志里的 Python pipe 解释、第三方声明里的二进制边界辩解。必要的兼容限制、错误原因、迁移冲突规则和第三方许可证保留。完整 Release publish 0/0，安装器目录/哈希/回滚门禁通过，`--third-party-notices` 输出新文字，git diff --check 无错误。改动提交 d324eb1 已推送至 fork/main，`git ls-remote` 核对一致；无新版本/Release。
 
@@ -2397,3 +2399,15 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Changes: 为补帧模型及 HDR 处理方式补充总开关和各功能开关门禁；保留原 UTF-8 与 CRLF。移除已完成的 PR #7 隔离 worktree；未改其他旧 PR 审查 worktree 或真实安装目录。文件：`VideoEnhancerPlugin/Pages/PluginPanel.UpscalePage.vb`、本 STATUS、`version/工作进度.md`。
 - Verification: 插件 Release 构建 0 警告/0 错误；解决方案 Release publish 成功，WiX 0/0；`release/test-installer.ps1` 通过 PR7 主题、无 MSI、空/错误目录、有效目录哈希与回滚；ZIP 内 DLL 哈希 `FE8241D8632ED290E2F732F7AA18915B771A4A49E8950DF75B5B675DDB4DC9AD` 与新构建一致。候选安装器 `Artifacts/VideoEnhancerInstaller.exe` 11,781,326 bytes / `8591CA72F2B6DF44F3378C22541DD43908CE34E5BD2CE3371670DE7C55D5B24C`。真实窗口视觉和预览运行待用户安装候选并重启 3FUI 验收。
 - Git/release: 版本仍 1.3.5，无新 Release；当前源码和记录待提交推送 fork/main，origin 未推送。旧发布安装器尚不含本次修复。
+
+### 2026-09-26 18:22 - Codex
+
+- Closeout: 界面门禁与本次记录提交为 `1b97064` (`fix: disable inactive interpolation and HDR controls`)，`git push fork main` 快进 `17af84a..1b97064`，`git ls-remote fork refs/heads/main` 与本地 HEAD 一致；工作树在推送后干净。候选安装器仍仅位于本地 `Artifacts/VideoEnhancerInstaller.exe`，未发布 Release。后续用候选安装到真实 3FUI、重启宿主并核对预览与下拉框视觉；无需保留 PR #7 测试工作树。
+
+### 2026-09-26 18:25 - Codex
+
+- Steering: 用户补充 3FUI 除工作目录与同级目录，还使用环境变量 PATH 中的 FFmpeg。
+- Verification/diagnosis: 实机 Machine 与当前进程 PATH 都包含 `C:\Program portable\ffmpeg-8.1.1-full_build-shared\ffmpeg-8.1.1-full_build-shared\bin`；当前 `FfmpegToolResolver.vb` 与 CLI `Resolve3FuiFfmpegTool` 均会搜索 PATH，因此预览旧错误来自已安装旧 DLL，而非新解析器遗漏 PATH。当前 3FUI 未运行，实机安装目录未被改动。
+- Changes: `PreviewEngine.vb`、`QuadGridForm.vb` 的 FFmpeg 缺失提示列出工作目录、程序目录和系统 PATH；更新本 STATUS 与 `version/工作进度.md`。此前界面门禁提交 `1b97064` 已推送到 fork/main。
+- Verification: `dotnet publish VideoEnhancer.slnx -c Release -p:HostBin=...` 通过，WiX 0 警告/0 错误；`release/test-installer.ps1` 所有门禁/哈希/回滚通过；`git diff --check` 无错误。候选安装器 11,781,660 bytes / SHA-256 `A4F39F74498A8DBE7315AC81632441134FA2DCD4CA064BDFDA800BAFAC76C9D1`，DLL `ACA73BFF15B33EB23C4E2B19A9115E389BC9AB45BE653455ED285842A2A95323`。真实预览和界面视觉仍待用户重新安装本地候选并重启 3FUI 验收；版本 1.3.5，无新 Release。
+- Git: 当前只有两处提示文案和交接记录待提交推送，origin 不推送。

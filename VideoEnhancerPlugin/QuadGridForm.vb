@@ -1728,7 +1728,7 @@ Namespace videoenhancer
 
         Private Sub StartEncode(inputs As List(Of String), outputPath As String)
             If _ffmpeg = "" Then
-                SetStatusText("未找到 ffmpeg（请检查 3FUI 设置中的工作目录是否包含 ffmpeg.exe）", True)
+                SetStatusText("未找到 ffmpeg.exe：请检查 3FUI 工作目录、程序目录或系统 PATH", True)
                 Return
             End If
             Dim w As Integer = 0

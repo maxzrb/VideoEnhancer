@@ -7,15 +7,14 @@ using System.Text.Json.Serialization;
 namespace VideoEnhancer;
 
 /// <summary>
-/// 安装器容器：前缀是仅将 PE 子系统改成 GUI 的运行 EXE，尾部承载安装时释放的独立组件。
-/// 安装时先校验前缀，再把释放的运行 EXE 子系统恢复为控制台。
+/// 安装器容器：前缀是控制台运行 EXE，尾部承载安装时释放的独立组件。
+/// 安装时校验前缀，释放不带安装载荷的运行 EXE。
 /// </summary>
 internal sealed partial class InstallerBundle : IDisposable
 {
     private const int SchemaVersion = 1;
     private const int FooterLength = sizeof(long) + 16;
     private const int MaximumManifestLength = 1024 * 1024;
-    private const ushort GuiSubsystem = 2;
     private const ushort ConsoleSubsystem = 3;
     private static readonly byte[] Magic = Encoding.ASCII.GetBytes("VIDEOENH-BUNDLE1");
 
@@ -77,8 +76,6 @@ internal sealed partial class InstallerBundle : IDisposable
                     CopyAndHash(source, destination, source.Length);
                     bundleManifest.RuntimeLength = destination.Position;
                 }
-                // 安装器只显示系统选择窗口；释放后的处理程序仍需控制台输出。
-                ChangeSubsystem(destination, ConsoleSubsystem, GuiSubsystem);
                 destination.Position = 0;
                 bundleManifest.RuntimeSha256 = Convert.ToHexString(SHA256.HashData(destination));
                 destination.Position = bundleManifest.RuntimeLength;
@@ -154,10 +151,10 @@ internal sealed partial class InstallerBundle : IDisposable
     {
         ExtractRange(destinationPath, 0, manifest.RuntimeLength, manifest.RuntimeSha256);
         using var runtime = new FileStream(destinationPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-        ChangeSubsystem(runtime, GuiSubsystem, ConsoleSubsystem);
+        ValidateConsoleSubsystem(runtime);
     }
 
-    private static void ChangeSubsystem(FileStream image, ushort expected, ushort replacement)
+    private static void ValidateConsoleSubsystem(FileStream image)
     {
         if (image.Length < 0x100) throw new InvalidDataException("安装器 PE 文件过短");
         image.Position = 0x3C;
@@ -181,12 +178,8 @@ internal sealed partial class InstallerBundle : IDisposable
         image.Position = optionalHeader + 68;
         Span<byte> subsystemBytes = stackalloc byte[2];
         image.ReadExactly(subsystemBytes);
-        if (BinaryPrimitives.ReadUInt16LittleEndian(subsystemBytes) != expected)
+        if (BinaryPrimitives.ReadUInt16LittleEndian(subsystemBytes) != ConsoleSubsystem)
             throw new InvalidDataException("安装器 PE 子系统与预期不符");
-        BinaryPrimitives.WriteUInt16LittleEndian(subsystemBytes, replacement);
-        image.Position = optionalHeader + 68;
-        image.Write(subsystemBytes);
-        image.Flush();
     }
 
     internal IReadOnlyList<StagedApplicationFile> ExtractPayload(string destinationRoot)

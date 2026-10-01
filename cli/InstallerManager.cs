@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 
 namespace VideoEnhancer;
 
-/// <summary>PR #7 原自解包安装器：只帮助用户找到 3FUI 并复制插件文件。</summary>
+/// <summary>便携自解包安装器：命令行确认后选择 3FUI 主程序并复制插件文件。</summary>
 internal static class InstallerManager
 {
     private const string PluginResource = "VideoEnhancer.Embedded.videoenhancer.3fui.dll";
@@ -108,34 +108,57 @@ internal static class InstallerManager
 
     internal static int RunInteractive()
     {
-        var console = GetConsoleWindow();
-        if (console != IntPtr.Zero) ShowWindow(console, HideWindow);
+        var installationStarted = false;
         try
         {
+            Console.WriteLine("VideoEnhancer 插件安装程序");
+            Console.WriteLine("按下y并enter执行安装，按其他任意键并enter退出安装。");
+            Console.Write("> ");
+            if (!ReadYes()) return 0;
+            installationStarted = true;
+            Console.WriteLine("请选择正确的ffmpegfreeui.exe路径（可执行文件名称不限）。");
             var executable = ChooseHostExecutable();
             if (string.IsNullOrWhiteSpace(executable)) return 0;
-            var hostRoot = ValidateRoot(Path.GetDirectoryName(executable)!);
-            var target = Path.Combine(hostRoot, "Plugin");
-            var confirmation = "将 VideoEnhancer 插件安装到：\n\n" + target +
-                "\n\n确定安装吗？";
-            if (MessageBox(IntPtr.Zero, confirmation, "VideoEnhancer 插件安装", 0x24) != 6) return 0;
-            var result = Install(hostRoot, skipLegacyCleanup: false);
-            MessageBox(IntPtr.Zero, result, "VideoEnhancer 插件安装", 0x40);
+            var hostRoot = Path.GetDirectoryName(executable)!;
+            Console.WriteLine(Install(hostRoot, skipLegacyCleanup: false, selectedHost: executable));
+            var applicationRoot = Path.Combine(hostRoot, "Plugin", "videoenhancer");
+            Console.Write($"程序即将在\"{applicationRoot}\"中自动创建核心目录（models、python 和 bin），是否继续？选择\"是(Y)\"：");
+            if (ReadYes())
+                foreach (var directory in new[] { "models", "python", "bin" })
+                    Directory.CreateDirectory(Path.Combine(applicationRoot, directory));
             return 0;
         }
         catch (Exception ex)
         {
-            MessageBox(IntPtr.Zero, ex.Message, "VideoEnhancer 安装失败", 0x10);
+            Console.Error.WriteLine("安装失败：" + ex.Message);
             return 1;
+        }
+        finally
+        {
+            if (installationStarted)
+            {
+                Console.WriteLine("按 Enter 键关闭此窗口。");
+                Console.ReadLine();
+            }
         }
     }
 
+    private static bool ReadYes() => Console.ReadLine()?.Trim() is { } answer
+        && (answer.Equals("Y", StringComparison.OrdinalIgnoreCase) || answer == "是");
+
     private static string? ChooseHostExecutable()
     {
+        var configuredHost = Environment.GetEnvironmentVariable("VIDEOENHANCER_INSTALL_HOST")?.Trim().Trim('"');
+        if (!string.IsNullOrWhiteSpace(configuredHost))
+        {
+            var fullPath = Path.GetFullPath(configuredHost);
+            if (!File.Exists(fullPath)) throw new FileNotFoundException("所选主程序不存在", fullPath);
+            return fullPath;
+        }
         const int capacity = 32768;
         var file = Marshal.AllocHGlobal(capacity * sizeof(char));
-        var filter = Marshal.StringToHGlobalUni("3FUI 主程序\0FFmpegFreeUI.exe\0\0");
-        var title = Marshal.StringToHGlobalUni("选择 3FUI 的 FFmpegFreeUI.exe");
+        var filter = Marshal.StringToHGlobalUni("可执行程序 (*.exe)\0*.exe\0所有文件 (*.*)\0*.*\0\0");
+        var title = Marshal.StringToHGlobalUni("请选择正确的ffmpegfreeui.exe路径（文件名不限）");
         try
         {
             Marshal.WriteInt16(file, 0);
@@ -171,9 +194,10 @@ internal static class InstallerManager
         return root;
     }
 
-    private static string Install(string selectedRoot, bool skipLegacyCleanup)
+    private static string Install(string selectedRoot, bool skipLegacyCleanup, string? selectedHost = null)
     {
-        var root = ValidateRoot(selectedRoot);
+        // 交互入口使用用户实际选择的 EXE，允许重命名；目录命令入口仍检查标准主程序。
+        var root = selectedHost is null ? ValidateRoot(selectedRoot) : Path.GetFullPath(selectedRoot);
         var pluginRoot = Path.Combine(root, "Plugin");
         Directory.CreateDirectory(pluginRoot);
         var transactionRoot = Path.Combine(pluginRoot, ".videoenhancer-install-" + Guid.NewGuid().ToString("N"));

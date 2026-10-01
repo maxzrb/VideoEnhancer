@@ -43,6 +43,7 @@ internal static class Program
     private const string EmbeddedInterpolationInspectorResource = "VideoEnhancer.Embedded.inspect_interpolation_models.py";
     private const string EmbeddedUpscaleInspectorResource = "VideoEnhancer.Embedded.inspect_upscale_models.py";
     private const string EmbeddedRifeTensorRTPrepareResource = "VideoEnhancer.Embedded.prepare_rife_tensorrt.py";
+    private const string EmbeddedTensorRTConverterResource = "VideoEnhancer.Embedded.convert_tensorrt.py";
     private const string EmbeddedImageBackendResource = "VideoEnhancer.Embedded.rve-image-backend.py";
     private const string EmbeddedSegmentedBackendResource = "VideoEnhancer.Embedded.rve-segmented-backend.py";
     private const int InterpolationCapabilityCacheVersion = 1;
@@ -1177,7 +1178,7 @@ internal static class Program
             }
             else
             {
-                model = ResolveModel(o.Model, o.Backend);
+                model = ResolveModelWithTensorRtOutputScalePreset(o.Model, o.Backend, out var tensorRtPresetScale);
                 if (model.Length == 0)
                 {
                     return 1;
@@ -1189,6 +1190,10 @@ internal static class Program
                         return Fail("-scale 必须是大于 0 的整数，当前值：" + o.ScaleOverride);
                     }
                     requestedScale = requestedScaleValue.ToString(CultureInfo.InvariantCulture);
+                }
+                else if (tensorRtPresetScale > 0)
+                {
+                    requestedScale = tensorRtPresetScale.ToString(CultureInfo.InvariantCulture);
                 }
                 else
                 {
@@ -1705,6 +1710,7 @@ internal static class Program
             InstallEmbeddedBackendScript(EmbeddedInterpolationInspectorResource, InterpolationInspectorScript);
             InstallEmbeddedBackendScript(EmbeddedUpscaleInspectorResource, UpscaleInspectorScript);
             InstallEmbeddedBackendScript(EmbeddedRifeTensorRTPrepareResource, RifeTensorRTPrepareScript);
+            InstallEmbeddedBackendScript(EmbeddedTensorRTConverterResource, TensorRTConverterScript);
             InstallEmbeddedBackendScript(EmbeddedImageBackendResource, ImageBackendScript);
             InstallEmbeddedBackendScript(EmbeddedSegmentedBackendResource, SegmentedBackendScript);
             EnsureGmfssModelTypeCompatibility();
@@ -2203,7 +2209,7 @@ internal static class Program
             return Fail("图片处理需要 --image-output <文件夹>，或使用 --image-output-original");
         }
 
-        var model = ResolveModel(o.Model, o.Backend);
+        var model = ResolveModelWithTensorRtOutputScalePreset(o.Model, o.Backend, out var tensorRtImagePresetScale);
         if (model.Length == 0) return 1;
         if (o.Backend == "tensorrt")
         {
@@ -2213,7 +2219,9 @@ internal static class Program
             var (width, height) = GetInputResolution(firstInput);
             if (width <= 0 || height <= 0)
                 return Fail("TensorRT 无法探测输入图片尺寸：" + firstInput, 1);
-            var imageScale = DetectScale(model);
+            var imageScale = tensorRtImagePresetScale > 0
+                ? tensorRtImagePresetScale.ToString(CultureInfo.InvariantCulture)
+                : DetectScale(model);
             var imageScaleValue = int.TryParse(imageScale, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedImageScale)
                 ? parsedImageScale
                 : 0;
@@ -2465,6 +2473,31 @@ internal static class Program
 
     private static string BasicVsrPlusPlusScale(string path) =>
         IsBasicVsrPlusPlusModelDirectory(path) ? "1" : "4";
+
+    private static string ResolveModelWithTensorRtOutputScalePreset(string requested, string backend, out int presetScale)
+    {
+        presetScale = 0;
+        if (backend == "tensorrt"
+            && TryResolveTensorRtOutputScalePreset(requested, out var sourceRequest, out var scale))
+        {
+            requested = sourceRequest;
+            presetScale = scale;
+        }
+        return ResolveModel(requested, backend);
+    }
+
+    private static bool TryResolveTensorRtOutputScalePreset(string requested, out string sourceRequest, out int scale)
+    {
+        sourceRequest = requested;
+        scale = 0;
+        if (string.IsNullOrWhiteSpace(requested)) return false;
+        var match = Regex.Match(requested.Replace('\\', '/').Trim(),
+            @"^(?<source>.*realesr-animevideov3)-(?<scale>[234])x$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success) return false;
+        sourceRequest = match.Groups["source"].Value;
+        return int.TryParse(match.Groups["scale"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out scale);
+    }
 
     /// <summary>优先查询内置能力清单；未知模型才从文件名保守解析倍率。</summary>
     private static string? DetectScale(string modelFolder)
@@ -4298,9 +4331,11 @@ internal static class Program
             {
                 if (checkedBackends.Add(backend) && !RunCheck(verbose: false, backend: backend))
                     return 1;
-                model = ResolveModel(model, backend);
+                model = ResolveModelWithTensorRtOutputScalePreset(model, backend, out var tensorRtSegmentPresetScale);
                 if (model.Length == 0) return 1;
-                var scaleText = DetectScale(model);
+                var scaleText = tensorRtSegmentPresetScale > 0
+                    ? tensorRtSegmentPresetScale.ToString(CultureInfo.InvariantCulture)
+                    : DetectScale(model);
                 if (!int.TryParse(scaleText, NumberStyles.Integer, CultureInfo.InvariantCulture, out modelScale) || modelScale < 1)
                     return Fail($"第 {index + 1} 段无法识别模型倍率：{segment.Model}");
                 if (fixedScale == 0)
@@ -5965,6 +6000,24 @@ internal static class Program
             var purpose = user?.Purpose ?? (interpolation ? "Interpolation" : "SR");
             var scale = user?.Scale ?? builtIn?.Scale ?? (int.TryParse(DetectScale(path), out var detected) ? detected : 0);
             var backends = user?.Backends ?? builtIn?.Backends ?? [backend];
+            if (!interpolation && backend == "tensorrt" && user is null
+                && Path.GetFileNameWithoutExtension(path).Equals("realesr-animevideov3", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var outputScale in new[] { 2, 3, 4 })
+                {
+                    entries.Add(new ModelListCatalogEntry
+                    {
+                        Id = id + "-" + outputScale.ToString(CultureInfo.InvariantCulture) + "x",
+                        DisplayName = ModelBaseName(path) + "-" + outputScale.ToString(CultureInfo.InvariantCulture) + "x",
+                        Architecture = architecture,
+                        Purpose = purpose,
+                        Scale = outputScale,
+                        Source = builtIn is not null ? "builtin" : "discovered",
+                        Backends = backends,
+                    });
+                }
+                continue;
+            }
             entries.Add(new ModelListCatalogEntry
             {
                 Id = id,

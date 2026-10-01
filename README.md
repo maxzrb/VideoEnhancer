@@ -33,7 +33,7 @@ VideoEnhancer 是一个面向 Windows 的视频增强工具，作为 3FUI 插件
 VideoEnhancer-<version>-win-x64.exe
 VideoEnhancerInstaller-<version>-win-x64.exe
 VideoEnhancer-<version>-manual-install.zip
-aria2-next-2.5.6-source.tar.gz
+aria2-next-2.8.3-source.tar.gz
 stable.json
 ```
 
@@ -55,7 +55,7 @@ stable.json
 
 1. 安装或准备可运行的 3FUI。
 2. 从 GitHub Release 下载 `VideoEnhancerInstaller-<version>-win-x64.exe`。
-3. 双击安装程序，点击“选择目录”，选中包含 `FFmpegFreeUI.exe` 的 3FUI 根目录，然后点击“安装”。
+3. 双击安装程序，在命令行输入 `Y` 并按 Enter，选择 3FUI 主程序（允许重命名）。安装器自动释放插件、运行 EXE、aria2-next 和许可证；随后可确认创建 `models`、`python`、`bin` 核心目录。
 4. 启动 3FUI，打开「视频超分」插件页面。
 5. 在模型下载页刷新远端清单，按当前后端下载需要的模型和运行环境。
 
@@ -108,6 +108,8 @@ Plugin\
 | FlashVSR | 支持 | 不作为通用补帧后端 | 使用完整 FlashVSR 模型目录 |
 | BasicVSR++ | 支持（时序） | 不支持组合 | 使用 BasicVSR++ REDS4 时序模型，与运动补帧互斥 |
 | RTX VSR (NVIDIA RTX Video) | 支持 | 不作为补帧后端 | NVIDIA NGX 硬件超分，输出按扩展名直连最终容器，需 RTX 20 系及以上 |
+
+TensorRT 下的 `realesr-animevideov3` 提供 2x、3x、4x 三种模型预设，均复用同一 PTH 权重；2x/3x 会在 Engine 中加入最终 bicubic 缩放。视频、图片和分段任务使用各自倍率的独立 Engine 缓存。
 
 TensorRT 不依赖远端预置 Engine。任务启动时会根据当前视频和设备配置生成或复用本地 Engine。没有 NVIDIA/TensorRT 环境时，应选择 NCNN 或其他可用后端。
 
@@ -233,7 +235,7 @@ dotnet publish .\VideoEnhancer.slnx -c Release `
 
 `HostBin` 也可以通过环境变量 `VIDEOENHANCER_HOST_BIN` 设置。若仓库与
 `FFmpegFreeUI` 并列放置，项目会优先自动发现相邻的 Release、其次 Debug 输出。
-解决方案发布会生成图形安装程序、运行 EXE 和手动安装 ZIP，并放在仓库根目录的 `Artifacts`：
+解决方案发布会生成命令行确认的便携安装程序、运行 EXE 和手动安装 ZIP，并放在仓库根目录的 `Artifacts`：
 
 ```text
 Artifacts\
@@ -243,7 +245,7 @@ Artifacts\
 ```
 
 `VideoEnhancer.zip` 已包含手动安装所需的插件 DLL、纯运行版 CLI EXE、独立
-`aria2-next`、许可证、来源说明和安装说明。解决方案发布会从上游 v2.5.6
+`aria2-next`、许可证、来源说明和安装说明。解决方案发布会从上游 v2.8.3
 Release 获取 `aria2-next`，SHA-256 不等于项目文件中锁定的值时立即失败；二进制
 不再提交到 Git，也不再作为 .NET 嵌入资源。
 如果只需要未改名的 CLI 单文件，可执行
@@ -324,7 +326,7 @@ VideoEnhancer 项目源码采用 [MIT 许可证](LICENSE)，保留原作者及�
 
 3FUI 宿主、aria2-next、SharpCompress、RVE 后端、预训练权重、FFmpeg 和 Python 依赖分别使用各自的许可证。模型权重的许可条件请查看对应项目说明。
 
-安装后的 `THIRD-PARTY-NOTICES.txt` 汇总本体直接分发的第三方组件。`aria2-next` 的 GPLv2 全文、作者与贡献者声明、二进制 SHA-256、上游标签/提交和对应源码地址位于 `licenses\aria2-next`；SharpCompress 的 MIT 许可证位于 `licenses\SharpCompress`。也可运行 `videoenhancer.exe --third-party-notices` 查看内嵌托管组件的声明。正式发布脚本会校验并同时上传 `aria2-next-2.5.6-source.tar.gz`。
+安装后的 `THIRD-PARTY-NOTICES.txt` 汇总本体直接分发的第三方组件。`aria2-next` 的 GPLv2 全文、作者与贡献者声明、静态依赖许可证、二进制 SHA-256、上游标签/提交和对应源码地址位于 `licenses\aria2-next`；SharpCompress 的 MIT 许可证位于 `licenses\SharpCompress`。也可运行 `videoenhancer.exe --third-party-notices` 查看内嵌托管组件的声明。构建会生成并校验 `aria2-next-2.8.3-source.tar.gz`，正式发布脚本会将其同时上传；归档包含依赖源码和构建配置。
 
 RTX 运行组件包（模型仓库 `Bin/rtx-video`）包含基于 MIT 许可 sidecar 的定制构建、LGPL 动态链接的 FFmpeg 共享库，以及 NVIDIA 专有的 `nvngx_*.dll` 运行库；后者按 NVIDIA RTX Video SDK 许可随显卡环境使用，公开再分发前请自行完成许可复核。
 

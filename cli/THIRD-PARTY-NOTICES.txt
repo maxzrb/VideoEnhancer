@@ -4,7 +4,7 @@ VideoEnhancer 第三方组件声明
 发行包包含以下第三方组件。VideoEnhancer 项目源码采用 MIT 许可证，
 第三方组件按各自许可证分发。
 
-aria2-next 2.5.6
+aria2-next 2.8.3
 ----------------
 
 用途：作为独立命令行下载程序安装到 bin/aria2-next/aria2-next.exe。
@@ -13,6 +13,11 @@ aria2-next 2.5.6
 完整许可证：licenses/aria2-next/COPYING
 作者与贡献者声明：licenses/aria2-next/AUTHORS
 精确版本、二进制校验值和对应源码：licenses/aria2-next/SOURCE.txt
+静态依赖许可证：licenses/aria2-next/DEPENDENCY-LICENSES.txt
+
+首次安装器把 aria2-next 附加为安装载荷并释放到 bin/aria2-next；安装后的运行
+EXE 通过独立进程调用该组件。同版完整源码归档作为独立构建产物随发行包发布，
+包含 third_party 依赖源码和上游构建配置。
 
 SharpCompress 0.50.3
 --------------------

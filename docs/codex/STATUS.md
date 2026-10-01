@@ -1,9 +1,11 @@
 # Project Status
 
-Last updated: 2026-09-30 18:57
+Last updated: 2026-10-01 10:30
 Updated by: Codex
 
 ## Current Snapshot
+
+- Latest upstream/local integration (2026-10-01 10:30): 以 origin/main `ef7bee8`（1.3.7）为基线，确认上游尚未提供 realesr-animevideov3 TensorRT 2x/3x/4x 预设；本机原有两文件修改先保存为 `backup/local-trt-installer-20261001` / `e7f9276`，再在 `feat/trt-portable-aria2-20261001` 局部适配上游。保留控制台 Y 确认、选择可改名 3FUI EXE、可选核心目录初始化的安装模式，继续使用上游载荷校验和事务回滚。TRT 预设覆盖视频、图片与分段；转换器内嵌，图片后端补识别 Engine 缓存的 `__scale-N`。aria2-next 升至官方 2.8.3，二进制/源码固定 SHA-256，补充依赖许可证与源码构建材料。Release publish 无警告/错误；Python 37/37、Backend 更新器 6/6、历史补丁 5/5、发布门禁 5/5、安装器/自更新/倍率预设门禁通过。RTX 4070 Laptop 实测 64×48 输入的视频和 PNG 在 2x/3x/4x 下分别输出 128×96、192×144、256×192；视频均保留 2 帧，3x TRT + FFmpeg 分段拼接同样通过。指定本机安装目录已更新 DLL/EXE/下载器和 GPL 材料，安装哈希一致；Backend 经官方增量链更新至 2026.09.30.1，模型、Python 包和配置保留。原安装备份位于安装目录 `.work/backups/20261001-before-upstream-sync`。代码 `da5aceb` 已推送 user-Wing/VideoEnhancer-fork，向 maxzrb/main 创建 PR #8（OPEN / MERGEABLE）；收尾记录随该分支提交推送。版本保持 1.3.7，不改已发布 Release、标签或线上 Backend 通道；未启动 3FUI 做新增目视验收。
 
 - Release 1.3.7 completed (2026-09-30 18:57): 用户实机确认教程图片滚动后似乎正常并授权发布。源码/版本/Notes 提交 e634869 已推送 origin/main，注释标签 v1.3.7 指向该提交；GitHub 正式 Release、ModelScope Releases 及 Models 备用 EXE 已上传。EXE、安装器、ZIP、GPL 对应源码和 stable.json 共五项；Release Notes 末尾保留大字号安装器提示。Backend 2026.09.30.1 的 29,709 文件同目录审计 UNCHANGED，未重传 3 GB 包；线上 channel latestVersion=2026.09.30.1、patches=2 不变。Release publish 0 警告/0 错误；Python 33/33、发布门禁 5/5、后端更新器 6/6、后端历史 5/5、安装器和自更新门禁通过。ModelScope 五项及 Models 备用 EXE 实际下载哈希与本地一致，GitHub stable.json 和 GPL 源码包实际下载哈希一致，GitHub 三个大资产的 API digest/大小与本地一致；GitHub CDN 实际下载大资产持续超时，需后续网络恢复再补充实际下载校验。双源 stable.json 版本/路径/大小/哈希和 GitHub Notes 已核对一致。本机 3FUI 未运行时已安装 1.3.7 DLL/EXE，备份在 Artifacts/.refactor-tmp/backup-3fui-before-1.3.7-release-20260930-185708，安装哈希与构建源一致；EXE --version=1.3.7。版本记录、STATUS 和中文进度已提交推送，当前 main 与 origin/main 同步、工作树干净；真实用户升级后仍需观察教程滚动。
 
@@ -526,6 +528,8 @@ Updated by: Codex
 
 ## Environment Notes
 
+- Latest verified environment (2026-10-01): 本轮在 ARXChem 设备执行，仓库 `C:\Users\ARXChem\Documents\Open Source Projects\VideoEnhancer`，安装目标 `C:\PortableSoft\FFmpegFreeUI ReadyToRun x64\plugin\videoenhancer`，GPU 为 RTX 4070 Laptop；使用 .NET 10 SDK 与已验证的本机宿主程序集缓存（LakeUI 5.108.0.0）构建，GitHub CLI 登录 user-Wing。以下为此前维护设备的历史记录，不能直接复用其路径、GPU 或账号假设。
+
 - Current known environment: Windows PowerShell，工作区 `C:\Codex Program\3fui plugin`；Git 2.55.0、.NET SDK 10.0.400、系统 Python 3.14.6、uv Python 3.13.14、FFmpeg 8.1.2、GitHub CLI 2.93.0、ModelScope CLI 1.39.1。
 - GPU: NVIDIA GeForce RTX 3060 Laptop GPU，驱动 610.88，显存 6144 MiB。3FUI 插件目录已具备当前 Python 后端和补帧模型；已完成短样本 RIFE heavy 与 GMFSS Base CUDA 实际推理，TensorRT 和完整视频仍待验证。
 - 3FUI: 安装路径 `C:\Program portable\3FUI`，版本 6.1.39（commit `642ddf4`）；实际插件目录为 `C:\Program portable\3FUI\plugin`，开发程序集缓存位于 `%LocalAppData%\VideoEnhancerDev\FFmpegFreeUI.6.1.39.extracted`，当前插件源码编译通过。
@@ -570,13 +574,13 @@ Updated by: Codex
 ## Git Sync
 
 - Git repository: 根目录 yes
-- Branch: `main`，跟踪 `fork/main`
-- Last known commit: `30bf203 docs: record 1.1.2 release`
-- Remote topology: `fork=https://github.com/maxzrb/VideoEnhancer.git`；`origin=https://github.com/user-Wing/VideoEnhancer.git`。
-- Upstream relation: `main` 跟踪独立维护线 `fork/main`；本次仅快进同步 `fork/main`，未合并或推送原作者 `origin`。
-- Uncommitted changes: `VideoEnhancerPlugin/PluginPanel.vb`、`docs/openmodeldb-rve-support-audit.md`（未跟踪）、`docs/codex/STATUS.md`、`version/工作进度.md`。
-- Working tree clean: no；运行代码已与 `fork/main` 同步，模型菜单改动、审计文件和 HandShake 记录待提交。
-- Commit recommended before switching agents/devices: yes；建议真实 3FUI 回归后审核并将本次源码与记录作为提交推送到 `fork/main`。
+- Branch: `feat/trt-portable-aria2-20261001`，跟踪 `fork/feat/trt-portable-aria2-20261001`。
+- Code commit: `da5aceb fix: preserve TensorRT presets and portable installer; update aria2-next`；本节与中文进度为随后提交的收尾记录。
+- Remote topology: `origin=https://github.com/maxzrb/VideoEnhancer.git`；`fork=https://github.com/user-Wing/VideoEnhancer-fork.git`。
+- Upstream relation: 本轮分支基于 origin/main `ef7bee8`，通过 https://github.com/maxzrb/VideoEnhancer/pull/8 提交；未直接推送 maxzrb/main 或 user-Wing 原仓库 main。
+- User changes preserved: 原未提交的 TRT/安装模式改动保存于备份分支 `backup/local-trt-installer-20261001` / `e7f9276`。
+- Working tree clean: 收尾记录提交推送后保持干净；构建产物、对应源码包、模型缓存和实测日志均未加入 Git。
+- Next: 等待上游审核 PR #8；没有发布新版本或覆写现有 Release。
 
 ## Session Log
 
@@ -2628,3 +2632,11 @@ Append new entries below this line. Use `YYYY-MM-DD HH:MM` so same-day work rema
 - Changes/Git: 插件和 CLI 版本升 1.3.7，Release Notes 改为在线教程、图片缓存和五代后端增量链，保留安装器下载标题及运行 EXE/安装器/手动 ZIP 三产物。代码与 Notes 提交 e634869 已推送 origin/main；Git 标签 v1.3.7 指向该提交。GitHub Release 正式发布，ModelScope Releases 和 Models 备用 EXE 同步。仅本机 3FUI 的 DLL/EXE 已更新，备份至 Artifacts/.refactor-tmp/backup-3fui-before-1.3.7-release-20260930-185708，安装哈希与构建源一致，EXE --version=1.3.7。
 - Verification: dotnet publish 0 警告/0 错误；Python 33/33、release gates 5/5、Backend updater 6/6、Backend history 5/5、安装器/自更新门禁通过。Backend 2026.09.30.1 目标目录 29,709 文件同目录审计 UNCHANGED，未重传 3.07 GB；线上 channel 保持 latestVersion 2026.09.30.1、2 条补丁。GitHub Release 非 draft/非 prerelease，五资产大小和 API digest 与本地一致；GitHub stable.json 和 GPL 源码包实际下载哈希一致。ModelScope 四资产、stable.json 及 Models 备用 EXE 实际下载哈希均与本地一致，三份 stable.json 内容和 GitHub Notes 均核对一致。
 - Limitation/next: GitHub 大资产经 gh release download 与资产 API 下载均在 CDN 连接超时，故三项大文件的 GitHub 端仅通过 API digest/大小核验，待网络恢复可补实际下载校验。原教程一张作者本地路径图片无法展示；用户实机尚需继续观察滚动。版本记录、STATUS 和中文进度收尾更改待提交推送。
+
+### 2026-10-01 10:30 - Codex
+
+- Request/orientation: 用户要求拉取 maxzrb 新版，核对并合入本机 realesr-animevideov3 TRT 倍率修复，保留本机安装模式，匹配更新指定本机 Backend，升级 aria2-next 并补 GPL 材料，最后提交上游 PR。读取根 README、AGENTS、INDEX、STATUS 与发布流程；原 main 为 e3ab8fd，CLI 两文件有用户修改。先保存备份提交 e7f9276，再 fetch 最新 origin/main ef7bee8；对照新拆分模块手工局部适配，不覆写本机改动。
+- Changes: Program.cs 增加 TRT 2/3/4x 预设与视频/图片/分段解析；内嵌本机修复的 convert_tensorrt.py，把原生 4x 到 2x/3x 的最终 bicubic 映射放进 Engine。实际图片测试暴露新版缓存文件名倍率识别失败，rve-image-backend.py 补 `__scale-N` 解析及 4 项回归。InstallerManager/Bundle 保留控制台确认和可改名主程序选择，同时沿用上游完整安装载荷与回滚；构建不再包装 WiX/Burn。aria2-next 2.8.3 官方二进制和同版源码固定哈希，保留 COPYING/AUTHORS 并补静态依赖许可证、来源/构建说明；构建生成源码归档供发布流程同步。README、CLI README、发布流程与专项测试同步更新。
+- Backend/deployment: 安装目录先备份 EXE/DLL、下载器、许可证、Backend 与版本标记至 `.work/backups/20261001-before-upstream-sync`。原标记为 09.12、部分桥脚本已是新版，先用校验后的官方 09.19 桥文件协调基线，再通过现有事务入口应用 09.12→09.19→09.30 两段官方补丁；自定义转换器未被官方补丁覆盖。当前 --backend-status 返回 current / 2026.09.30.1。最终安装器部署 DLL/EXE、aria2-next 2.8.3 和许可证；EXE SHA-256 A375FFC71732A9352A54A2068DE74042D8A3B147A550422C59CC650AFF2814F5、DLL 443FE522BF0B3C6A5282D0B4301B59FEAC3806F7A9337FFC4BCC39F2367724E0 与构建产物一致。模型权重、Python 包和配置保留；验证产生的 Engine 缓存及日志保存在安装目录。
+- Verification: dotnet publish VideoEnhancer.slnx -c Release 使用本机已验证 HostBin 成功且无警告/错误；Python 37/37；test-installer（哈希/许可/取消/改名主程序/故障回滚）、test-tensorrt-presets（解析/目录/CUDA 不变/缓存隔离）、test-updater -Version 1.3.7 通过；Backend updater 6/6、history 5/5、release gates 5/5。最终安装程序在 RTX 4070 Laptop GPU 上对 64×48 测试视频与图片执行 2/3/4x，分别输出 128×96、192×144、256×192，视频均为 2 帧；另测 3x TRT 与 FFmpeg bicubic 分段拼接 192×144 / 2 帧。aria2 实际下载通道文件与独立下载的 SHA-256 一致，COPYING/AUTHORS 与官方源码文本一致。日志在 `.work/verification/20261001-upstream-sync`。git diff --check 与暂存差异检查均通过。
+- Git/next: 代码 da5aceb 已推送 fork/feat/trt-portable-aria2-20261001，PR https://github.com/maxzrb/VideoEnhancer/pull/8 已创建并挂接本任务，回读 OPEN / MERGEABLE；收尾记录随后在同分支提交推送。版本沿用上游 1.3.7，没有新 Release、标签或线上 Backend 发布。未启动 3FUI；本轮没有修改插件 UI 代码，新增目视验收留给用户。

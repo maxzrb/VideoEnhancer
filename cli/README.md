@@ -32,7 +32,7 @@ dotnet publish .\VideoEnhancer.slnx -c Release `
 ```
 
 `HostBin` 可改用环境变量 `VIDEOENHANCER_HOST_BIN`；相邻 FFmpegFreeUI
-Release/Debug 输出也会被自动发现。解决方案发布会构建插件、CLI 和图形安装程序；在仓库根目录的 `Artifacts` 中生成
+Release/Debug 输出也会被自动发现。解决方案发布会构建插件、CLI 和命令行确认的便携安装程序；在仓库根目录的 `Artifacts` 中生成
 `videoenhancer.exe`、`VideoEnhancerInstaller.exe` 和包含 DLL、EXE 与安装说明的
 `VideoEnhancer.zip`。作为 3FUI 插件使用时，ZIP 内的程序放在
 `Plugin\videoenhancer` 中运行，并与 `bin\`、`python\`、`models\` 同级。

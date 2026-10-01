@@ -28,6 +28,10 @@ def model_scale(path: Path) -> int:
     if path.is_file() and "basicvsr" in path.name.lower() and path.suffix.lower() == ".pth":
         return 4
     name = path.stem.lower()
+    if path.suffix.lower() == ".engine":
+        match = re.search(r"__scale-(\d+)(?:__|$)", name)
+        if match:
+            return int(match.group(1))
     match = re.search(r"(?:^|[_-])(\d+)x(?:[_-]|$)|(?:^|[_-])x(\d+)(?:[_-]|$)", name)
     if match:
         return int(match.group(1) or match.group(2))

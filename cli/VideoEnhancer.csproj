@@ -47,17 +47,19 @@
     <Aria2NextLicensePath>$(MSBuildProjectDirectory)\third-party\aria2-next\COPYING</Aria2NextLicensePath>
     <Aria2NextAuthorsPath>$(MSBuildProjectDirectory)\third-party\aria2-next\AUTHORS</Aria2NextAuthorsPath>
     <Aria2NextSourcePath>$(MSBuildProjectDirectory)\third-party\aria2-next\SOURCE.txt</Aria2NextSourcePath>
+    <Aria2NextDependencyLicensesPath>$(MSBuildProjectDirectory)\third-party\aria2-next\DEPENDENCY-LICENSES.txt</Aria2NextDependencyLicensesPath>
     <SharpCompressLicensePath>$(MSBuildProjectDirectory)\third-party\SharpCompress\LICENSE.txt</SharpCompressLicensePath>
   </PropertyGroup>
 
   <PropertyGroup Label="Third-party components">
     <!-- aria2-next 作为独立 GPL 组件安装，不再嵌入 videoenhancer.exe。 -->
-    <Aria2NextVersion>2.5.6</Aria2NextVersion>
+    <Aria2NextVersion>2.8.3</Aria2NextVersion>
     <Aria2NextDownloadUrl>https://github.com/AnInsomniacy/aria2-next/releases/download/v$(Aria2NextVersion)/aria2-next-$(Aria2NextVersion)-windows-x86_64.exe</Aria2NextDownloadUrl>
-    <Aria2NextSha256>1D86C1AD76384F0DD5AD459D5B0CC302FFCC8D12346660307DCD3F2D78BCF25D</Aria2NextSha256>
-    <Aria2NextSourceSha256>0A1E324CC8DDAE583E3D3B18411594EE24F24D210EE7216CF11872E3454CCB72</Aria2NextSourceSha256>
+    <Aria2NextSha256>08AFAF2A44811D38E7CE538DA719AB06D6925BCAAD1231EE7B92C497F58E5AAC</Aria2NextSha256>
+    <Aria2NextSourceSha256>420E31256B5E29DE6AB9B295423ED29431494527B4FDC9AFB3946DFF4A73EAF7</Aria2NextSourceSha256>
     <Aria2NextCacheDirectory>$(MSBuildProjectDirectory)\obj\third-party\aria2-next\$(Aria2NextVersion)</Aria2NextCacheDirectory>
     <Aria2NextExecutablePath>$(Aria2NextCacheDirectory)\aria2-next.exe</Aria2NextExecutablePath>
+    <Aria2NextSourceArchivePath>$(Aria2NextCacheDirectory)\aria2-next-$(Aria2NextVersion)-source.tar.gz</Aria2NextSourceArchivePath>
   </PropertyGroup>
 
   <ItemGroup Label="Project references">
@@ -90,6 +92,8 @@
                       LogicalName="VideoEnhancer.Embedded.inspect_upscale_models.py" />
     <EmbeddedResource Include="embedded-tools\prepare_rife_tensorrt.py"
                       LogicalName="VideoEnhancer.Embedded.prepare_rife_tensorrt.py" />
+    <EmbeddedResource Include="embedded-tools\convert_tensorrt.py"
+                      LogicalName="VideoEnhancer.Embedded.convert_tensorrt.py" />
     <EmbeddedResource Include="embedded-tools\rve-image-backend.py"
                       LogicalName="VideoEnhancer.Embedded.rve-image-backend.py" />
     <EmbeddedResource Include="embedded-tools\rve-segmented-backend.py"
@@ -111,6 +115,8 @@
            Text="缺少 aria2-next 作者声明：$(Aria2NextAuthorsPath)" />
     <Error Condition="!Exists('$(Aria2NextSourcePath)')"
            Text="缺少 aria2-next 对应源码说明：$(Aria2NextSourcePath)" />
+    <Error Condition="!Exists('$(Aria2NextDependencyLicensesPath)')"
+           Text="缺少 aria2-next 依赖许可证：$(Aria2NextDependencyLicensesPath)" />
     <Error Condition="!Exists('$(SharpCompressLicensePath)')"
            Text="缺少 SharpCompress 许可证：$(SharpCompressLicensePath)" />
   </Target>
@@ -129,6 +135,15 @@
     </GetFileHash>
     <Error Condition="'%(_Aria2NextWithHash.FileHash)' != '$(Aria2NextSha256)'"
            Text="aria2-next v$(Aria2NextVersion) 校验失败：期望 $(Aria2NextSha256)，实际 %(_Aria2NextWithHash.FileHash)。" />
+    <DownloadFile SourceUrl="https://github.com/AnInsomniacy/aria2-next/archive/refs/tags/v$(Aria2NextVersion).tar.gz"
+                  DestinationFolder="$(Aria2NextCacheDirectory)"
+                  DestinationFileName="aria2-next-$(Aria2NextVersion)-source.tar.gz"
+                  SkipUnchangedFiles="true" Retries="3" />
+    <GetFileHash Files="$(Aria2NextSourceArchivePath)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_Aria2NextSourceWithHash" />
+    </GetFileHash>
+    <Error Condition="'%(_Aria2NextSourceWithHash.FileHash)' != '$(Aria2NextSourceSha256)'"
+           Text="aria2-next 对应源码校验失败：%(_Aria2NextSourceWithHash.FileHash)" />
   </Target>
 
   <Target Name="ValidateEmbeddedPlugin"
@@ -166,6 +181,7 @@
     <MakeDir Directories="$(ArtifactsDirectory)" />
     <Copy SourceFiles="$(PublishedExecutable)"
           DestinationFiles="$(RuntimeArtifactPath)" />
+    <Copy SourceFiles="$(Aria2NextSourceArchivePath)" DestinationFolder="$(ArtifactsDirectory)" />
     <RemoveDir Directories="$(ManualPackageStage)" />
     <RemoveDir Directories="$(InstallerPayloadStage)" />
     <MakeDir Directories="$(ManualPackageStage)\plugin\videoenhancer\bin\aria2-next;$(ManualPackageStage)\plugin\videoenhancer\licenses\aria2-next;$(ManualPackageStage)\plugin\videoenhancer\licenses\SharpCompress" />
@@ -185,6 +201,8 @@
           DestinationFiles="$(ManualPackageStage)\plugin\videoenhancer\licenses\aria2-next\AUTHORS" />
     <Copy SourceFiles="$(Aria2NextSourcePath)"
           DestinationFiles="$(ManualPackageStage)\plugin\videoenhancer\licenses\aria2-next\SOURCE.txt" />
+    <Copy SourceFiles="$(Aria2NextDependencyLicensesPath)"
+          DestinationFiles="$(ManualPackageStage)\plugin\videoenhancer\licenses\aria2-next\DEPENDENCY-LICENSES.txt" />
     <Copy SourceFiles="$(SharpCompressLicensePath)"
           DestinationFiles="$(ManualPackageStage)\plugin\videoenhancer\licenses\SharpCompress\LICENSE.txt" />
 
@@ -206,12 +224,14 @@
           DestinationFiles="$(InstallerPayloadStage)\plugin\videoenhancer\licenses\aria2-next\AUTHORS" />
     <Copy SourceFiles="$(Aria2NextSourcePath)"
           DestinationFiles="$(InstallerPayloadStage)\plugin\videoenhancer\licenses\aria2-next\SOURCE.txt" />
+    <Copy SourceFiles="$(Aria2NextDependencyLicensesPath)"
+          DestinationFiles="$(InstallerPayloadStage)\plugin\videoenhancer\licenses\aria2-next\DEPENDENCY-LICENSES.txt" />
     <Copy SourceFiles="$(SharpCompressLicensePath)"
           DestinationFiles="$(InstallerPayloadStage)\plugin\videoenhancer\licenses\SharpCompress\LICENSE.txt" />
     <MakeDir Directories="$(ArtifactsDirectory).installer" />
     <Delete Files="$(InstallerArtifactPath);$(PortablePayloadPath)" />
     <Exec Command="&quot;$(PublishedExecutable)&quot; --create-installer-bundle &quot;$(PublishedExecutable)&quot; &quot;$(PortablePayloadPath)&quot; &quot;$(InstallerPayloadStage)&quot;" />
-    <Exec Command="dotnet build &quot;$(VideoEnhancerRepositoryRoot)installer\Bundle\VideoEnhancer.Bundle.wixproj&quot; -c $(Configuration) -p:ProductVersion=$(Version) -p:PortablePayloadPath=&quot;$(PortablePayloadPath)&quot; -p:InstallerOutputDirectory=&quot;$(ArtifactsDirectory)&quot;" />
+    <Copy SourceFiles="$(PortablePayloadPath)" DestinationFiles="$(InstallerArtifactPath)" />
     <Error Condition="!Exists('$(InstallerArtifactPath)')"
            Text="便携安装器未生成预期文件：$(InstallerArtifactPath)" />
     <Message Importance="high" Text="便携插件安装程序：$(InstallerArtifactPath)" />

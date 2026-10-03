@@ -41,16 +41,17 @@ class RtxHdrAndQueueCompatibilityTests(unittest.TestCase):
         self.assertGreaterEqual(panel.count("ConfigureRtxHdrNumeric("), 4)
         self.assertIn("control.DecimalPlaces = 0", panel)
         self.assertIn("control.Editable = True", panel)
-        self.assertIn("control.Size = New Size(320, 34)", panel)
+        self.assertIn("control.Size = New Size(320, UiControlHeight)", panel)
         self.assertIn("control.ButtonAreaWidth = 1", panel)
         self.assertIn("control.DividerSize = 0", panel)
         self.assertIn("control.Padding = New Padding(10, 0, 10, 0)", panel)
         self.assertIn("_config.Enabled AndAlso _config.RtxHdrEnabled", panel)
-        self.assertIn("_rtxHdrContrastField, 744", panel)
-        self.assertIn("_rtxHdrMaxLuminanceField, 814", panel)
+        self.assertIn("_rtxHdrContrastField, 592, UiFieldHeight", panel)
+        self.assertIn("_rtxHdrMaxLuminanceField, 652, UiFieldHeight", panel)
         self.assertIn("Dim rootTop As Integer = root.Top", panel)
-        self.assertIn("root.SetBounds(rootLeft, rootTop, width, UpscaleContentHeight)", panel)
-        self.assertNotIn("root.SetBounds(0, 0, width, UpscaleContentHeight)", panel)
+        self.assertIn("Dim contentHeight = root.ScaleY(UpscaleContentHeight)", panel)
+        self.assertIn("root.SetBounds(rootLeft, rootTop, width, contentHeight)", panel)
+        self.assertNotIn("root.SetBounds(0, 0, width, contentHeight)", panel)
 
     def test_cli_validates_all_hdr_ranges_and_serializes_json_fields(self):
         program = (CLI / "Program.cs").read_text(encoding="utf-8-sig") + (

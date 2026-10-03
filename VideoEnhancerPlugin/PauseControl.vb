@@ -3,7 +3,6 @@ Imports System.Collections.Generic
 Imports System.IO.MemoryMappedFiles
 Imports System.Linq
 Imports System.Text.Json
-Imports FFmpegFreeUI
 
 Namespace videoenhancer
 
@@ -128,7 +127,7 @@ Namespace videoenhancer
             End SyncLock
         End Sub
 
-        Private Shared Function TryWriteForTask(task As 编码任务_v6, value As Byte) As Boolean
+        Private Shared Function TryWriteForTask(task As HostTask, value As Byte) As Boolean
             Dim shm = ExtractShmName(task)
             If String.IsNullOrEmpty(shm) Then
                 Return False
@@ -137,7 +136,7 @@ Namespace videoenhancer
         End Function
 
         ''' <summary>从任务命令行里提取 -pause-shm 后面的共享内存名。</summary>
-        Private Shared Function ExtractShmName(task As 编码任务_v6) As String
+        Private Shared Function ExtractShmName(task As HostTask) As String
             Try
                 Dim cmd = task.命令行
                 If String.IsNullOrWhiteSpace(cmd) Then
@@ -155,7 +154,7 @@ Namespace videoenhancer
             Return ""
         End Function
 
-        Private Shared Function FindTask(id As String) As 编码任务_v6
+        Private Shared Function FindTask(id As String) As HostTask
             Try
                 Return HostQueueAccess.FindTask(id)
             Catch ex As Exception

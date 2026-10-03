@@ -1,6 +1,6 @@
 using System.Collections;
 using System.Reflection;
-using System.Runtime.Loader;
+using VideoEnhancer.Testing;
 using System.Windows.Forms;
 
 partial class Program
@@ -19,7 +19,10 @@ partial class Program
     [STAThread]
     static void Main(string[] args)
     {
-        if (args.Length > 2 && args[2] == "--tooltips" && Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+        var mode = args.FirstOrDefault(arg => arg.StartsWith("--", StringComparison.Ordinal));
+        if (mode == "--dpi" || mode == "--scroll" || mode == "--appearance")
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        if (mode == "--tooltips" && Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
         {
             // STA 初始化占用窗口资源，先在新线程关联测试桌面再创建界面。
             Exception failure = null;
@@ -29,21 +32,34 @@ partial class Program
             if (failure != null) throw failure;
             return;
         }
-        if (args.Length > 2 && args[2] == "--tooltips") UseTestDesktop();
-        var root = Path.GetFullPath(args[0]);
-        var host = Path.GetFullPath(args[1]);
+        if (mode == "--tooltips") UseTestDesktop();
+        var root = RepositoryPaths.ResolveRoot(args.FirstOrDefault(arg => !arg.StartsWith("--", StringComparison.Ordinal)));
         var directory = Path.Combine(root, "Artifacts/model-audit/ui/Plugin");
         Directory.CreateDirectory(directory);
         var pluginPath = Path.Combine(directory, "videoenhancer.3fui.dll");
-        File.Copy(Path.Combine(root, "VideoEnhancerPlugin/bin/Release/net10.0-windows/videoenhancer.dll"), pluginPath, true);
-        AssemblyLoadContext.Default.Resolving += (context, name) =>
-        {
-            var path = Path.Combine(host, name.Name + ".dll");
-            if (!File.Exists(path)) path = Path.Combine("C:/Program portable/3FUI/3FUI", name.Name + ".dll");
-            return File.Exists(path) ? context.LoadFromAssemblyPath(path) : null;
-        };
+        File.Copy(Path.Combine(root, "VideoEnhancerPlugin/obj/plugin-artifact/videoenhancer.3fui.dll"), pluginPath, true);
         var assembly = Assembly.LoadFrom(pluginPath);
-        if (args.Length > 2 && args[2] == "--tooltips")
+        if (mode == "--host-runtime")
+        {
+            RunHostRuntimeChecks(assembly);
+            return;
+        }
+        if (mode == "--appearance")
+        {
+            RunAppearanceChecks(assembly);
+            return;
+        }
+        if (mode == "--scroll")
+        {
+            RunScrollChecks(assembly);
+            return;
+        }
+        if (mode == "--dpi")
+        {
+            RunDpiLayoutChecks(assembly);
+            return;
+        }
+        if (mode == "--tooltips")
         {
             RunTooltipChecks(assembly);
             return;

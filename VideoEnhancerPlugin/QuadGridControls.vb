@@ -23,7 +23,7 @@ Namespace videoenhancer
 
     ''' <summary>LakeUI 原生视频槽：图片由 ModernPanel.Image 渲染，子标签只负责交互与文本。</summary>
     Friend Class VideoSlotCard
-        Inherits ModernPanel
+        Inherits DpiLayoutPanel
 
         Private _filePath As String = ""
         Private ReadOnly _badge As New HtmlColorLabel()
@@ -110,12 +110,12 @@ Namespace videoenhancer
             ' ModernPanel 的基类构造函数可能在派生字段初始化前触发布局。
             If _badge Is Nothing OrElse _hint Is Nothing OrElse _fileName Is Nothing Then Return
             If Width <= 0 OrElse Height <= 0 Then Return
-            Dim pad = Math.Max(6, Width \ 45)
-            Dim imageHeight = Math.Max(28, CInt(Height * 0.62))
-            Dim badgeSize = Math.Max(24, Math.Min(32, Height \ 4))
-            _badge.Bounds = New Rectangle(pad + 4, pad + 4, badgeSize, badgeSize)
+            Dim pad = Math.Max(ScaleX(6), Width \ 45)
+            Dim imageHeight = Math.Max(ScaleY(28), CInt(Height * 0.62))
+            Dim badgeSize = Math.Max(ScaleY(24), Math.Min(ScaleY(32), Height \ 4))
+            _badge.Bounds = New Rectangle(pad + ScaleX(4), pad + ScaleY(4), badgeSize, badgeSize)
             _hint.Bounds = New Rectangle(pad, imageHeight, Math.Max(1, Width - pad * 2), Math.Max(1, Height - imageHeight - pad))
-            _fileName.Bounds = New Rectangle(pad + 2, imageHeight, Math.Max(1, Width - pad * 2 - 4), Math.Max(1, Height - imageHeight - pad))
+            _fileName.Bounds = New Rectangle(pad + ScaleX(2), imageHeight, Math.Max(1, Width - pad * 2 - ScaleX(4)), Math.Max(1, Height - imageHeight - pad))
             _badge.BringToFront()
             If _hint.Visible Then _hint.BringToFront() Else _fileName.BringToFront()
         End Sub

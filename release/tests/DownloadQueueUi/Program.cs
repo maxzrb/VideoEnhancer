@@ -1,6 +1,6 @@
 using System.Collections;
 using System.Reflection;
-using System.Runtime.Loader;
+using VideoEnhancer.Testing;
 using System.Windows.Forms;
 class Program {
  static BindingFlags f=BindingFlags.Instance|BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic;
@@ -9,13 +9,13 @@ class Program {
  static void Check(bool ok,string text){if(!ok)throw new Exception(text);Console.WriteLine("PASS "+text);}
  static void Wait(Func<bool> done){var end=DateTime.UtcNow.AddSeconds(20);while(!done()){Application.DoEvents();Thread.Sleep(10);if(DateTime.UtcNow>end)throw new Exception("UI probe timeout");}Application.DoEvents();}
  [STAThread] static int Main(string[] args){
-  if(args[0].StartsWith("--"))return Child(args);
-  var root=Path.GetFullPath(args[0]);var host=args[1];var probe=Path.Combine(root,"Artifacts/.refactor-tmp/download-queue-ui/fixture");
+  if(args.Length > 0 && args[0].StartsWith("--"))return Child(args);
+  var root=RepositoryPaths.ResolveRoot(args.FirstOrDefault());var probe=Path.Combine(root,"Artifacts/.refactor-tmp/download-queue-ui/fixture");
   var plugin=Path.Combine(probe,"Plugin");var core=Path.Combine(plugin,"videoenhancer");Directory.CreateDirectory(core);
-  File.Copy(Path.Combine(root,"VideoEnhancerPlugin/bin/Release/net10.0-windows/videoenhancer.dll"),Path.Combine(plugin,"videoenhancer.3fui.dll"),true);
+  File.Copy(Path.Combine(root,"VideoEnhancerPlugin/obj/plugin-artifact/videoenhancer.3fui.dll"),Path.Combine(plugin,"videoenhancer.3fui.dll"),true);
   foreach(var file in Directory.GetFiles(AppContext.BaseDirectory))File.Copy(file,Path.Combine(core,Path.GetFileName(file)),true);
-  File.Copy(Environment.ProcessPath!,Path.Combine(core,"videoenhancer.exe"),true);
-  AssemblyLoadContext.Default.Resolving+=(c,n)=>{var p=Path.Combine(host,n.Name+".dll");if(!File.Exists(p))p=Path.Combine("C:/Program portable/3FUI/3FUI",n.Name+".dll");return File.Exists(p)?c.LoadFromAssemblyPath(p):null;};
+  // 使用测试项目的 apphost，兼容 dotnet run 和 dotnet Probe.dll 两种启动方式。
+  File.Copy(Path.ChangeExtension(Assembly.GetExecutingAssembly().Location,".exe"),Path.Combine(core,"videoenhancer.exe"),true);
   var asm=Assembly.LoadFrom(Path.Combine(plugin,"videoenhancer.3fui.dll"));
   foreach(var mode in new[]{"success","failure","cancel","stop-install"}){
    var trace=Path.Combine(probe,mode+"-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(trace);

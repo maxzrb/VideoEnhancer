@@ -82,12 +82,53 @@ Namespace videoenhancer
         End Sub
     End Class
 
+    ''' <summary>记录框架实际缩放比例，供手动布局从 96 DPI 设计尺寸重新计算边界。</summary>
+    Friend Class DpiLayoutPanel
+        Inherits ModernPanel
+
+        Private _layoutScale As New SizeF(1.0F, 1.0F)
+
+        Friend ReadOnly Property LayoutScale As SizeF
+            Get
+                Return _layoutScale
+            End Get
+        End Property
+
+        Friend Function ScaleX(value As Integer) As Integer
+            Return CInt(Math.Round(value * CDbl(LayoutScale.Width)))
+        End Function
+
+        Friend Function ScaleY(value As Integer) As Integer
+            Return CInt(Math.Round(value * CDbl(LayoutScale.Height)))
+        End Function
+
+        Protected Overrides Sub ScaleControl(factor As SizeF, specified As BoundsSpecified)
+            ' 必须在基类触发布局之前更新比例；窗口拉伸不会调用 DPI 缩放。
+            ' WinForms 可能分开缩放位置与尺寸，只累计尺寸轴，避免同一轮缩放被计算两次。
+            _layoutScale = New SizeF(
+                LayoutScale.Width * If((specified And BoundsSpecified.Width) <> 0, factor.Width, 1.0F),
+                LayoutScale.Height * If((specified And BoundsSpecified.Height) <> 0, factor.Height, 1.0F))
+            MyBase.ScaleControl(factor, specified)
+        End Sub
+    End Class
+
+    Friend Module LayoutMeasurements
+        Friend Function MeasureTextWidth96(text As String, font As Font) As Integer
+            Using bitmap As New Bitmap(1, 1)
+                bitmap.SetResolution(96.0F, 96.0F)
+                Using measureGraphics = Graphics.FromImage(bitmap)
+                    Return CInt(Math.Ceiling(measureGraphics.MeasureString(text, font).Width))
+                End Using
+            End Using
+        End Function
+    End Module
+
     ''' <summary>
     ''' LakeUI 原生网格容器。它只计算子控件边界，不绘制任何内容，
     ''' 因此背景、滚动条和 GPU 表面仍由 ModernPanel 统一处理。
     ''' </summary>
     Friend Class ModernGridPanel
-        Inherits ModernPanel
+        Inherits DpiLayoutPanel
 
         Private NotInheritable Class Placement
             Public Property Column As Integer
@@ -153,7 +194,7 @@ Namespace videoenhancer
         End Sub
 
         Private Shared Function ResolveColumnSizes(styles As List(Of ColumnStyle), count As Integer,
-                                                   available As Integer) As Integer()
+                                                   available As Integer, scale As Single) As Integer()
             Dim actualCount = Math.Max(1, count)
             Dim sizes(actualCount - 1) As Integer
             Dim fixedTotal As Single = 0
@@ -161,7 +202,7 @@ Namespace videoenhancer
             For i As Integer = 0 To actualCount - 1
                 Dim style = If(i < styles.Count, styles(i), New ColumnStyle(SizeType.Percent, 100.0F / actualCount))
                 If style.SizeType = SizeType.Absolute Then
-                    fixedTotal += Math.Max(0, style.Width)
+                    fixedTotal += Math.Max(0, style.Width * scale)
                 ElseIf style.SizeType = SizeType.Percent Then
                     percentTotal += Math.Max(0, style.Width)
                 Else
@@ -174,7 +215,7 @@ Namespace videoenhancer
                 Dim style = If(i < styles.Count, styles(i), New ColumnStyle(SizeType.Percent, 100.0F / actualCount))
                 Dim size As Integer
                 If style.SizeType = SizeType.Absolute Then
-                    size = Math.Max(0, CInt(Math.Round(style.Width)))
+                    size = Math.Max(0, CInt(Math.Round(style.Width * scale)))
                 Else
                     Dim weight = If(style.SizeType = SizeType.Percent, Math.Max(0, style.Width), 1.0F)
                     size = If(percentTotal > 0, CInt(Math.Round(remaining * weight / percentTotal)), 0)
@@ -187,7 +228,7 @@ Namespace videoenhancer
         End Function
 
         Private Shared Function ResolveRowSizes(styles As List(Of RowStyle), count As Integer,
-                                                 available As Integer) As Integer()
+                                                 available As Integer, scale As Single) As Integer()
             Dim actualCount = Math.Max(1, count)
             Dim sizes(actualCount - 1) As Integer
             Dim fixedTotal As Single = 0
@@ -195,7 +236,7 @@ Namespace videoenhancer
             For i As Integer = 0 To actualCount - 1
                 Dim style = If(i < styles.Count, styles(i), New RowStyle(SizeType.Percent, 100.0F / actualCount))
                 If style.SizeType = SizeType.Absolute Then
-                    fixedTotal += Math.Max(0, style.Height)
+                    fixedTotal += Math.Max(0, style.Height * scale)
                 ElseIf style.SizeType = SizeType.Percent Then
                     percentTotal += Math.Max(0, style.Height)
                 Else
@@ -208,7 +249,7 @@ Namespace videoenhancer
                 Dim style = If(i < styles.Count, styles(i), New RowStyle(SizeType.Percent, 100.0F / actualCount))
                 Dim size As Integer
                 If style.SizeType = SizeType.Absolute Then
-                    size = Math.Max(0, CInt(Math.Round(style.Height)))
+                    size = Math.Max(0, CInt(Math.Round(style.Height * scale)))
                 Else
                     Dim weight = If(style.SizeType = SizeType.Percent, Math.Max(0, style.Height), 1.0F)
                     size = If(percentTotal > 0, CInt(Math.Round(remaining * weight / percentTotal)), 0)
@@ -226,8 +267,8 @@ Namespace videoenhancer
             If _placements Is Nothing OrElse _placements.Count = 0 Then Return
 
             Dim display = DisplayRectangle
-            Dim columns = ResolveColumnSizes(ColumnStyles, ColumnCount, display.Width)
-            Dim rows = ResolveRowSizes(RowStyles, RowCount, display.Height)
+            Dim columns = ResolveColumnSizes(ColumnStyles, ColumnCount, display.Width, LayoutScale.Width)
+            Dim rows = ResolveRowSizes(RowStyles, RowCount, display.Height, LayoutScale.Height)
             Dim columnOffsets(Math.Max(0, columns.Length - 1)) As Integer
             Dim rowOffsets(Math.Max(0, rows.Length - 1)) As Integer
             For i As Integer = 1 To columns.Length - 1
@@ -261,7 +302,7 @@ Namespace videoenhancer
 
     ''' <summary>固定/比例列布局，用于 LakeUI 控件之间的横向字段行。</summary>
     Friend Class ModernHorizontalPanel
-        Inherits ModernPanel
+        Inherits DpiLayoutPanel
 
         Private ReadOnly _columns As Single()
         Private ReadOnly _columnByControl As New Dictionary(Of Control, Integer)()
@@ -293,13 +334,13 @@ Namespace videoenhancer
             Dim fixedWidth As Single = 0
             Dim totalWeight As Single = 0
             For Each column In _columns
-                If column >= 0 Then fixedWidth += column Else totalWeight += -column
+                If column >= 0 Then fixedWidth += column * LayoutScale.Width Else totalWeight += -column
             Next
             Dim remaining = Math.Max(0.0F, availableWidth - fixedWidth)
             Dim widths(_columns.Length - 1) As Integer
             Dim used As Integer = 0
             For i As Integer = 0 To _columns.Length - 1
-                Dim width = If(_columns(i) >= 0, _columns(i),
+                Dim width = If(_columns(i) >= 0, _columns(i) * LayoutScale.Width,
                               If(totalWeight > 0, remaining * (-_columns(i)) / totalWeight, 0.0F))
                 If i = _columns.Length - 1 Then
                     widths(i) = Math.Max(0, availableWidth - used)

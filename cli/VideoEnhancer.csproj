@@ -31,17 +31,19 @@
 
   <PropertyGroup Label="Paths">
     <VideoEnhancerRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..'))\</VideoEnhancerRepositoryRoot>
-    <ArtifactsDirectory>$(VideoEnhancerRepositoryRoot)Artifacts\</ArtifactsDirectory>
+    <ArtifactsDirectory Condition="'$(ArtifactsDirectory)' == ''">$(VIDEOENHANCER_ARTIFACTS_DIR)</ArtifactsDirectory>
+    <ArtifactsDirectory Condition="'$(ArtifactsDirectory)' == ''">Artifacts</ArtifactsDirectory>
+    <ResolvedArtifactsDirectory>$([System.IO.Path]::GetFullPath('$(ArtifactsDirectory)', '$(VideoEnhancerRepositoryRoot)'))\</ResolvedArtifactsDirectory>
     <PluginProjectPath>$(VideoEnhancerRepositoryRoot)VideoEnhancerPlugin\VideoEnhancerPlugin.vbproj</PluginProjectPath>
     <!-- 安装布局的固定文件名；运行时代码也以这两个名称定位便携组件。 -->
     <PluginArtifactFileName>videoenhancer.3fui.dll</PluginArtifactFileName>
     <InstalledExecutableFileName>videoenhancer.exe</InstalledExecutableFileName>
     <PluginArtifactPath>$(VideoEnhancerRepositoryRoot)VideoEnhancerPlugin\obj\plugin-artifact\$(PluginArtifactFileName)</PluginArtifactPath>
     <ManualInstallReadmePath>$(MSBuildProjectDirectory)\manual-install-readme.txt</ManualInstallReadmePath>
-    <InstallerArtifactPath>$(ArtifactsDirectory)VideoEnhancerInstaller.exe</InstallerArtifactPath>
-    <PortablePayloadPath>$(ArtifactsDirectory).installer\VideoEnhancerPortablePayload.exe</PortablePayloadPath>
-    <RuntimeArtifactPath>$(ArtifactsDirectory)videoenhancer.exe</RuntimeArtifactPath>
-    <ManualPackagePath>$(ArtifactsDirectory)VideoEnhancer.zip</ManualPackagePath>
+    <InstallerArtifactPath>$(ResolvedArtifactsDirectory)VideoEnhancerInstaller.exe</InstallerArtifactPath>
+    <PortablePayloadPath>$(ResolvedArtifactsDirectory).installer\VideoEnhancerPortablePayload.exe</PortablePayloadPath>
+    <RuntimeArtifactPath>$(ResolvedArtifactsDirectory)videoenhancer.exe</RuntimeArtifactPath>
+    <ManualPackagePath>$(ResolvedArtifactsDirectory)VideoEnhancer.zip</ManualPackagePath>
     <ThirdPartyNoticePath>$(MSBuildProjectDirectory)\THIRD-PARTY-NOTICES.txt</ThirdPartyNoticePath>
     <ProjectLicensePath>$(VideoEnhancerRepositoryRoot)LICENSE</ProjectLicensePath>
     <Aria2NextLicensePath>$(MSBuildProjectDirectory)\third-party\aria2-next\COPYING</Aria2NextLicensePath>
@@ -64,9 +66,12 @@
   </PropertyGroup>
 
   <ItemGroup Label="Project references">
+    <!-- 插件仅作为构建先决项并内嵌 DLL，不参与 CLI 的目标框架匹配。 -->
     <ProjectReference Include="$(PluginProjectPath)"
                       Condition="'$(BuildingSolutionFile)' == 'true'"
                       ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      GlobalPropertiesToRemove="TargetFramework;RuntimeIdentifier;SelfContained"
                       PrivateAssets="all" />
   </ItemGroup>
 
@@ -165,7 +170,7 @@
     <Error Condition="'@(_PluginProjectVersion)' != '$(Version)'"
            Text="插件版本 @(_PluginProjectVersion) 与 CLI 版本 $(Version) 不一致；请同步修改两个项目文件的 Version。" />
     <Error Condition="!Exists('$(PluginArtifactPath)')"
-           Text="插件产物不存在：$(PluginArtifactPath)。项目引用本应先构建 VideoEnhancerPlugin；请检查 HostBin 配置。" />
+           Text="插件产物不存在：$(PluginArtifactPath)。请先还原 NuGet 依赖并构建 VideoEnhancer.slnx。" />
   </Target>
 
   <Target Name="CreateSolutionArtifacts"
@@ -183,13 +188,13 @@
            Text="手动安装包缺少插件 DLL：$(PluginArtifactPath)" />
     <Error Condition="!Exists('$(ManualInstallReadmePath)')"
            Text="手动安装说明不存在：$(ManualInstallReadmePath)" />
-    <MakeDir Directories="$(ArtifactsDirectory)" />
+    <MakeDir Directories="$(ResolvedArtifactsDirectory)" />
     <Copy SourceFiles="$(PublishedExecutable)"
           DestinationFiles="$(RuntimeArtifactPath)" />
     <RemoveDir Directories="$(ManualPackageStage)" />
     <RemoveDir Directories="$(InstallerPayloadStage)" />
-    <Copy SourceFiles="$(SevenZipExecutablePath)" DestinationFiles="$(ArtifactsDirectory)bin\7zip\7za.exe" />
-    <Copy SourceFiles="$(SevenZipCacheDirectory)\extra\License.txt;$(SevenZipSourceInfoPath);$(SevenZipCacheDirectory)\7z2603-src.tar.xz" DestinationFolder="$(ArtifactsDirectory)licenses\7zip" />
+    <Copy SourceFiles="$(SevenZipExecutablePath)" DestinationFiles="$(ResolvedArtifactsDirectory)bin\7zip\7za.exe" />
+    <Copy SourceFiles="$(SevenZipCacheDirectory)\extra\License.txt;$(SevenZipSourceInfoPath);$(SevenZipCacheDirectory)\7z2603-src.tar.xz" DestinationFolder="$(ResolvedArtifactsDirectory)licenses\7zip" />
     <Copy SourceFiles="$(SevenZipExecutablePath)" DestinationFiles="$(PublishDir)bin\7zip\7za.exe" />
     <Copy SourceFiles="$(SevenZipCacheDirectory)\extra\License.txt;$(SevenZipSourceInfoPath);$(SevenZipCacheDirectory)\7z2603-src.tar.xz" DestinationFolder="$(PublishDir)licenses\7zip" />
     <Copy SourceFiles="$(SevenZipExecutablePath)" DestinationFiles="$(ManualPackageStage)\plugin\videoenhancer\bin\7zip\7za.exe" />
@@ -236,10 +241,10 @@
           DestinationFiles="$(InstallerPayloadStage)\plugin\videoenhancer\licenses\aria2-next\SOURCE.txt" />
     <Copy SourceFiles="$(SharpCompressLicensePath)"
           DestinationFiles="$(InstallerPayloadStage)\plugin\videoenhancer\licenses\SharpCompress\LICENSE.txt" />
-    <MakeDir Directories="$(ArtifactsDirectory).installer" />
+    <MakeDir Directories="$(ResolvedArtifactsDirectory).installer" />
     <Delete Files="$(InstallerArtifactPath);$(PortablePayloadPath)" />
     <Exec Command="&quot;$(PublishedExecutable)&quot; --create-installer-bundle &quot;$(PublishedExecutable)&quot; &quot;$(PortablePayloadPath)&quot; &quot;$(InstallerPayloadStage)&quot;" />
-    <Exec Command="dotnet build &quot;$(VideoEnhancerRepositoryRoot)installer\Bundle\VideoEnhancer.Bundle.wixproj&quot; -c $(Configuration) -p:ProductVersion=$(Version) -p:PortablePayloadPath=&quot;$(PortablePayloadPath)&quot; -p:InstallerOutputDirectory=&quot;$(ArtifactsDirectory)&quot;" />
+    <Exec Command="dotnet build &quot;$(VideoEnhancerRepositoryRoot)installer\Bundle\VideoEnhancer.Bundle.wixproj&quot; -c $(Configuration) -p:ProductVersion=$(Version) -p:PortablePayloadPath=&quot;$(PortablePayloadPath)&quot; -p:InstallerOutputDirectory=&quot;$(ResolvedArtifactsDirectory)&quot;" />
     <Error Condition="!Exists('$(InstallerArtifactPath)')"
            Text="便携安装器未生成预期文件：$(InstallerArtifactPath)" />
     <Message Importance="high" Text="便携插件安装程序：$(InstallerArtifactPath)" />

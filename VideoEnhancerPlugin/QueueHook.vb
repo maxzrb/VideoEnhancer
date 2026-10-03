@@ -9,7 +9,6 @@ Imports System.Reflection
 Imports System.Text
 Imports System.Text.Json
 Imports System.Windows.Forms
-Imports FFmpegFreeUI
 Imports LakeUI
 
 Namespace videoenhancer
@@ -664,7 +663,7 @@ Namespace videoenhancer
                     Dim id = TryCast(HostAccess.GetProperty(item, "Tag"), String)
                     If Not String.IsNullOrWhiteSpace(id) Then
                         Dim task = HostQueueAccess.FindTask(id)
-                        If task IsNot Nothing AndAlso task.状态 = 编码任务状态_v6.已暂停 Then
+                        If task IsNot Nothing AndAlso task.IsPaused Then
                             Return True
                         End If
                     End If
@@ -748,11 +747,11 @@ Namespace videoenhancer
                 Return
             End If
 
-            Dim preset = 预设管理_v6.从面板创建预设(DirectCast(panel, Form_v6_参数面板))
+            Dim preset = HostPresetAccess.从面板创建预设(panel)
             Dim reserved As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
             Dim added As Integer = 0
             For Each input As String In entries
-                Dim output = 编码队列_v6.计算输出位置_v6(input, preset, True, reserved)
+                Dim output = HostQueueAccess.ComputeOutputPath(input, preset, True, reserved)
                 If String.IsNullOrWhiteSpace(output) Then
                     output = FallbackOutputPath(input, preset)
                 End If
@@ -819,7 +818,7 @@ Namespace videoenhancer
                 If HostAddMissionToQueueWithArgs IsNot Nothing Then
                     HostAddMissionToQueueWithArgs(args, name, output, input)
                 Else
-                    插件管理.使用命令行添加任务到编码队列(args, name, output, input)
+                    HostRuntime.InvokeShared("插件管理", "使用命令行添加任务到编码队列", args, name, output, input)
                 End If
             Catch
             End Try
@@ -908,11 +907,11 @@ Namespace videoenhancer
             Return QueueCommandBuilder.BuildCliArgs(New QueueJobOptions With {.input = input, .output = output, .model = model, .ffmpegSettings = ffmpegSettings, .pauseShm = pauseShm, .stopShm = stopShm, .upscaleOn = upscaleOn, .interpModel = interpModel, .interpOn = interpOn, .backend = backend, .interpFactor = interpFactor, .processOrder = processOrder, .interpBackend = interpBackend, .dynamicOpticalFlow = dynamicOpticalFlow, .sceneThreshold = sceneThreshold, .tileSize = tileSize, .upscaleHalfPrecision = upscaleHalfPrecision, .interpHalfPrecision = interpHalfPrecision, .rtxHdr = rtxHdr, .rtxTarget = rtxTarget, .rtxQuality = rtxQuality, .segmentsBase64 = segmentsBase64, .rtxHdrContrast = rtxHdrContrast, .rtxHdrSaturation = rtxHdrSaturation, .rtxHdrMiddleGray = rtxHdrMiddleGray, .rtxHdrMaxLuminance = rtxHdrMaxLuminance, .allowMixedSegmentBackends = allowMixedSegmentBackends, .ffmpegPath = ffmpegPath, .ffprobePath = ffprobePath, .outputScale = outputScale})
         End Function
 
-        Public Shared Function BuildFfmpegSettings(preset As 预设数据_v6, input As String, output As String) As String
+        Public Shared Function BuildFfmpegSettings(preset As HostPreset, input As String, output As String) As String
             Return QueueCommandBuilder.BuildFfmpegSettings(preset, input, output)
         End Function
 
-        Private Shared Function FallbackOutputPath(input As String, preset As 预设数据_v6) As String
+        Private Shared Function FallbackOutputPath(input As String, preset As HostPreset) As String
             Return QueueCommandBuilder.FallbackOutputPath(input, preset)
         End Function
 

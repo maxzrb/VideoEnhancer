@@ -5,9 +5,7 @@ Imports System.Drawing
 Imports System.Drawing.Drawing2D
 Imports System.Globalization
 Imports System.IO
-Imports System.Reflection
 Imports System.Text
-Imports System.Text.Json
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
 Imports LakeUI
@@ -74,14 +72,12 @@ Namespace videoenhancer
         Private ReadOnly _framePath As New Dictionary(Of Integer, String)()
         Private ReadOnly _config As PluginConfig
 
-        ' JSON 布局中的设计坐标以 1200×720 为基准。
+        ' 布局使用 96 DPI 下的 1200×720 设计坐标，缩放时始终从原始坐标计算。
         Private Const LayoutDesignWidth As Integer = 1200
         Private Const LayoutDesignHeight As Integer = 720
-        Private Const RightPaneDesignLeft As Integer = 890
-        Private Const RightPaneDesignRight As Integer = 1180
-        Private Const RightPaneHorizontalScale As Double = 1.0
-        Private ReadOnly _layoutControls As New Dictionary(Of String, Control)(StringComparer.OrdinalIgnoreCase)
-        Private _layoutDocument As LayoutDocument
+        Private ReadOnly _layoutBounds As New Dictionary(Of Control, Rectangle)()
+        Private _layoutReady As Boolean
+        Private _applyingLayout As Boolean
         Private ReadOnly _lblEncoderSection As New LakeTextLabel()
         Private ReadOnly _lblLayoutSection As New LakeTextLabel()
         Private ReadOnly _btnEncoderCaption As New LakeTextLabel()
@@ -107,22 +103,6 @@ Namespace videoenhancer
         Private _windowDragging As Boolean
         Private Shared ReadOnly ThumbnailGate As New System.Threading.SemaphoreSlim(1, 1)
 
-        Private NotInheritable Class LayoutDocument
-            Public Property CanvasWidth As Integer
-            Public Property CanvasHeight As Integer
-            Public Property Controls As List(Of LayoutItem)
-        End Class
-
-        Private NotInheritable Class LayoutItem
-            Public Property Name As String
-            Public Property Type As String
-            Public Property Text As String
-            Public Property CenterX As Integer
-            Public Property CenterY As Integer
-            Public Property Width As Integer
-            Public Property Height As Integer
-        End Class
-
         Private _lineColor As Color = Color.White
         Private _ffmpeg As String = ""
         Private _ffprobe As String = ""
@@ -130,11 +110,12 @@ Namespace videoenhancer
         Private _process As Process
 
         Public Sub New(config As PluginConfig)
+            SuspendLayout()
+            AutoScaleMode = AutoScaleMode.None
             _config = config
             Text = "生成对比视频"
             ClientSize = New Size(LayoutDesignWidth, LayoutDesignHeight)
             MinimumSize = New Size(980, 600)
-            AutoScaleMode = AutoScaleMode.None
             FormBorderStyle = FormBorderStyle.None
             DoubleBuffered = True
             StartPosition = FormStartPosition.CenterParent
@@ -143,10 +124,16 @@ Namespace videoenhancer
             Font = New Font("Segoe UI", 9.0F)
             ResolveFfmpeg()
             BuildUi()
+            BuildLayout()
+            _layoutReady = True
+            ApplyLayout()
+            ' 与 3FUI 原生窗体一致：控件完整创建后才启用 96 DPI 自动缩放。
+            AutoScaleMode = AutoScaleMode.Dpi
+            AutoScaleDimensions = New SizeF(96.0F, 96.0F)
+            ResumeLayout(True)
             AddHandler MouseDown, AddressOf TitleMouseDown
             AddHandler MouseMove, AddressOf TitleMouseMove
             AddHandler MouseUp, AddressOf TitleMouseUp
-            AddHandler Resize, AddressOf LayoutFormResize
             AddHandler _playbackTimer.Tick, AddressOf PlaybackTimerTick
             AddHandler _previewDebounceTimer.Tick, AddressOf PreviewDebounceTick
             _playbackTimer.Start()
@@ -160,13 +147,11 @@ Namespace videoenhancer
                     Exit For
                 End If
             Next
-            ApplyJsonLayout()
+            ApplyLayout()
         End Sub
         ' ────────────────────────── UI 构建 ──────────────────────────
 
         Private Sub BuildUi()
-            SuspendLayout()
-
             ConfigureTitleBar()
 
             For i As Integer = 0 To 3
@@ -366,12 +351,8 @@ Namespace videoenhancer
                 c.BringToFront()
             Next
 
-            RegisterJsonControls()
-            _layoutDocument = LoadLayoutDocument()
             UpdateLayoutCombo()
             UpdateColorButton()
-            ApplyJsonLayout()
-            ResumeLayout(False)
         End Sub
 
         Private Shared Sub ConfigureSectionLabel(label As LakeTextLabel, text As String)
@@ -473,103 +454,81 @@ Namespace videoenhancer
             AddHandler _titleText.DoubleClick, AddressOf ToggleMaximize
         End Sub
 
-        Private Sub RegisterJsonControls()
-            _layoutControls.Clear()
-            _layoutControls("label1") = _lblLayoutSection
-            _layoutControls("button2") = _btnOutput
-            _layoutControls("combobox3") = _encoderHost
-            _layoutControls("checkbox4") = _chkBurnFileName
-            _layoutControls("label5") = _preview
-            _layoutControls("label6") = _timelineHost
-            _layoutControls("label7") = _lblPreviewNote
-            _layoutControls("button8") = _btnPlay
+        Private Sub BuildLayout()
+            _layoutBounds(_lblLayoutSection) = New Rectangle(905, 64, 260, 36)
+            _layoutBounds(_btnOutput) = New Rectangle(890, 667, 290, 46)
+            _layoutBounds(_encoderHost) = New Rectangle(990, 316, 180, 38)
+            _layoutBounds(_chkBurnFileName) = New Rectangle(900, 487, 270, 36)
+            _layoutBounds(_preview) = New Rectangle(25, 170, 850, 450)
+            _layoutBounds(_timelineHost) = New Rectangle(250, 622, 550, 36)
+            _layoutBounds(_lblPreviewNote) = New Rectangle(795, 622, 80, 36)
+            _layoutBounds(_btnPlay) = New Rectangle(27, 622, 42, 36)
             For i As Integer = 0 To 3
-                _layoutControls("label" & (9 + i).ToString(CultureInfo.InvariantCulture)) = _slotLabels(i)
+                _layoutBounds(_slotLabels(i)) = New Rectangle(20 + i * 215, 58, 205, 95)
             Next
-            _layoutControls("label13") = _lblTime
-            _layoutControls("button14") = _btnEncoderCaption
-            _layoutControls("button15") = _btnScaleCaption
-            _layoutControls("combobox16") = _scaleHost
-            _layoutControls("combobox17") = _sizeHost
-            _layoutControls("button18") = _btnSizeCaption
-            _layoutControls("button19") = _qualityHost
-            _layoutControls("button20") = _btnLayoutCaption
-            _layoutControls("button21") = _btnQualityCaption
-            _layoutControls("label22") = _lblEncoderSection
-            _layoutControls("combobox23") = _layoutHost
-            _layoutControls("button24") = _btnLineCaption
-            _layoutControls("button25") = _lineHost
-            _layoutControls("label26") = _btnColor
+            _layoutBounds(_lblTime) = New Rectangle(75, 622, 150, 36)
+            _layoutBounds(_btnEncoderCaption) = New Rectangle(895, 317, 90, 36)
+            _layoutBounds(_btnScaleCaption) = New Rectangle(895, 207, 90, 36)
+            _layoutBounds(_scaleHost) = New Rectangle(990, 207, 180, 36)
+            _layoutBounds(_sizeHost) = New Rectangle(990, 157, 180, 36)
+            _layoutBounds(_btnSizeCaption) = New Rectangle(895, 157, 90, 36)
+            _layoutBounds(_qualityHost) = New Rectangle(990, 367, 180, 36)
+            _layoutBounds(_btnLayoutCaption) = New Rectangle(895, 107, 90, 36)
+            _layoutBounds(_btnQualityCaption) = New Rectangle(895, 367, 90, 36)
+            _layoutBounds(_lblEncoderSection) = New Rectangle(905, 267, 260, 36)
+            _layoutBounds(_layoutHost) = New Rectangle(990, 107, 180, 36)
+            _layoutBounds(_btnLineCaption) = New Rectangle(895, 422, 100, 36)
+            _layoutBounds(_lineHost) = New Rectangle(1000, 422, 90, 36)
+            _layoutBounds(_btnColor) = New Rectangle(1100, 422, 70, 36)
         End Sub
 
-        Private Shared Function LoadLayoutDocument() As LayoutDocument
-            Dim options As New JsonSerializerOptions() With {.PropertyNameCaseInsensitive = True}
-            Try
-                Using stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("videoenhancer-layout.json")
-                    If stream IsNot Nothing Then
-                        Dim value = JsonSerializer.Deserialize(Of LayoutDocument)(stream, options)
-                        If value IsNot Nothing AndAlso value.Controls IsNot Nothing AndAlso value.Controls.Count > 0 Then Return value
-                    End If
-                End Using
-            Catch
-            End Try
-            For Each candidate In LayoutCandidates()
-                Try
-                    If File.Exists(candidate) Then
-                        Dim value = JsonSerializer.Deserialize(Of LayoutDocument)(File.ReadAllText(candidate), options)
-                        If value IsNot Nothing AndAlso value.Controls IsNot Nothing AndAlso value.Controls.Count > 0 Then Return value
-                    End If
-                Catch
-                End Try
-            Next
-            Return Nothing
-        End Function
-
-        Private Shared Function LayoutCandidates() As IEnumerable(Of String)
-            Dim result As New List(Of String)()
-            Dim baseDir = AppContext.BaseDirectory
-            result.Add(Path.Combine(baseDir, "videoenhancer-layout.json"))
-            Dim assemblyDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)
-            If Not String.IsNullOrWhiteSpace(assemblyDir) Then result.Add(Path.Combine(assemblyDir, "videoenhancer-layout.json"))
-            Return result
-        End Function
-
-        Private Sub LayoutFormResize(sender As Object, e As EventArgs)
-            ApplyJsonLayout()
-            UpdateWindowRegion()
+        Protected Overrides Sub OnLayout(e As LayoutEventArgs)
+            MyBase.OnLayout(e)
+            ApplyLayout()
         End Sub
 
-        Private Sub ApplyJsonLayout()
-            If _layoutDocument Is Nothing OrElse _layoutDocument.Controls Is Nothing OrElse ClientSize.Width <= 0 OrElse ClientSize.Height <= 0 Then Return
+        Protected Overrides Sub OnHandleCreated(e As EventArgs)
+            MyBase.OnHandleCreated(e)
+            ApplyLayout()
+        End Sub
+
+        Protected Overrides Sub OnDpiChanged(e As DpiChangedEventArgs)
+            MyBase.OnDpiChanged(e)
+            ' DpiChanged 在 WinForms 应用建议尺寸之前触发，消息处理完成后再排布。
+            BeginInvoke(New Action(Sub()
+                                       If Not IsDisposed AndAlso Not Disposing Then ApplyLayout()
+                                   End Sub))
+        End Sub
+
+        Private Sub ApplyLayout()
+            If Not _layoutReady OrElse _applyingLayout OrElse ClientSize.Width <= 0 OrElse ClientSize.Height <= 0 Then Return
             Dim scaleX = ClientSize.Width / CDbl(LayoutDesignWidth)
             Dim scaleY = ClientSize.Height / CDbl(LayoutDesignHeight)
+            _applyingLayout = True
             SuspendLayout()
-            For Each item In _layoutDocument.Controls
-                If item Is Nothing OrElse item.Width <= 0 OrElse item.Height <= 0 OrElse String.IsNullOrWhiteSpace(item.Name) Then Continue For
-                Dim control As Control = Nothing
-                If Not _layoutControls.TryGetValue(item.Name, control) Then Continue For
-                Dim logical = New Rectangle(item.CenterX - item.Width \ 2, item.CenterY - item.Height \ 2, item.Width, item.Height)
-                If IsRightPaneItem(item.Name) Then logical = ScaleRightPaneBounds(logical)
-                control.Bounds = ScaleBounds(logical, scaleX, scaleY)
-                Dim combo = TryCast(control, ModernComboBox)
-                If combo IsNot Nothing Then
-                    combo.MinimumSize = New Size(0, Math.Max(30, control.Height))
-                End If
-            Next
-            LayoutHostedControl(_timelineHost, _timeline)
-            LayoutHostedControl(_encoderHost, _cmbEncoder)
-            LayoutHostedControl(_scaleHost, _cmbScale)
-            LayoutHostedControl(_sizeHost, _cmbSize)
-            LayoutHostedControl(_layoutHost, _cmbLayout)
-            LayoutHostedControl(_qualityHost, _numQuality)
-            LayoutHostedControl(_lineHost, _numLine)
-            _lblStatus.Bounds = ScaleBounds(New Rectangle(20, 680, 500, 28), scaleX, scaleY)
-            _titleIcon.Bounds = ScaleBounds(New Rectangle(17, 7, 32, 35), scaleX, scaleY)
-            _titleText.Bounds = ScaleBounds(New Rectangle(50, 7, 240, 35), scaleX, scaleY)
-            _btnMinimize.Bounds = New Rectangle(Math.Max(0, ClientSize.Width - 135), 0, 45, Math.Max(36, CInt(Math.Round(45 * scaleY))))
-            _btnMaximize.Bounds = New Rectangle(Math.Max(0, ClientSize.Width - 90), 0, 45, Math.Max(36, CInt(Math.Round(45 * scaleY))))
-            _btnClose.Bounds = New Rectangle(Math.Max(0, ClientSize.Width - 45), 0, 45, Math.Max(36, CInt(Math.Round(45 * scaleY))))
-            ResumeLayout(False)
+            Try
+                For Each item In _layoutBounds
+                    item.Key.Bounds = ScaleBounds(item.Value, scaleX, scaleY)
+                Next
+                LayoutHostedControl(_timelineHost, _timeline)
+                LayoutHostedControl(_encoderHost, _cmbEncoder)
+                LayoutHostedControl(_scaleHost, _cmbScale)
+                LayoutHostedControl(_sizeHost, _cmbSize)
+                LayoutHostedControl(_layoutHost, _cmbLayout)
+                LayoutHostedControl(_qualityHost, _numQuality)
+                LayoutHostedControl(_lineHost, _numLine)
+                _lblStatus.Bounds = ScaleBounds(New Rectangle(20, 680, 500, 28), scaleX, scaleY)
+                _titleIcon.Bounds = ScaleBounds(New Rectangle(17, 7, 32, 35), scaleX, scaleY)
+                _titleText.Bounds = ScaleBounds(New Rectangle(50, 7, 240, 35), scaleX, scaleY)
+                Dim captionWidth = DpiPixels(45)
+                Dim captionHeight = Math.Max(DpiPixels(36), CInt(Math.Round(45 * scaleY)))
+                _btnMinimize.Bounds = New Rectangle(Math.Max(0, ClientSize.Width - captionWidth * 3), 0, captionWidth, captionHeight)
+                _btnMaximize.Bounds = New Rectangle(Math.Max(0, ClientSize.Width - captionWidth * 2), 0, captionWidth, captionHeight)
+                _btnClose.Bounds = New Rectangle(Math.Max(0, ClientSize.Width - captionWidth), 0, captionWidth, captionHeight)
+            Finally
+                ResumeLayout(False)
+                _applyingLayout = False
+            End Try
             UpdatePreviewSurfaces()
             UpdateWindowRegion()
             Invalidate()
@@ -580,24 +539,8 @@ Namespace videoenhancer
                                  Math.Max(1, CInt(Math.Round(value.Width * scaleX))), Math.Max(1, CInt(Math.Round(value.Height * scaleY))))
         End Function
 
-        Private Shared Function ScaleRightPaneBounds(value As Rectangle) As Rectangle
-            Dim scaledPaneWidth = CInt(Math.Round((RightPaneDesignRight - RightPaneDesignLeft) * RightPaneHorizontalScale))
-            Dim targetLeft = RightPaneDesignRight - scaledPaneWidth
-            Return New Rectangle(targetLeft + CInt(Math.Round((value.X - RightPaneDesignLeft) * RightPaneHorizontalScale)),
-                                 value.Y,
-                                 Math.Max(1, CInt(Math.Round(value.Width * RightPaneHorizontalScale))),
-                                 value.Height)
-        End Function
-
-        Private Shared Function IsRightPaneItem(name As String) As Boolean
-            Select Case If(name, "").ToLowerInvariant()
-                Case "label1", "button2", "combobox3", "checkbox4", "button14", "button15", "combobox16",
-                     "combobox17", "button18", "button19", "button20", "button21", "label22", "combobox23",
-                     "button24", "button25", "label26"
-                    Return True
-                Case Else
-                    Return False
-            End Select
+        Private Function DpiPixels(value As Integer) As Integer
+            Return CInt(Math.Round(value * If(IsHandleCreated, DeviceDpi / 96.0R, 1.0R)))
         End Function
 
         Private Shared Sub LayoutHostedControl(host As ModernPanel, child As Control)
@@ -606,9 +549,11 @@ Namespace videoenhancer
                 child.Bounds = host.ClientRectangle
                 Return
             End If
-            child.Width = host.ClientSize.Width
-            child.Left = 0
-            child.Top = (host.ClientSize.Height - child.Height) \ 2
+            ' 同时设置宽高，避免编辑器保留默认高度而在高 DPI 下裁切或错位。
+            ' DisplayRectangle 还会扣除 LakeUI 圆角内缩，不能挤压已经自带圆角的编辑器。
+            child.SetBounds(host.Padding.Left, host.Padding.Top,
+                Math.Max(1, host.ClientSize.Width - host.Padding.Horizontal),
+                Math.Max(1, host.ClientSize.Height - host.Padding.Vertical))
         End Sub
 
         Private Sub ToggleMaximize(sender As Object, e As EventArgs)
@@ -617,7 +562,7 @@ Namespace videoenhancer
 
         Private Sub TitleMouseDown(sender As Object, e As MouseEventArgs)
             If e.Button <> MouseButtons.Left OrElse WindowState = FormWindowState.Maximized Then Return
-            If sender Is Me AndAlso e.Y > Math.Max(42, CInt(Math.Round(48 * ClientSize.Height / CDbl(LayoutDesignHeight)))) Then Return
+            If sender Is Me AndAlso e.Y > Math.Max(DpiPixels(42), CInt(Math.Round(48 * ClientSize.Height / CDbl(LayoutDesignHeight)))) Then Return
             _windowDragging = True
             _windowDragStart = Cursor.Position
             _windowDragBounds = Bounds
@@ -638,7 +583,7 @@ Namespace videoenhancer
                 Region = Nothing
                 Return
             End If
-            Using path = QuadGridDrawing.RoundedPath(New RectangleF(0, 0, Math.Max(1, Width), Math.Max(1, Height)), 11)
+            Using path = QuadGridDrawing.RoundedPath(New RectangleF(0, 0, Math.Max(1, Width), Math.Max(1, Height)), DpiPixels(11))
                 Dim old = Region
                 Region = New Region(path)
                 If old IsNot Nothing Then old.Dispose()
@@ -664,17 +609,18 @@ Namespace videoenhancer
             For Each logical In New Rectangle() {New Rectangle(18, 160, 865, 498), New Rectangle(892, 58, 288, 570)}
                 Dim rect = ScaleBounds(logical, scaleX, scaleY)
                 If rect.Width <= 1 OrElse rect.Height <= 1 Then Continue For
-                Using path = QuadGridDrawing.RoundedPath(New RectangleF(rect.X + 0.5F, rect.Y + 0.5F, rect.Width - 1, rect.Height - 1), 12)
+                Using path = QuadGridDrawing.RoundedPath(New RectangleF(rect.X + 0.5F, rect.Y + 0.5F, rect.Width - 1, rect.Height - 1), DpiPixels(12))
                     Using brush As New SolidBrush(Color.FromArgb(43, 43, 43))
                         e.Graphics.FillPath(brush, path)
                     End Using
-                    Using pen As New Pen(Color.FromArgb(62, 62, 62), 1.0F)
+                    Using pen As New Pen(Color.FromArgb(62, 62, 62), DpiPixels(1))
                         e.Graphics.DrawPath(pen, path)
                     End Using
                 End Using
             Next
-            Using pen As New Pen(Color.FromArgb(58, 58, 58), 1.0F)
-                e.Graphics.DrawLine(pen, 18, CInt(Math.Round(665 * scaleY)), ClientSize.Width - 18, CInt(Math.Round(665 * scaleY)))
+            Using pen As New Pen(Color.FromArgb(58, 58, 58), DpiPixels(1))
+                Dim inset = CInt(Math.Round(18 * scaleX))
+                e.Graphics.DrawLine(pen, inset, CInt(Math.Round(665 * scaleY)), ClientSize.Width - inset, CInt(Math.Round(665 * scaleY)))
             End Using
         End Sub
 
@@ -844,8 +790,9 @@ Namespace videoenhancer
                                        originX As Integer, originY As Integer, scale As Double)
             Dim placements = GridCompositionBuilder.NamePlacements(inputs.Count)
             Dim cellRects = If(inputs.Count = 3, GridCompositionBuilder.LayoutRects(CurrentKind(), canvasWidth, canvasHeight), Nothing)
-            Dim margin = Math.Max(7, CInt(Math.Round(12 * scale)))
-            Dim labelHeight = Math.Max(24, CInt(Math.Round(32 * Math.Min(1.0, scale + 0.25))))
+            Dim dpiScale = DpiPixels(96) / 96.0R
+            Dim margin = Math.Max(DpiPixels(7), CInt(Math.Round(12 * scale)))
+            Dim labelHeight = Math.Max(DpiPixels(24), CInt(Math.Round(DpiPixels(32) * Math.Min(1.0, scale / dpiScale + 0.25))))
             For i As Integer = 0 To 3
                 Dim label = _nameOverlays(i)
                 If label Is Nothing Then Continue For
@@ -854,15 +801,15 @@ Namespace videoenhancer
                     Continue For
                 End If
                 label.Text = Path.GetFileName(inputs(i))
-                Dim measured = TextRenderer.MeasureText(label.Text, label.Font).Width + 20
+                Dim measured = DpiPixels(MeasureTextWidth96(label.Text, label.Font) + 20)
                 Dim availableWidth = canvasWidth - margin * 2
                 If inputs.Count = 3 AndAlso cellRects IsNot Nothing AndAlso i < cellRects.Count Then
                     availableWidth = cellRects(i).Width - margin * 2
                 End If
-                Dim labelWidth = Math.Min(Math.Max(70, measured), Math.Max(70, availableWidth))
+                Dim labelWidth = Math.Min(Math.Max(DpiPixels(70), measured), Math.Max(1, availableWidth))
                 Dim placement = placements(i)
                 Dim x = originX + margin
-                Dim y = originY + margin + placement.StackIndex * (labelHeight + 4)
+                Dim y = originY + margin + placement.StackIndex * (labelHeight + DpiPixels(4))
                 If inputs.Count = 3 AndAlso cellRects IsNot Nothing AndAlso i < cellRects.Count Then
                     x = originX + cellRects(i).X + margin
                     y = originY + cellRects(i).Y + margin

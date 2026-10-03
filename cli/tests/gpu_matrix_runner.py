@@ -1108,7 +1108,8 @@ def main() -> int:
     parser.add_argument(
         "--exe",
         type=Path,
-        default=Path(r"C:\Program portable\3FUI\3FUI\Plugin\videoenhancer\videoenhancer.exe"),
+        default=Path(os.environ.get("VIDEOENHANCER_EXE") or
+                     Path(__file__).resolve().parents[2] / "Artifacts" / "videoenhancer.exe"),
     )
     parser.add_argument(
         "--result-dir",

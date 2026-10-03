@@ -12,7 +12,6 @@ Imports System.Text.RegularExpressions
 Imports System.Reflection
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
-Imports FFmpegFreeUI
 Imports LakeUI
 
 Namespace videoenhancer
@@ -172,24 +171,40 @@ Namespace videoenhancer
             If page Is Nothing OrElse _markdownReady.Contains(page) Then Return
             Dim markdown As String = ""
             If Not _markdownSources.TryGetValue(page, markdown) Then Return
+            Dim viewer = CreateMarkdownViewer(markdown)
+            page.Controls.Add(viewer)
+            _markdownReady.Add(page)
+            If page Is _pageTutorial Then LoadOnlineTutorialAsync(viewer)
+        End Sub
+
+        Private Function CreateMarkdownViewer(markdown As String) As MarkDownViewer
             Dim viewer As New MarkDownViewer With {
                 .Dock = DockStyle.Fill,
                 .Margin = Padding.Empty,
                 .Padding = New Padding(10, 8, 10, 12),
                 .BackColor = Color.Transparent,
+                .BackColor1 = UiSurfaceDark,
                 .BackgroundSource = ModernPanel1,
-                .BorderSize = 0
+                .BorderSize = 0,
+                .BorderRadius = 10
             }
+            ' 与 AgentRoom 共用 MarkdownViewerCore：半透明底层和代码块，不以 BackColor 代替 GPU 底色。
             viewer.ScrollBarWidth = 10
-            viewer.ScrollBarTrackColor = Color.FromArgb(18, 18, 18)
-            viewer.ScrollBarColor = Color.FromArgb(72, 72, 72)
-            viewer.ScrollBarHoverColor = Color.FromArgb(104, 104, 104)
+            viewer.ScrollBarTrackColor = UiSurface
+            viewer.ScrollBarColor = UiScrollThumb
+            viewer.ScrollBarHoverColor = UiScrollThumbHover
+            viewer.ForeColor = Color.Silver
             viewer.HeadingColor = UiText
+            viewer.HeadingSeparatorColor = UiSeparator
             viewer.BoldColor = UiText
             viewer.LinkColor = UiAccent
-            viewer.CodeBackColor = Color.FromArgb(44, 44, 48)
-            viewer.CodeBlockBackColor = Color.FromArgb(32, 34, 38)
-            viewer.CodeBlockForeColor = UiTextSecondary
+            viewer.SelectionColor = UiSurface
+            viewer.CodeBackColor = MarkdownViewerCore.DefaultMarkdownCodeBackColor
+            viewer.CodeBlockForeColor = Color.Silver
+            viewer.TableHeaderBackColor = UiSurface
+            viewer.TableBorderColor = UiSeparator
+            viewer.HorizontalRuleColor = UiSeparator
+            viewer.HorizontalRuleThickness = 2
             AddHandler viewer.LinkClicked,
                 Sub(sender, args)
                     Try
@@ -202,10 +217,8 @@ Namespace videoenhancer
                     End Try
                 End Sub
             viewer.SetMarkdownImmediate(markdown)
-            page.Controls.Add(viewer)
-            _markdownReady.Add(page)
-            If page Is _pageTutorial Then LoadOnlineTutorialAsync(viewer)
-        End Sub
+            Return viewer
+        End Function
     End Class
 
 End Namespace

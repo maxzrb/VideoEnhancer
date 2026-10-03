@@ -1,4 +1,8 @@
 <Solution>
   <Project Path="VideoEnhancerPlugin/VideoEnhancerPlugin.vbproj" />
+  <Folder Name="/cli/" />
+  <Folder Name="/cli/tests/">
+    <Project Path="cli/tests/ModelMetadataUi/ModelMetadataUi.csproj" />
+  </Folder>
   <Project Path="cli/VideoEnhancer.csproj" />
 </Solution>

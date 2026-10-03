@@ -1,10 +1,9 @@
 ﻿param(
     # 留空时自动读取 VideoEnhancerPlugin.vbproj 的 Version。
     [string]$Version = '',
-    # 留空时由 vbproj 读取 VIDEOENHANCER_HOST_BIN 或自动发现相邻 FFmpegFreeUI 输出。
-    [string]$HostBin = '',
     [string]$Notes = '',
     [string]$NotesFile = '',
+    [string]$ArtifactsRoot = $env:VIDEOENHANCER_ARTIFACTS_DIR,
     [string]$BackendBaseRoot = '',
     [string]$BackendTargetRoot = '',
     [string]$BackendBaseVersion = '',
@@ -29,7 +28,9 @@
 $ErrorActionPreference = 'Stop'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $root = Split-Path -Parent $PSScriptRoot
-$artifactsRoot = Join-Path $root 'Artifacts'
+if ([string]::IsNullOrWhiteSpace($ArtifactsRoot)) { $ArtifactsRoot = 'Artifacts' }
+if (-not [IO.Path]::IsPathRooted($ArtifactsRoot)) { $ArtifactsRoot = Join-Path $root $ArtifactsRoot }
+$ArtifactsRoot = [IO.Path]::GetFullPath($ArtifactsRoot)
 $pluginProject = Join-Path $root 'VideoEnhancerPlugin\VideoEnhancerPlugin.vbproj'
 $cliProject = Join-Path $root 'cli\VideoEnhancer.csproj'
 $solution = Join-Path $root 'VideoEnhancer.slnx'
@@ -102,9 +103,6 @@ foreach ($requiredValue in ([ordered]@{
 # 正式发布先构建一次托管归档工具，后端门禁不再依赖系统安装的 7-Zip。
 if (-not $ValidateOnly -and [string]::IsNullOrWhiteSpace($ArchiveTool)) {
     $buildArguments = @('build', $solution, '-c', 'Release')
-    if (-not [string]::IsNullOrWhiteSpace($HostBin)) {
-        $buildArguments += "-p:HostBin=$HostBin"
-    }
     & dotnet @buildArguments
     if ($LASTEXITCODE -ne 0) { throw '托管归档工具构建失败' }
     $ArchiveTool = Join-Path $root 'cli\bin\Release\net10.0-windows\win-x64\videoenhancer.exe'
@@ -145,10 +143,7 @@ if ($cliSourceVersion -ne $Version) {
     throw "VideoEnhancer.csproj 的 Version 为 $cliSourceVersion，与发布版本 $Version 不一致"
 }
 
-$publishArguments = @('publish', $solution, '-c', 'Release')
-if (-not [string]::IsNullOrWhiteSpace($HostBin)) {
-    $publishArguments += "-p:HostBin=$HostBin"
-}
+$publishArguments = @('publish', $solution, '-c', 'Release', "-p:ArtifactsDirectory=$ArtifactsRoot")
 & dotnet @publishArguments
 if ($LASTEXITCODE -ne 0) { throw '插件与 CLI 发布失败' }
 

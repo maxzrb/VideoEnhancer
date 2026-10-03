@@ -4,7 +4,6 @@ Imports System.Diagnostics
 Imports System.IO
 Imports System.Linq
 Imports System.Text
-Imports FFmpegFreeUI
 
 Namespace videoenhancer
     Friend NotInheritable Class QueueCommandBuilder
@@ -118,8 +117,8 @@ Namespace videoenhancer
         ''' 取 3fui 命令行模板中"-i 输入"之后的部分（编码参数 + 输出路径），
         ''' 输出路径替换为真实路径，末尾补 -y 让后端允许覆盖。
         ''' </summary>
-        Friend Shared Function BuildFfmpegSettings(preset As 预设数据_v6, input As String, output As String) As String
-            Dim cmd = 预设管理_v6.将预设数据转换为命令行(preset, 预设管理_v6.输入占位符, 预设管理_v6.输出占位符)
+        Friend Shared Function BuildFfmpegSettings(preset As HostPreset, input As String, output As String) As String
+            Dim cmd = HostPresetAccess.将预设数据转换为命令行(preset, HostPresetAccess.输入占位符, HostPresetAccess.输出占位符)
             If String.IsNullOrWhiteSpace(cmd) Then
                 Return QuotePath(output) & " -y"
             End If
@@ -129,7 +128,7 @@ Namespace videoenhancer
             ' 丢弃输入段：-hide_banner -y … -i "<输入文件>" 之前的所有内容
             Dim start As Integer = -1
             For i As Integer = 0 To tokens.Count - 2
-                If tokens(i).Text = "-i" AndAlso tokens(i + 1).Text = 预设管理_v6.输入占位符 Then
+                If tokens(i).Text = "-i" AndAlso tokens(i + 1).Text = HostPresetAccess.输入占位符 Then
                     start = i + 2
                     Exit For
                 End If
@@ -143,15 +142,15 @@ Namespace videoenhancer
 
             Dim kept = tokens.Skip(start).ToList()
             Dim duration As String = ""
-            If kept.Any(Function(t) t.Text = 预设管理_v6.媒体总时长占位符) Then
+            If kept.Any(Function(t) t.Text = HostPresetAccess.媒体总时长占位符) Then
                 duration = ResolveDuration(input)
             End If
             Dim parts As New List(Of String)
             For Each token In kept
                 Dim value = token.Text
-                If value = 预设管理_v6.输出占位符 Then
+                If value = HostPresetAccess.输出占位符 Then
                     parts.Add(QuotePath(output))
-                ElseIf value = 预设管理_v6.媒体总时长占位符 Then
+                ElseIf value = HostPresetAccess.媒体总时长占位符 Then
                     If Not String.IsNullOrEmpty(duration) Then
                         parts.Add(duration)
                     End If
@@ -173,7 +172,7 @@ Namespace videoenhancer
             Return String.Join(" ", parts)
         End Function
 
-        Friend Shared Function FallbackOutputPath(input As String, preset As 预设数据_v6) As String
+        Friend Shared Function FallbackOutputPath(input As String, preset As HostPreset) As String
             Dim dir = If(Path.GetDirectoryName(input), "")
             Dim name = Path.GetFileNameWithoutExtension(input)
             Dim ext = If(preset Is Nothing, "", (preset.输出容器 & "").Trim())

@@ -11,7 +11,6 @@ Imports System.Text.RegularExpressions
 Imports System.Reflection
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
-Imports FFmpegFreeUI
 Imports LakeUI
 
 Namespace videoenhancer
@@ -33,7 +32,7 @@ Namespace videoenhancer
         Private Sub BuildOfficialConverterPage()
             _pageConverter.Dock = DockStyle.Fill
             _pageConverter.BackColor = Color.Transparent
-            _pageConverter.Padding = New Padding(0, 8, 0, 0)
+            _pageConverter.Padding = New Padding(0, 4, 0, 0)
             _pageConverter.AllowDrop = True
             AddHandler _pageConverter.DragEnter, AddressOf OnConverterDragEnter
             AddHandler _pageConverter.DragDrop, AddressOf OnConverterDragDrop
@@ -47,11 +46,11 @@ Namespace videoenhancer
                 .Padding = Padding.Empty,
                 .AllowDrop = True
             }
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 48.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 64.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 64.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 70.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, CSng(UiRowHeight)))
             AddHandler root.DragEnter, AddressOf OnConverterDragEnter
             AddHandler root.DragDrop, AddressOf OnConverterDragDrop
             root.AddAt(CreateOfficialSectionHeading(
@@ -66,13 +65,13 @@ Namespace videoenhancer
                 .Padding = Padding.Empty,
                 .AllowDrop = True
             }
-            inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 180.0F))
-            inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
+            inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 140.0F))
+            inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, CSng(UiColumnGap)))
             inputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
             inputRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             _btnPickPth.Text = "选择或拖入权重"
             _btnPickPth.Dock = DockStyle.Fill
-            _btnPickPth.Margin = New Padding(0, 8, 0, 8)
+            _btnPickPth.Margin = New Padding(0, 4, 0, 4)
             ConfigureSecondaryButton(_btnPickPth)
             AddHandler _btnPickPth.Click, AddressOf OnPickPthClick
             _lblConvertInput.Text = "<font color=#888888>支持 .pth / .pt / .pkl</font>"
@@ -92,13 +91,13 @@ Namespace videoenhancer
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
-            outputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 180.0F))
-            outputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 12.0F))
+            outputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 140.0F))
+            outputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, CSng(UiColumnGap)))
             outputRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
             outputRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             Dim outputCaption = CreateOfficialCaption("输出目录")
             outputCaption.TextAlign = ContentAlignment.MiddleLeft
-            outputCaption.Padding = New Padding(12, 0, 0, 0)
+            outputCaption.Padding = New Padding(8, 0, 0, 0)
             _lblConvertOutput.Text = "<font color=#888888>选择模型后自动确定</font>"
             _lblConvertOutput.AutoSize = False
             _lblConvertOutput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
@@ -108,7 +107,7 @@ Namespace videoenhancer
 
             Dim information As New HtmlColorLabel With {
                 .Dock = DockStyle.Fill,
-                .Margin = New Padding(0, 18, 0, 8),
+                .Margin = New Padding(0, 12, 0, 8),
                 .Padding = Padding.Empty,
                 .BackColor1 = Color.Transparent,
                 .BorderSize = 0,
@@ -131,12 +130,12 @@ Namespace videoenhancer
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
-            actionRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 190.0F))
+            actionRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 148.0F))
             actionRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
             actionRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             _btnConvert.Text = "开始离线转换"
             _btnConvert.Dock = DockStyle.Fill
-            _btnConvert.Margin = New Padding(0, 9, 0, 9)
+            _btnConvert.Margin = New Padding(0, 4, 0, 4)
             _btnConvert.Enabled = False
             ConfigurePrimaryButton(_btnConvert)
             AddHandler _btnConvert.Click, AddressOf OnConvertModelClick

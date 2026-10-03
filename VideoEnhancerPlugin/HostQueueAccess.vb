@@ -4,20 +4,20 @@ Imports System.Collections.Generic
 Imports System.Diagnostics
 Imports System.Linq
 Imports System.Reflection
-Imports FFmpegFreeUI
 
 Namespace videoenhancer
 
     ''' <summary>
-    ''' 3FUI 编码队列宿主兼容层。
-    '''
-    ''' 6.2.20 将队列属性的二进制返回类型从 List 改为 IReadOnlyList，
-    ''' 直接调用旧 getter 会在运行时触发 Method not found。插件只通过本类
-    ''' 反射访问队列快照和按 ID 查找，因而同时兼容新旧宿主。
+    ''' 3FUI 编码队列访问层，只在运行时解析宿主类型。
+    ''' 队列通过 IEnumerable 转换为本地任务视图，不绑定宿主返回类型的二进制签名。
     ''' </summary>
     Friend NotInheritable Class HostQueueAccess
 
-        Private Shared ReadOnly QueueType As Type = GetType(编码队列_v6)
+        Private Shared ReadOnly Property QueueType As Type
+            Get
+                Return HostRuntime.ResolveType("编码队列_v6", False)
+            End Get
+        End Property
         Private Shared ReadOnly PublicStatic As BindingFlags =
             BindingFlags.Public Or BindingFlags.NonPublic Or BindingFlags.Static
 
@@ -25,7 +25,8 @@ Namespace videoenhancer
         End Sub
 
         ''' <summary>优先调用 6.2.20 的获取队列快照()，旧宿主回退到队列属性。</summary>
-        Public Shared Function GetQueueSnapshot() As List(Of 编码任务_v6)
+        Public Shared Function GetQueueSnapshot() As List(Of HostTask)
+            If QueueType Is Nothing Then Return New List(Of HostTask)()
             Dim reflected = InvokeSharedNoArg("获取队列快照")
             Dim result = ConvertTasks(reflected)
             If result.Count > 0 OrElse reflected IsNot Nothing Then
@@ -41,18 +42,18 @@ Namespace videoenhancer
             Catch ex As Exception
                 LogFailure("读取宿主队列属性失败", ex)
             End Try
-            Return New List(Of 编码任务_v6)()
+            Return New List(Of HostTask)()
         End Function
 
         ''' <summary>优先调用宿主按 ID 索引；方法不存在时在快照中查找。</summary>
-        Public Shared Function FindTask(id As String) As 编码任务_v6
-            If String.IsNullOrWhiteSpace(id) Then
+        Public Shared Function FindTask(id As String) As HostTask
+            If String.IsNullOrWhiteSpace(id) OrElse QueueType Is Nothing Then
                 Return Nothing
             End If
             Try
                 Dim method = QueueType.GetMethod("根据ID获取任务", PublicStatic, Nothing, New Type() {GetType(String)}, Nothing)
                 If method IsNot Nothing Then
-                    Return TryCast(method.Invoke(Nothing, New Object() {id}), 编码任务_v6)
+                    Return HostTask.Wrap(method.Invoke(Nothing, New Object() {id}))
                 End If
             Catch ex As Exception
                 LogFailure("按 ID 读取宿主队列任务失败", ex)
@@ -66,7 +67,7 @@ Namespace videoenhancer
         ''' 参数统一为 String ID 数组，匹配 6.2.20 的 IEnumerable(Of String) 签名。
         ''' </summary>
         Public Shared Function InvokeTaskCommand(commandName As String, ids As IEnumerable(Of String)) As Boolean
-            If String.IsNullOrWhiteSpace(commandName) OrElse ids Is Nothing Then
+            If String.IsNullOrWhiteSpace(commandName) OrElse ids Is Nothing OrElse QueueType Is Nothing Then
                 Return False
             End If
             Try
@@ -89,14 +90,14 @@ Namespace videoenhancer
         End Function
 
         ''' <summary>尝试调用单个任务实例的公开/友元方法（如停止、暂停、恢复）。</summary>
-        Public Shared Function InvokeTaskInstance(task As 编码任务_v6, methodName As String) As Boolean
+        Public Shared Function InvokeTaskInstance(task As HostTask, methodName As String) As Boolean
             If task Is Nothing OrElse String.IsNullOrWhiteSpace(methodName) Then Return False
             Try
-                Dim method = task.GetType().GetMethod(methodName,
+                Dim method = task.Instance.GetType().GetMethod(methodName,
                     BindingFlags.Public Or BindingFlags.NonPublic Or BindingFlags.Instance,
                     Nothing, Type.EmptyTypes, Nothing)
                 If method Is Nothing Then Return False
-                method.Invoke(task, Nothing)
+                method.Invoke(task.Instance, Nothing)
                 Return True
             Catch ex As Exception
                 LogFailure("调用任务实例方法失败：" & methodName, ex)
@@ -115,13 +116,13 @@ Namespace videoenhancer
             End Try
         End Function
 
-        Private Shared Function ConvertTasks(value As Object) As List(Of 编码任务_v6)
-            Dim result As New List(Of 编码任务_v6)()
+        Private Shared Function ConvertTasks(value As Object) As List(Of HostTask)
+            Dim result As New List(Of HostTask)()
             Dim enumerable = TryCast(value, IEnumerable)
             If enumerable Is Nothing Then Return result
             Try
                 For Each item In enumerable
-                    Dim task = TryCast(item, 编码任务_v6)
+                    Dim task = HostTask.Wrap(item)
                     If task IsNot Nothing Then result.Add(task)
                 Next
             Catch ex As Exception
@@ -136,6 +137,12 @@ Namespace videoenhancer
             Catch
             End Try
         End Sub
+
+        Friend Shared Function ComputeOutputPath(input As String, preset As HostPreset,
+                                                autoRename As Boolean, reserved As HashSet(Of String)) As String
+            Return CStr(HostRuntime.InvokeShared("编码队列_v6", "计算输出位置_v6",
+                input, preset.Instance, autoRename, reserved))
+        End Function
 
     End Class
 

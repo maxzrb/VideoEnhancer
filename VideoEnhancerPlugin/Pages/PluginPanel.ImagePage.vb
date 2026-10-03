@@ -11,7 +11,6 @@ Imports System.Text.RegularExpressions
 Imports System.Reflection
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
-Imports FFmpegFreeUI
 Imports LakeUI
 
 Namespace videoenhancer
@@ -20,7 +19,7 @@ Namespace videoenhancer
 
         ' ── 图片超分页（独立选项卡，沿用超分工作台的超分引擎与模型）──
         Private ReadOnly _pageImage As New ModernPanel()
-        Private _imageRoot As ModernPanel
+        Private _imageRoot As DpiLayoutPanel
         Private ReadOnly _btnImageFiles As New ModernButton()
         Private ReadOnly _btnImageFolder As New ModernButton()
         Private ReadOnly _btnImageOutput As New ModernButton()
@@ -42,17 +41,18 @@ Namespace videoenhancer
         Private _imageProcess As Process
         Private _imageRunning As Boolean
         Private _imageCompleteReceived As Boolean
+        Private Const ImageContentHeight As Integer = 272
         ' ────────────────────────── 图片超分页 ──────────────────────────
 
         Private Sub BuildOfficialImagePage()
             _pageImage.Dock = DockStyle.Fill
             _pageImage.LayoutMode = ModernPanel.LayoutModeEnum.Absolute
-            Dim root As New ModernPanel With {
+            Dim root As New DpiLayoutPanel With {
                 .Dock = DockStyle.None,
                 .Anchor = AnchorStyles.Top Or AnchorStyles.Left,
                 .AutoSize = False,
-                .MinimumSize = New Size(0, 336),
-                .Height = 336,
+                .MinimumSize = New Size(0, ImageContentHeight),
+                .Height = ImageContentHeight,
                 .BackColor = Color.Transparent,
                 .BackColor1 = Color.Transparent,
                 .LayoutMode = ModernPanel.LayoutModeEnum.Absolute,
@@ -66,21 +66,21 @@ Namespace videoenhancer
             AddHandler _pageImage.SizeChanged, Sub(sender, e) SyncImageRootBounds()
 
             AddWorkbenchRow(root, CreateOfficialSectionHeading(
-                "图片超分", "沿用超分工作台的超分引擎与模型，可选择文件、文件夹或直接拖入"), 12, 36)
+                "图片超分", "沿用超分工作台的超分引擎与模型，可选择文件、文件夹或直接拖入"), 8, 32)
 
             Dim imageInputRow As New ModernHorizontalPanel(
-                150.0F, 12.0F, 170.0F, 12.0F, 110.0F, 12.0F, -1.0F) With {
+                112.0F, CSng(UiColumnGap), 132.0F, CSng(UiColumnGap), 96.0F, CSng(UiColumnGap), -1.0F) With {
                 .AllowDrop = True
             }
-            ConfigureImageButton(_btnImageFiles, "选择图片", 150)
-            ConfigureImageButton(_btnImageFolder, "选择文件夹", 170)
-            ConfigureImageButton(_btnImageClear, "移除所有", 110)
+            ConfigureImageButton(_btnImageFiles, "选择图片", 112)
+            ConfigureImageButton(_btnImageFolder, "选择文件夹", 132)
+            ConfigureImageButton(_btnImageClear, "移除所有", 96)
             _btnImageFiles.Dock = DockStyle.Fill
             _btnImageFolder.Dock = DockStyle.Fill
-            _btnImageFiles.Margin = New Padding(0, 6, 0, 6)
-            _btnImageFolder.Margin = New Padding(0, 6, 0, 6)
+            _btnImageFiles.Margin = New Padding(0, 4, 0, 4)
+            _btnImageFolder.Margin = New Padding(0, 4, 0, 4)
             _btnImageClear.Dock = DockStyle.Fill
-            _btnImageClear.Margin = New Padding(0, 6, 0, 6)
+            _btnImageClear.Margin = New Padding(0, 4, 0, 4)
             AddHandler _btnImageFiles.Click, AddressOf OnPickImageFiles
             AddHandler _btnImageFolder.Click, AddressOf OnPickImageFolder
             AddHandler _btnImageClear.Click, AddressOf OnClearImages
@@ -93,12 +93,12 @@ Namespace videoenhancer
             imageInputRow.AddColumn(CreateOfficialValueBox(_lblImageInputs), 6)
             AddHandler imageInputRow.DragEnter, AddressOf OnImageDragEnter
             AddHandler imageInputRow.DragDrop, AddressOf OnImageDragDrop
-            AddWorkbenchRow(root, imageInputRow, 48, 54)
+            AddWorkbenchRow(root, imageInputRow, 44, UiRowHeight)
 
-            Dim imageOutputRow As New ModernHorizontalPanel(170.0F, 12.0F, -1.0F)
-            ConfigureImageButton(_btnImageOutput, "选择输出目录", 170)
+            Dim imageOutputRow As New ModernHorizontalPanel(132.0F, CSng(UiColumnGap), -1.0F)
+            ConfigureImageButton(_btnImageOutput, "选择输出目录", 132)
             _btnImageOutput.Dock = DockStyle.Fill
-            _btnImageOutput.Margin = New Padding(0, 6, 0, 6)
+            _btnImageOutput.Margin = New Padding(0, 4, 0, 4)
             AddHandler _btnImageOutput.Click, AddressOf OnPickImageOutput
             ConfigureOfficialTextBox(_txtImageOutput, "留空即输出到源目录")
             Dim initialOutput = If(_config.ImageOutputOriginal, "", _config.ImageOutput)
@@ -108,10 +108,10 @@ Namespace videoenhancer
             AddHandler _txtImageOutput.TextChanged, AddressOf OnImageOutputTextChanged
             imageOutputRow.AddColumn(_btnImageOutput, 0)
             imageOutputRow.AddColumn(_txtImageOutput, 2)
-            AddWorkbenchRow(root, imageOutputRow, 102, 54)
+            AddWorkbenchRow(root, imageOutputRow, 84, UiRowHeight)
 
             Dim imageOptionsRow As New ModernHorizontalPanel(
-                82.0F, 220.0F, 20.0F, 82.0F, 220.0F, -1.0F, 16.0F, 170.0F)
+                72.0F, 170.0F, 16.0F, 72.0F, 170.0F, -1.0F, 12.0F, 132.0F)
 
             Dim suffixLabel = CreateOfficialCaption("命名方式")
             suffixLabel.TextAlign = ContentAlignment.MiddleLeft
@@ -122,7 +122,7 @@ Namespace videoenhancer
             ConfigureCombo(_cmbImageSuffix)
             _cmbImageSuffix.Editable = False
             _cmbImageSuffix.Dock = DockStyle.Fill
-            _cmbImageSuffix.Margin = New Padding(0, 6, 0, 6)
+            _cmbImageSuffix.Margin = New Padding(0, 4, 0, 4)
             AddHandler _cmbImageSuffix.SelectedIndexChanged, AddressOf OnImageSuffixChanged
 
             Dim formatLabel = CreateOfficialCaption("输出格式")
@@ -134,12 +134,12 @@ Namespace videoenhancer
             ConfigureCombo(_cmbImageFormat)
             _cmbImageFormat.Editable = False
             _cmbImageFormat.Dock = DockStyle.Fill
-            _cmbImageFormat.Margin = New Padding(0, 6, 0, 6)
+            _cmbImageFormat.Margin = New Padding(0, 4, 0, 4)
             AddHandler _cmbImageFormat.SelectedIndexChanged, AddressOf OnImageFormatChanged
 
             _btnImageStart.Text = "开始增强"
             _btnImageStart.Dock = DockStyle.Fill
-            _btnImageStart.Margin = New Padding(0, 6, 0, 6)
+            _btnImageStart.Margin = New Padding(0, 4, 0, 4)
             ConfigurePrimaryButton(_btnImageStart)
             AddHandler _btnImageStart.Click, AddressOf OnStartImageProcessing
 
@@ -148,21 +148,22 @@ Namespace videoenhancer
             imageOptionsRow.AddColumn(formatLabel, 3)
             imageOptionsRow.AddColumn(_cmbImageFormat, 4)
             imageOptionsRow.AddColumn(_btnImageStart, 7)
-            AddWorkbenchRow(root, imageOptionsRow, 156, 54)
+            AddWorkbenchRow(root, imageOptionsRow, 128, UiRowHeight)
 
             ConfigureOutputScaleCombo(_cmbImageOutputScale)
             Dim scaleField = CreateOfficialField("输出倍率", _cmbImageOutputScale)
             _imageOutputScaleHint = CreateOfficialCaption("原生推理倍率", UiTextMuted)
-            _imageOutputScaleHint.TextAlign = ContentAlignment.BottomLeft
-            AddWorkbenchControl(root, scaleField, 210, 70, 0.0F, 0.28F, 0, -12)
-            AddWorkbenchControl(root, _imageOutputScaleHint, 210, 70, 0.28F, 1.0F)
+            _imageOutputScaleHint.TextAlign = ContentAlignment.MiddleLeft
+            _imageOutputScaleHint.Padding = New Padding(0, UiFieldEditorTop, 0, 5)
+            AddWorkbenchControl(root, scaleField, 172, UiFieldHeight, 0.0F, 0.28F, 0, -UiColumnGap)
+            AddWorkbenchControl(root, _imageOutputScaleHint, 172, UiFieldHeight, 0.28F, 1.0F)
             SyncOutputScaleControls()
 
             Dim progressRow As New ModernHorizontalPanel(-1.0F, 16.0F, 300.0F)
             _imageProgress.Minimum = 0
             _imageProgress.Maximum = 1000
             _imageProgress.Dock = DockStyle.Fill
-            _imageProgress.Margin = New Padding(0, 15, 0, 15)
+            _imageProgress.Margin = New Padding(0, 10, 0, 10)
             _imageProgress.TrackColor = Color.FromArgb(40, 220, 220, 220)
             _imageProgress.FillColor = UiAccent
             _imageProgress.FillGradientColor = Color.FromArgb(120, 204, 255)
@@ -178,7 +179,7 @@ Namespace videoenhancer
             _lblImageProgress.Text = "<font color=#888888>等待开始</font>"
             progressRow.AddColumn(_imageProgress, 0)
             progressRow.AddColumn(_lblImageProgress, 2)
-            AddWorkbenchRow(root, progressRow, 280, 42)
+            AddWorkbenchRow(root, progressRow, 232, 28)
             _pageImage.Controls.Add(root)
             BindScrollableGpuBackgroundSources(root, ModernPanel1)
             SyncImageRootBounds()
@@ -188,15 +189,12 @@ Namespace videoenhancer
             Dim root = _imageRoot
             If root Is Nothing OrElse root.IsDisposed OrElse
                _pageImage Is Nothing OrElse _pageImage.IsDisposed Then Return
-            Dim availableWidth = Math.Max(_pageImage.Width, _pageImage.ClientSize.Width)
-            availableWidth = Math.Max(availableWidth, Math.Max(_tabs.Width, _tabs.ClientSize.Width))
-            If ModernPanel1 IsNot Nothing AndAlso Not ModernPanel1.IsDisposed Then
-                availableWidth = Math.Max(availableWidth,
-                    ModernPanel1.ClientSize.Width - ModernPanel1.Padding.Left - ModernPanel1.Padding.Right)
-            End If
-            Dim width = Math.Max(0, availableWidth - _pageImage.ScrollBarWidth - 2)
-            If root.Left <> 0 OrElse root.Top <> 0 OrElse root.Width <> width OrElse root.Height <> 336 Then
-                root.SetBounds(0, 0, width, 336)
+            Dim width = Math.Max(0, _pageImage.ClientSize.Width - root.ScaleX(_pageImage.ScrollBarWidth + 2))
+            Dim contentHeight = root.ScaleY(ImageContentHeight)
+            Dim rootLeft = If(_pageImage.HorizontalScrollOffset > 0, root.Left, 0)
+            Dim rootTop = If(_pageImage.VerticalScrollOffset > 0, root.Top, 0)
+            If root.Left <> rootLeft OrElse root.Top <> rootTop OrElse root.Width <> width OrElse root.Height <> contentHeight Then
+                root.SetBounds(rootLeft, rootTop, width, contentHeight)
             End If
         End Sub
 

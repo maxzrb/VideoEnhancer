@@ -11,7 +11,6 @@ Imports System.Text.RegularExpressions
 Imports System.Reflection
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
-Imports FFmpegFreeUI
 Imports LakeUI
 
 Namespace videoenhancer
@@ -41,7 +40,7 @@ Namespace videoenhancer
         Private Sub BuildOfficialPreviewPage()
             _pagePreview.Dock = DockStyle.Fill
             _pagePreview.BackColor = Color.Transparent
-            _pagePreview.Padding = New Padding(0, 8, 0, 0)
+            _pagePreview.Padding = New Padding(0, 4, 0, 0)
 
             Dim root As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
@@ -51,11 +50,11 @@ Namespace videoenhancer
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Absolute, 44.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 58.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 58.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 58.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
 
             _lblPreviewTitle.Text = "<span style=""font-size:13; color:Silver"">实时预览</span>   队列画面监看"
             _lblPreviewTitle.AutoSize = False
@@ -80,9 +79,9 @@ Namespace videoenhancer
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
-            taskRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 112.0F))
+            taskRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 88.0F))
             taskRow.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            taskRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 360.0F))
+            taskRow.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 240.0F))
             taskRow.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             _lblTask.Text = "<font color=#C0C0C0>预览任务</font>"
             _lblTask.AutoSize = False
@@ -92,11 +91,11 @@ Namespace videoenhancer
             _cmbTask.WaterText = "选择要预览的任务…"
             ConfigureCombo(_cmbTask)
             _cmbTask.Dock = DockStyle.Fill
-            _cmbTask.Margin = New Padding(0, 5, 0, 5)
+            _cmbTask.Margin = New Padding(0, 4, 0, 4)
             AddHandler _cmbTask.SelectedIndexChanged, AddressOf OnTaskSelected
             Dim taskHint = CreateOfficialCaption("可查看处理中或已经完成的帧")
             taskHint.TextAlign = ContentAlignment.MiddleLeft
-            taskHint.Margin = New Padding(16, 0, 0, 0)
+            taskHint.Margin = New Padding(UiColumnGap, 0, 0, 0)
             taskRow.AddAt(_lblTask, 0, 0)
             taskRow.AddAt(_cmbTask, 1, 0)
             taskRow.AddAt(taskHint, 2, 0)
@@ -131,8 +130,8 @@ Namespace videoenhancer
                 .Padding = Padding.Empty
             }
             footer.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            footer.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 96.0F))
-            footer.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
+            footer.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 80.0F))
+            footer.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 140.0F))
             footer.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             _lblPreviewNote.Text = "<font color=#888888>预览会跟随任务进度；慢速处理时短暂停顿属于正常现象。</font>"
             _lblPreviewNote.AutoSize = False
@@ -153,7 +152,7 @@ Namespace videoenhancer
             _cmbRate.Items.Add("关键帧模式")
             _cmbRate.SelectedIndex = 1
             _cmbRate.Dock = DockStyle.Fill
-            _cmbRate.Margin = New Padding(12, 5, 0, 5)
+            _cmbRate.Margin = New Padding(UiColumnGap, 4, 0, 4)
             AddHandler _cmbRate.SelectedIndexChanged, AddressOf OnRateSelected
             footer.AddAt(_lblPreviewNote, 0, 0)
             footer.AddAt(_lblRate, 1, 0)

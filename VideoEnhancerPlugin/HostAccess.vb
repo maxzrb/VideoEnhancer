@@ -2,7 +2,6 @@
 Imports System.Collections.Generic
 Imports System.Reflection
 Imports System.Windows.Forms
-Imports FFmpegFreeUI
 
 Namespace videoenhancer
 
@@ -22,8 +21,8 @@ Namespace videoenhancer
                 Return TestOverrides(formClassName)
             End If
 
-            Dim asm = GetType(FormMain_v6).Assembly
-            Dim instance = ResolveMyFormsInstance(asm, formClassName)
+            Dim asm = HostRuntime.GetHostAssembly()
+            Dim instance = If(asm Is Nothing, Nothing, ResolveMyFormsInstance(asm, formClassName))
             If instance IsNot Nothing Then
                 Return instance
             End If

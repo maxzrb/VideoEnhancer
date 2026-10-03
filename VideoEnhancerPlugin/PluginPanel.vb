@@ -11,7 +11,6 @@ Imports System.Text.RegularExpressions
 Imports System.Reflection
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
-Imports FFmpegFreeUI
 Imports LakeUI
 
 Namespace videoenhancer
@@ -30,6 +29,9 @@ Namespace videoenhancer
 
             Protected Overrides Sub WndProc(ByRef m As Message)
                 If m.Msg = WmMouseWheel OrElse m.Msg = WmMouseHWheel Then
+                    If m.Msg = WmMouseWheel Then
+                        SmoothScrollPanel.ForwardWheelToScrollHost(Me, SmoothScrollPanel.WheelDelta(m.WParam))
+                    End If
                     Return
                 End If
                 MyBase.WndProc(m)
@@ -41,7 +43,8 @@ Namespace videoenhancer
             Inherits ModernNumericUpDown
 
             Protected Overrides Sub OnMouseWheel(e As MouseEventArgs)
-                ' 不调用基类，避免鼠标滚轮修改 HDR 参数。
+                ' 不修改 HDR 参数；将滚轮交回工作台视口，避免经过数字框时滚动中断。
+                SmoothScrollPanel.ForwardWheelToScrollHost(Me, e.Delta)
             End Sub
 
             Protected Overrides Sub OnKeyDown(e As KeyEventArgs)
@@ -94,6 +97,10 @@ Namespace videoenhancer
         Private Shared ReadOnly UiSurface As Color = Color.FromArgb(40, 220, 220, 220)
         Private Shared ReadOnly UiSurfaceRaised As Color = Color.FromArgb(40, 220, 220, 220)
         Private Shared ReadOnly UiSurfaceHover As Color = Color.FromArgb(60, 220, 220, 220)
+        Private Shared ReadOnly UiSurfaceDark As Color = Color.FromArgb(40, 0, 0, 0)
+        Private Shared ReadOnly UiSeparator As Color = Color.FromArgb(80, 220, 220, 220)
+        Private Shared ReadOnly UiScrollThumb As Color = Color.FromArgb(80, 220, 220, 220)
+        Private Shared ReadOnly UiScrollThumbHover As Color = Color.FromArgb(120, 220, 220, 220)
         Private Shared ReadOnly UiStrokeSoft As Color = Color.Transparent
         Private Shared ReadOnly UiAccent As Color = Color.FromArgb(71, 156, 255)
         Private Shared ReadOnly UiAccentHover As Color = Color.FromArgb(110, 71, 156, 255)
@@ -104,13 +111,22 @@ Namespace videoenhancer
         Private Shared ReadOnly UiTextSecondary As Color = Color.FromArgb(176, 220, 220, 220)
         Private Shared ReadOnly UiTextMuted As Color = Color.FromArgb(120, 255, 255, 255)
 
+        ' 统一的 96 DPI 紧凑尺寸；字体保持不变，由布局容器负责换算实际 DPI。
+        Private Const UiControlHeight As Integer = 28
+        Private Const UiFieldHeight As Integer = 56
+        Private Const UiFieldCaptionHeight As Integer = 20
+        Private Const UiFieldEditorTop As Integer = 23
+        Private Const UiRowHeight As Integer = 36
+        Private Const UiColumnGap As Integer = 8
+        Private Const UiCornerRadius As Integer = 6
+
         Private ReadOnly _config As PluginConfig
         Private _uiReady As Boolean = False
         ' ── 选项卡分栏：超分主界面 / 实时预览 / 高级功能 / 模型转换器 ──
         Private ReadOnly _tabs As New ModernTabControl()
         ' 3FUI 通过字段名和控件名 ModernPanel1 绑定 LakeUI 背景穿透缓存。
         Private ReadOnly ModernPanel1 As New ModernPanel()
-        Private ReadOnly _pageUpscale As New ModernPanel()
+        Private ReadOnly _pageUpscale As New SmoothScrollPanel()
         Private ReadOnly _pagePreview As New ModernPanel()
         Private ReadOnly _pageDownloader As New ModernPanel()
         Private ReadOnly _pageConverter As New ModernPanel()
@@ -365,19 +381,48 @@ Namespace videoenhancer
         Public Sub New(config As PluginConfig, Optional previewOnly As Boolean = False)
             _config = If(config, New PluginConfig())
             Current = Me
-            If Not LakeUiV51Available() Then
-                InitializeCompatibilityErrorUi()
-                Return
-            End If
-            InitializeUi()
-            AddHandler _config.Saved, AddressOf OnConfigurationSaved
-            If previewOnly Then
-                _uiReady = True
-                RefreshUi()
-            Else
-                AddHandler Load, AddressOf OnPanelLoad
-            End If
+            SuspendLayout()
+            AutoScaleMode = AutoScaleMode.None
+            Try
+                If Not LakeUiScrollTransactionsAvailable() Then
+                    InitializeCompatibilityErrorUi()
+                    Return
+                End If
+                InitializeUi()
+                AddHandler _config.Saved, AddressOf OnConfigurationSaved
+                If previewOnly Then
+                    _uiReady = True
+                    RefreshUi()
+                Else
+                    AddHandler Load, AddressOf OnPanelLoad
+                End If
+            Finally
+                ' 页面和全部子控件完成 96 DPI 布局后再统一缩放，避免构建途中发生字体缩放。
+                AutoScaleMode = AutoScaleMode.Dpi
+                AutoScaleDimensions = New SizeF(96.0F, 96.0F)
+                ResumeLayout(True)
+            End Try
         End Sub
+
+        Protected Overrides Sub ScaleControl(factor As SizeF, specified As BoundsSpecified)
+            MyBase.ScaleControl(factor, specified)
+            ' LakeUI 只把已访问的页加入控件树，未访问页也必须参与本次缩放。
+            If _tabs Is Nothing OrElse _tabs.Items.Count = 0 Then Return
+            Dim pageFactor = New SizeF(
+                If((specified And BoundsSpecified.Width) <> 0, factor.Width, 1.0F),
+                If((specified And BoundsSpecified.Height) <> 0, factor.Height, 1.0F))
+            If pageFactor = New SizeF(1.0F, 1.0F) Then Return
+            For Each page In PluginPages()
+                If page IsNot Nothing AndAlso Not page.IsDisposed AndAlso Not Contains(page) Then
+                    page.Scale(pageFactor)
+                End If
+            Next
+        End Sub
+
+        Private Function PluginPages() As ModernPanel()
+            Return New ModernPanel() {_pageUpscale, _pageImage, _pagePreview, _pageDownloader,
+                _pageConverter, _pageImporter, _pageSegmented, _pageShell, _pageTutorial}
+        End Function
 
         Public ReadOnly Property IsEnabled As Boolean
             Get
@@ -502,14 +547,14 @@ Namespace videoenhancer
             ' 不透明画布是背景映射尚未完成时的兜底，避免恢复窗口时短暂穿透到桌面/壁纸。
             BackColor = UiCanvas
             Dock = DockStyle.Fill
-            MinimumSize = New Size(900, 680)
+            MinimumSize = New Size(800, 520)
             Font = New Font("Microsoft YaHei UI", 10.0F)
 
             ' 保持宿主插件契约，由 3FUI 将主窗体设置为 BackgroundSource。
             ModernPanel1.Name = "ModernPanel1"
             ModernPanel1.Dock = DockStyle.Fill
             ModernPanel1.Margin = Padding.Empty
-            ModernPanel1.Padding = New Padding(24, 20, 24, 18)
+            ModernPanel1.Padding = New Padding(20, 16, 20, 12)
             ModernPanel1.BackColor = Color.Transparent
             ModernPanel1.BackColor1 = Color.Transparent
             ModernPanel1.BorderSize = 0
@@ -524,7 +569,7 @@ Namespace videoenhancer
             }
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             ' 状态栏给按钮保留稳定的下边距，避免矮窗口中按钮白底贴住宿主底边。
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 60.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 44.0F))
 
             _tabs.SuspendLayout()
             Try
@@ -540,11 +585,11 @@ Namespace videoenhancer
                 .RowCount = 1,
                 .BackColor = Color.Transparent,
                 .Margin = Padding.Empty,
-                .Padding = New Padding(0, 4, 0, 8)
+                .Padding = New Padding(0, 4, 0, 4)
             }
             sectionStatus.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            sectionStatus.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 170.0F))
-            sectionStatus.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 210.0F))
+            sectionStatus.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 132.0F))
+            sectionStatus.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 152.0F))
             sectionStatus.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             _lblStatus.AutoSize = False
             _lblStatus.Dock = DockStyle.Fill
@@ -556,13 +601,13 @@ Namespace videoenhancer
             _btnCheckUpdates.Text = "检查更新 v" & PluginUpdater.CurrentVersion
             _btnCheckUpdates.Dock = DockStyle.Fill
             _btnCheckUpdates.AutoSize = False
-            _btnCheckUpdates.Margin = New Padding(12, 4, 0, 4)
+            _btnCheckUpdates.Margin = New Padding(UiColumnGap, 4, 0, 4)
             ConfigureSecondaryButton(_btnCheckUpdates)
             AddHandler _btnCheckUpdates.Click, AddressOf OnCheckUpdates
             sectionStatus.AddAt(_btnCheckUpdates, 2, 0)
             _btnCleanArchives.Text = "清理临时文件"
             _btnCleanArchives.Dock = DockStyle.Fill
-            _btnCleanArchives.Margin = New Padding(12, 4, 0, 4)
+            _btnCleanArchives.Margin = New Padding(UiColumnGap, 4, 0, 4)
             ConfigureSecondaryButton(_btnCleanArchives)
             _btnCleanArchives.ForeColor = Color.White
             _btnCleanArchives.BackColor1 = Color.FromArgb(150, 190, 48, 48)
@@ -594,11 +639,11 @@ Namespace videoenhancer
             _tabs.BackColor = Color.Transparent
             _tabs.TabStripBackColor = Color.Transparent
             _tabs.TabStripOverlayColor = Color.Transparent
-            _tabs.TabStripHeight = 44
-            _tabs.TabStripPadding = New Padding(0, 2, 0, 3)
+            _tabs.TabStripHeight = UiRowHeight
+            _tabs.TabStripPadding = New Padding(0, 1, 0, 2)
             _tabs.TabItemTextPadding = 7
             _tabs.TabItemSpacing = 4
-            _tabs.TabItemBorderRadius = 8
+            _tabs.TabItemBorderRadius = UiCornerRadius
             _tabs.TabItemForeColor = UiTextMuted
             _tabs.TabItemSelectedForeColor = UiText
             _tabs.TabItemSelectedBackColor = UiSurface
@@ -624,10 +669,7 @@ Namespace videoenhancer
             BuildOfficialShellPage()
             BuildMarkdownPage(_pageTutorial, BeginnerTutorialMarkdown())
 
-            For Each page As ModernPanel In New ModernPanel() {
-                _pageUpscale, _pageImage, _pagePreview, _pageDownloader,
-                _pageConverter, _pageImporter, _pageSegmented, _pageShell, _pageTutorial
-            }
+            For Each page As ModernPanel In PluginPages()
                 page.BackColor = Color.Transparent
                 page.BackColor1 = Color.Transparent
                 ' ModernPanel 默认带 1px 灰色边框；页面根节点属于 TabControl 内容面，必须显式关闭，
@@ -670,13 +712,13 @@ Namespace videoenhancer
         Private Shared Function CreateOfficialValueBox(valueControl As Control) As ModernPanel
             Dim box As New ModernPanel With {
                 .Dock = DockStyle.Fill,
-                .Margin = New Padding(0, 5, 0, 5),
-                .Padding = New Padding(10, 0, 10, 0),
+                .Margin = New Padding(0, 4, 0, 4),
+                .Padding = New Padding(8, 0, 8, 0),
                 .BackColor = Color.Transparent,
                 .BackColor1 = UiSurface,
                 .BorderColor = Color.Transparent,
                 .BorderSize = 0,
-                .BorderRadius = 10
+                .BorderRadius = UiCornerRadius
             }
             valueControl.Dock = DockStyle.Fill
             valueControl.Margin = Padding.Empty
@@ -691,8 +733,8 @@ Namespace videoenhancer
 
         Private Shared Sub ConfigureOfficialTextBox(textBox As ModernTextBox, waterText As String)
             textBox.Dock = DockStyle.Fill
-            textBox.Margin = New Padding(0, 6, 0, 6)
-            textBox.Padding = New Padding(12, 0, 12, 0)
+            textBox.Margin = New Padding(0, 4, 0, 4)
+            textBox.Padding = New Padding(8, 0, 8, 0)
             textBox.Font = New Font("Microsoft YaHei UI", 10.0F)
             textBox.BackColor1 = UiSurfaceRaised
             textBox.ForeColor = UiText
@@ -703,7 +745,7 @@ Namespace videoenhancer
             textBox.BorderColor = Color.Transparent
             textBox.BorderColorFocus = Color.FromArgb(80, 220, 220, 220)
             textBox.BorderSize = 0
-            textBox.BorderRadius = 10
+            textBox.BorderRadius = UiCornerRadius
             textBox.MultiLine = False
         End Sub
 
@@ -738,22 +780,22 @@ Namespace videoenhancer
             Dim titleLabel = CreateTextLabel(title, 12.0F, FontStyle.Regular, UiText)
             titleLabel.Margin = Padding.Empty
             titleLabel.TextAlign = ContentAlignment.MiddleLeft
-            Dim titleWidth = Math.Max(84, TextRenderer.MeasureText(title, titleLabel.Font).Width + 4)
+            Dim titleWidth = Math.Max(84, MeasureTextWidth96(title, titleLabel.Font) + 4)
             Dim row As ModernHorizontalPanel
             Dim halfLabel As LakeTextLabel = Nothing
             If halfSwitch Is Nothing Then
                 row = New ModernHorizontalPanel(
-                    CSng(titleWidth), 10.0F, 42.0F, -1.0F, CSng(stateWidth))
+                    CSng(titleWidth), CSng(UiColumnGap), 40.0F, -1.0F, CSng(stateWidth))
             Else
                 halfLabel = CreateTextLabel("半精度推理", 11.0F, FontStyle.Regular, UiTextSecondary)
                 halfLabel.AutoSize = False
                 halfLabel.Dock = DockStyle.Fill
                 halfLabel.TextAlign = ContentAlignment.MiddleCenter
                 halfLabel.Margin = Padding.Empty
-                Dim halfLabelWidth = Math.Max(108,
-                    TextRenderer.MeasureText(halfLabel.Text, halfLabel.Font).Width + 14)
+                Dim halfLabelWidth = Math.Max(96,
+                    MeasureTextWidth96(halfLabel.Text, halfLabel.Font) + 10)
                 row = New ModernHorizontalPanel(
-                    CSng(titleWidth), 10.0F, 42.0F, 18.0F, CSng(halfLabelWidth), 8.0F, 42.0F, -1.0F,
+                    CSng(titleWidth), CSng(UiColumnGap), 40.0F, 12.0F, CSng(halfLabelWidth), 6.0F, 40.0F, -1.0F,
                     CSng(stateWidth))
             End If
             switchControl.Anchor = AnchorStyles.None
@@ -811,7 +853,7 @@ Namespace videoenhancer
             Return row
         End Function
 
-        Private Shared Sub AddWorkbenchControl(root As ModernPanel, control As Control,
+        Private Shared Sub AddWorkbenchControl(root As DpiLayoutPanel, control As Control,
                                                top As Integer, height As Integer,
                                                leftRatio As Single, rightRatio As Single,
                                                Optional leftOffset As Integer = 0,
@@ -820,24 +862,80 @@ Namespace videoenhancer
             control.Anchor = AnchorStyles.Top Or AnchorStyles.Left
             Dim arrange =
                 Sub()
-                    Dim left = CInt(Math.Round(root.ClientSize.Width * leftRatio)) + leftOffset
-                    Dim right = CInt(Math.Round(root.ClientSize.Width * rightRatio)) + rightOffset
-                    control.SetBounds(left, top, Math.Max(0, right - left), height)
+                    Dim left = CInt(Math.Round(root.ClientSize.Width * leftRatio)) + root.ScaleX(leftOffset)
+                    Dim right = CInt(Math.Round(root.ClientSize.Width * rightRatio)) + root.ScaleX(rightOffset)
+                    control.SetBounds(left, root.ScaleY(top), Math.Max(0, right - left), root.ScaleY(height))
                 End Sub
             root.Controls.Add(control)
             AddHandler root.Layout, Sub(sender, e) arrange()
             arrange()
         End Sub
 
-        Private Shared Sub AddWorkbenchRow(root As ModernPanel, control As Control,
+        Private Shared Sub AddWorkbenchRow(root As DpiLayoutPanel, control As Control,
                                            top As Integer, height As Integer)
             AddWorkbenchControl(root, control, top, height, 0.0F, 1.0F)
         End Sub
 
+        ''' <summary>参照 3FUI 编码队列：固定列按 DPI 换算，首列使用视口的剩余宽度。</summary>
+        Private Shared Sub ConfigureDpiListColumns(list As UltraDetailListView, minimumFirstWidth As Integer)
+            Dim lastScale As Double = 1.0R
+            Dim arrange As Action =
+                Sub()
+                    If list.IsDisposed OrElse list.Columns.Count = 0 Then Return
+                    Dim scale = If(list.IsHandleCreated, list.DeviceDpi / 96.0R, 1.0R)
+                    list.BeginUpdate()
+                    Try
+                        Dim fixedWidth = 0
+                        For index = 1 To list.Columns.Count - 1
+                            ' 保留用户拖动后的宽度，只在 DPI 改变时按比例换算。
+                            If Math.Abs(scale - lastScale) > 0.001R Then
+                                list.Columns(index).Width = CInt(Math.Round(list.Columns(index).Width * scale / lastScale))
+                            End If
+                            fixedWidth += list.Columns(index).Width
+                        Next
+                        lastScale = scale
+                        list.Columns(0).Width = Math.Max(CInt(Math.Round(minimumFirstWidth * scale)),
+                            list.ClientSize.Width - list.Padding.Horizontal - CInt(Math.Round(18 * scale)) - fixedWidth)
+                    Finally
+                        list.EndUpdate()
+                    End Try
+                End Sub
+            AddHandler list.HandleCreated, Sub(sender, e) arrange()
+            AddHandler list.ClientSizeChanged, Sub(sender, e) arrange()
+            AddHandler list.DpiChangedAfterParent, Sub(sender, e) arrange()
+            arrange()
+        End Sub
+
+        ''' <summary>对齐 3FUI 准备文件页的半透明列表；保留各页面的列、行高和交互配置。</summary>
+        Private Sub ConfigureTransparentListAppearance(list As UltraDetailListView)
+            list.BackColor = Color.Transparent
+            list.BackgroundColor = UiSurface
+            list.BackgroundSource = ModernPanel1
+            list.BorderColor = Color.Transparent
+            list.BorderSize = 0
+            list.BorderRadius = 10
+            list.HeaderBackColor = Color.Transparent
+            list.HeaderForeColor = UiTextSecondary
+            list.HeaderBorderColor = UiSurface
+            list.HeaderBorderWidth = 2
+            list.ItemForeColor = UiTextSecondary
+            list.ItemHoverBackColor = UiSurfaceHover
+            list.ItemSelectedBackColor = UiSurface
+            list.ItemCornerRadius = 10
+            ' 准备文件页不使用分组；下载页的分组也不能沿用 LakeUI 的不透明默认值。
+            list.GroupBackColor = UiSurfaceDark
+            list.GroupForeColor = UiText
+            list.GroupBorderColor = UiSurface
+            list.ScrollBarWidth = 10
+            list.ScrollBarTrackColor = UiSurface
+            list.ScrollBarThumbColor = UiScrollThumb
+            list.ScrollBarThumbHoverColor = UiScrollThumbHover
+        End Sub
+
         ''' <summary>
         ''' 按 LakeUI V5 的显式 BackgroundSource 语义，为滚动页内的每个 GPU 控件
-        ''' 注册同一个稳定背景源。LakeUI 的自动祖先取景不会注册坐标依赖，父级滚动
-        ''' 改变控件屏幕坐标后，子表面可能继续显示滚动前的背景采样。
+        ''' 注册同一个稳定背景源，减少嵌套层级之间的取景差异。滚动时仍需通过
+        ''' 渲染事务同步位置变化和子表面的背景提交。
         ''' </summary>
         Private Shared Sub BindScrollableGpuBackgroundSources(root As Control, source As Control)
             If root Is Nothing OrElse source Is Nothing Then Return
@@ -875,14 +973,16 @@ Namespace videoenhancer
             switchControl.BorderSize = 0
             Dim applySize As Action =
                 Sub()
-                    Dim dpi = 96
-                    If switchControl.FindForm() IsNot Nothing Then
-                        dpi = switchControl.FindForm().DeviceDpi
-                    ElseIf switchControl.IsHandleCreated Then
-                        dpi = switchControl.DeviceDpi
+                    Dim ancestor = switchControl.Parent
+                    While ancestor IsNot Nothing AndAlso Not TypeOf ancestor Is DpiLayoutPanel
+                        ancestor = ancestor.Parent
+                    End While
+                    Dim layout = TryCast(ancestor, DpiLayoutPanel)
+                    If layout IsNot Nothing Then
+                        switchControl.Size = New Size(layout.ScaleX(38), layout.ScaleY(20))
+                    Else
+                        switchControl.Size = New Size(38, 20)
                     End If
-                    Dim scale = Math.Max(1.0F, CSng(dpi) / 96.0F)
-                    switchControl.Size = New Size(CInt(Math.Round(38 * scale)), CInt(Math.Round(20 * scale)))
                 End Sub
             AddHandler switchControl.HandleCreated, Sub(sender, e) applySize()
             AddHandler switchControl.DpiChangedAfterParent, Sub(sender, e) applySize()

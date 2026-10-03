@@ -1,6 +1,5 @@
 Imports System
 Imports System.Diagnostics
-Imports FFmpegFreeUI
 
 Namespace videoenhancer
     Public Partial Class PluginPanel
@@ -29,10 +28,10 @@ Namespace videoenhancer
             If IsDisposed OrElse Disposing OrElse Not _hostParameterRefreshPending Then Return
             _hostParameterRefreshPending = False
             Try
-                Dim panel = TryCast(HostAccess.GetDefaultInstance("Form_v6_参数面板"), Form_v6_参数面板)
+                Dim panel = TryCast(HostAccess.GetDefaultInstance("Form_v6_参数面板"), System.Windows.Forms.Control)
                 If panel Is Nothing OrElse panel.IsDisposed Then Return
                 ' 宿主的“请求刷新参数状态”可能只在切页时生效，这里调用实际生成总览和命令模板的入口。
-                预设管理_v6.刷新参数总览(panel)
+                HostPresetAccess.刷新参数总览(panel)
             Catch ex As Exception
                 Trace.WriteLine("[VideoEnhancer] 参数面板刷新失败：" & ex.ToString())
             End Try

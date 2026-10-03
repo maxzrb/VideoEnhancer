@@ -1,11 +1,18 @@
-﻿# 一键发布：把 outputs 中的产物发布到版本存档目录 + 各运行目录
-# 规则：每个版本更新都发布到 C:\Users\ARXChem\Documents\LakeUI-2\videoenhancer.3fui\<版本>\
+﻿# 本地部署：默认存档到仓库 Artifacts\releases；安装目录由参数或环境变量明确提供。
 param(
     # 留空时自动读取 VideoEnhancerPlugin.vbproj 的 Version。
-    [string]$Version = ''
+    [string]$Version = '',
+    [string]$ArtifactsRoot = $env:VIDEOENHANCER_ARTIFACTS_DIR,
+    [string]$ArchiveRoot = $env:VIDEOENHANCER_ARCHIVE_ROOT,
+    [string[]]$PluginDirectories = @()
 )
 $ErrorActionPreference = 'Stop'
 $base = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+function Resolve-ProjectPath([string]$value) {
+    if (-not [IO.Path]::IsPathRooted($value)) { $value = Join-Path $base $value }
+    return [IO.Path]::GetFullPath($value)
+}
 
 function Get-ProjectVersion([string]$projectPath) {
     $document = [System.Xml.XmlDocument]::new()
@@ -25,9 +32,11 @@ if (-not $Version) { $Version = $pluginVersion }
 if ($pluginVersion -ne $Version -or $cliVersion -ne $Version) {
     throw "项目版本不一致：插件=$pluginVersion，CLI=$cliVersion，部署版本=$Version"
 }
-$archiveRoot = 'C:\Users\ARXChem\Documents\LakeUI-2\videoenhancer.3fui'
-$archive = Join-Path $archiveRoot $Version
-$artifactsRoot = Join-Path $base 'Artifacts'
+if ([string]::IsNullOrWhiteSpace($ArtifactsRoot)) { $ArtifactsRoot = 'Artifacts' }
+$ArtifactsRoot = Resolve-ProjectPath $ArtifactsRoot
+if ([string]::IsNullOrWhiteSpace($ArchiveRoot)) { $ArchiveRoot = Join-Path $ArtifactsRoot 'releases' }
+$ArchiveRoot = Resolve-ProjectPath $ArchiveRoot
+$archive = Join-Path $ArchiveRoot $Version
 $installerArtifact = Join-Path $artifactsRoot 'VideoEnhancerInstaller.exe'
 $manualArtifact = Join-Path $artifactsRoot 'VideoEnhancer.zip'
 $pluginDll = Join-Path $base 'VideoEnhancerPlugin\obj\plugin-artifact\videoenhancer.3fui.dll'
@@ -39,10 +48,6 @@ New-Item -ItemType Directory -Force -Path (Join-Path $archive 'VideoEnhancerPlug
 Copy-Item -LiteralPath $installerArtifact -Destination (Join-Path $archive 'VideoEnhancerInstaller.exe') -Force
 Copy-Item -LiteralPath $manualArtifact -Destination (Join-Path $archive 'VideoEnhancer.zip') -Force
 Copy-Item -LiteralPath (Join-Path $base 'VideoEnhancer.slnx') -Destination (Join-Path $archive 'VideoEnhancer.slnx') -Force
-$layoutJson = Join-Path $base 'videoenhancer-layout.json'
-if (Test-Path -LiteralPath $layoutJson) {
-    Copy-Item -LiteralPath $layoutJson -Destination (Join-Path $archive 'videoenhancer-layout.json') -Force
-}
 
 # 2) CLI 源码（Program.cs / README / csproj）
 Copy-Item -LiteralPath (Join-Path $base 'cli\Program.cs') -Destination (Join-Path $archive 'cli\Program.cs') -Force
@@ -63,18 +68,16 @@ if (Test-Path -LiteralPath $assetSrc) {
 # 4) 部署脚本本身
 Copy-Item -LiteralPath $MyInvocation.MyCommand.Path -Destination (Join-Path $archive 'deploy.ps1') -Force
 
-# 5) 插件 DLL 复制到运行目录：开发版 GUI 插件目录 + 最新发布版 ReadyToRun 插件目录
-$pluginTargets = @(
-    'C:\Users\ARXChem\Documents\LakeUIApps\Video Enhancer GUI\Plugin\videoenhancer.3fui.dll',
-    'C:\PortableSoft\FFmpegFreeUI ReadyToRun x64\plugin\videoenhancer.3fui.dll'
-)
-foreach ($t in $pluginTargets) {
+# 5) 只有明确指定安装目录时才复制插件，避免写入其他机器的固定目录。
+if ($PluginDirectories.Count -eq 0 -and -not [string]::IsNullOrWhiteSpace($env:VIDEOENHANCER_PLUGIN_DIR)) {
+    $PluginDirectories = @($env:VIDEOENHANCER_PLUGIN_DIR)
+}
+foreach ($directory in $PluginDirectories) {
+    $destination = Resolve-ProjectPath $directory
+    $t = Join-Path $destination 'videoenhancer.3fui.dll'
     try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $t) | Out-Null
         Copy-Item -LiteralPath $pluginDll -Destination $t -Force
-        if (Test-Path -LiteralPath $layoutJson) {
-            Copy-Item -LiteralPath $layoutJson -Destination (Join-Path (Split-Path -Parent $t) 'videoenhancer-layout.json') -Force
-        }
         Write-Host "  已复制插件到 $t"
     } catch {
         Write-Host "  插件复制失败（跳过）：$t"
@@ -83,5 +86,5 @@ foreach ($t in $pluginTargets) {
 }
 
 Write-Host ''
-Write-Host "已发布 v$Version 到：$archive"
-Write-Host '  插件已复制到 Video Enhancer GUI\Plugin 与 FFmpegFreeUI ReadyToRun x64\plugin。'
+Write-Host "已存档 v$Version 到：$archive"
+if ($PluginDirectories.Count -eq 0) { Write-Host '  未指定插件安装目录，仅生成本地存档。' }

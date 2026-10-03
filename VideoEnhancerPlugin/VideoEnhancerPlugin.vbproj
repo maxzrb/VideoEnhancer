@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup Label="Project">
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
     <OutputType>Library</OutputType>
     <AssemblyName>videoenhancer</AssemblyName>
     <RootNamespace />
@@ -22,58 +22,33 @@
   </PropertyGroup>
 
   <PropertyGroup Label="Paths">
-    <VideoEnhancerRepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..'))\</VideoEnhancerRepositoryRoot>
-    <LayoutResourcePath>$(VideoEnhancerRepositoryRoot)videoenhancer-layout.json</LayoutResourcePath>
     <PluginArtifactFileName>videoenhancer.3fui.dll</PluginArtifactFileName>
     <PluginArtifactDirectory>$(MSBuildProjectDirectory)\obj\plugin-artifact\</PluginArtifactDirectory>
     <PluginArtifactPath>$(PluginArtifactDirectory)$(PluginArtifactFileName)</PluginArtifactPath>
+    <PluginInstallDir Condition="'$(PluginInstallDir)' == ''">$(VIDEOENHANCER_PLUGIN_DIR)</PluginInstallDir>
+    <PluginInstallPath Condition="'$(PluginInstallDir)' != ''">$([System.IO.Path]::GetFullPath('$(PluginInstallDir)', $([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..'))))</PluginInstallPath>
   </PropertyGroup>
 
-  <PropertyGroup Label="Host discovery">
-    <AdjacentHostRelease>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\..\FFmpegFreeUI\FFmpegFreeUI\bin\Release\net10.0-windows10.0.26100.0'))</AdjacentHostRelease>
-    <AdjacentHostDebug>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\..\FFmpegFreeUI\FFmpegFreeUI\bin\Debug\net10.0-windows10.0.26100.0'))</AdjacentHostDebug>
-    <HostBin Condition="'$(HostBin)' == '' And '$(VIDEOENHANCER_HOST_BIN)' != ''">$(VIDEOENHANCER_HOST_BIN)</HostBin>
-    <HostBin Condition="'$(HostBin)' == '' And Exists('$(AdjacentHostRelease)\FFmpegFreeUI.dll') And Exists('$(AdjacentHostRelease)\LakeUI.dll')">$(AdjacentHostRelease)</HostBin>
-    <HostBin Condition="'$(HostBin)' == '' And Exists('$(AdjacentHostDebug)\FFmpegFreeUI.dll') And Exists('$(AdjacentHostDebug)\LakeUI.dll')">$(AdjacentHostDebug)</HostBin>
-  </PropertyGroup>
-
-  <ItemGroup Label="Host references">
-    <Reference Include="FFmpegFreeUI">
-      <HintPath>$(HostBin)\FFmpegFreeUI.dll</HintPath>
-      <Private>false</Private>
-      <ExternallyResolved>true</ExternallyResolved>
-    </Reference>
-    <Reference Include="LakeUI">
-      <HintPath>$(HostBin)\LakeUI.dll</HintPath>
-      <Private>false</Private>
-      <ExternallyResolved>true</ExternallyResolved>
-    </Reference>
+  <ItemGroup Label="Compile dependencies">
+    <!-- 固定编译基线；运行时由宿主提供 LakeUI，不随插件复制另一份渲染框架。 -->
+    <PackageReference Include="LakeUI" Version="5.110.0" PrivateAssets="all" ExcludeAssets="runtime" />
   </ItemGroup>
 
-  <ItemGroup Label="Resources">
-    <EmbeddedResource Include="$(LayoutResourcePath)"
-                      LogicalName="videoenhancer-layout.json" />
-  </ItemGroup>
-
-  <Target Name="ValidateHostAssemblies"
-          BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="'$(HostBin)' == ''"
-           Text="未找到 3FUI 宿主程序集。请传入 -p:HostBin=&lt;目录&gt;，或设置 VIDEOENHANCER_HOST_BIN；目录内必须包含 FFmpegFreeUI.dll 和 LakeUI.dll。" />
-    <Error Condition="!Exists('$(HostBin)\FFmpegFreeUI.dll')"
-           Text="HostBin 中缺少 FFmpegFreeUI.dll：$(HostBin)" />
-    <Error Condition="!Exists('$(HostBin)\LakeUI.dll')"
-           Text="HostBin 中缺少 LakeUI.dll：$(HostBin)" />
-    <Error Condition="!Exists('$(LayoutResourcePath)')"
-           Text="缺少布局资源：$(LayoutResourcePath)" />
-
-    <GetAssemblyIdentity AssemblyFiles="$(HostBin)\LakeUI.dll"
-                         Condition="Exists('$(HostBin)\LakeUI.dll')">
+  <Target Name="ValidateLakeUiCompileAssembly"
+          AfterTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <_LakeUiCompileAssembly Include="@(ReferencePath)"
+                              Condition="'%(ReferencePath.Filename)' == 'LakeUI'" />
+    </ItemGroup>
+    <Error Condition="'@(_LakeUiCompileAssembly)' == ''"
+           Text="未解析到 LakeUI 编译程序集，请先还原插件项目的 NuGet 依赖。" />
+    <GetAssemblyIdentity AssemblyFiles="@(_LakeUiCompileAssembly)">
       <Output TaskParameter="Assemblies" ItemName="_LakeUIIdentity" />
     </GetAssemblyIdentity>
-    <Error Condition="'@(_LakeUIIdentity)' != '' And ($([MSBuild]::VersionLessThan('%(_LakeUIIdentity.Version)', '5.1.0.0')) Or $([MSBuild]::VersionGreaterThanOrEquals('%(_LakeUIIdentity.Version)', '6.0.0.0')))"
-           Text="需要 LakeUI 5.1 或更新的 5.x 版本；当前为 %(_LakeUIIdentity.Version)：$(HostBin)\LakeUI.dll" />
+    <Error Condition="'@(_LakeUIIdentity)' != '' And ($([MSBuild]::VersionLessThan('%(_LakeUIIdentity.Version)', '5.110.0.0')) Or $([MSBuild]::VersionGreaterThanOrEquals('%(_LakeUIIdentity.Version)', '6.0.0.0')))"
+           Text="编译需要 LakeUI 5.110 或更新的 5.x 版本；当前为 %(_LakeUIIdentity.Version)：@(_LakeUiCompileAssembly)" />
     <Message Importance="high"
-             Text="3FUI HostBin: $(HostBin)；LakeUI: %(_LakeUIIdentity.Version)" />
+             Text="LakeUI 编译引用: %(_LakeUIIdentity.Version)；@(_LakeUiCompileAssembly)；运行时由宿主提供" />
   </Target>
 
   <Target Name="StagePluginArtifact" AfterTargets="Build">
@@ -83,14 +58,14 @@
           SkipUnchangedFiles="true" />
     <Message Importance="high" Text="插件暂存产物：$(PluginArtifactPath)" />
 
-    <MakeDir Directories="$(PluginInstallDir)"
+    <MakeDir Directories="$(PluginInstallPath)"
              Condition="'$(PluginInstallDir)' != ''" />
     <Copy SourceFiles="$(TargetPath)"
-          DestinationFiles="$(PluginInstallDir)\$(PluginArtifactFileName)"
+          DestinationFiles="$(PluginInstallPath)\$(PluginArtifactFileName)"
           SkipUnchangedFiles="true"
           Condition="'$(PluginInstallDir)' != ''" />
     <Message Importance="high"
-             Text="插件已安装到：$(PluginInstallDir)\$(PluginArtifactFileName)"
+             Text="插件已安装到：$(PluginInstallPath)\$(PluginArtifactFileName)"
              Condition="'$(PluginInstallDir)' != ''" />
   </Target>
 

@@ -5,7 +5,6 @@ Imports System.IO
 Imports System.Linq
 Imports System.Text.Json
 Imports System.Text.RegularExpressions
-Imports FFmpegFreeUI
 
 Namespace videoenhancer
 
@@ -217,7 +216,7 @@ Namespace videoenhancer
             End Try
         End Function
 
-        Private Shared Function FindTask(id As String) As 编码任务_v6
+        Private Shared Function FindTask(id As String) As HostTask
             Try
                 Return HostQueueAccess.FindTask(id)
             Catch ex As Exception
@@ -226,7 +225,7 @@ Namespace videoenhancer
             End Try
         End Function
 
-        Private Shared Sub UpdateOutputSize(task As 编码任务_v6)
+        Private Shared Sub UpdateOutputSize(task As HostTask)
             Try
                 Dim output = task.输出文件
                 If String.IsNullOrWhiteSpace(output) OrElse Not File.Exists(output) Then

@@ -5,7 +5,6 @@ Imports System.IO
 Imports System.Linq
 Imports System.Reflection
 Imports System.Runtime.InteropServices
-Imports FFmpegFreeUI
 
 Namespace videoenhancer
 
@@ -66,7 +65,7 @@ Namespace videoenhancer
             Dim handled As Boolean = False
             Dim hasPluginTask As Boolean = False
             For Each task In tasks
-                If IsPluginTask(task) AndAlso (task.正在执行 OrElse task.状态 = 编码任务状态_v6.已暂停) Then
+                If IsPluginTask(task) AndAlso (task.正在执行 OrElse task.IsPaused) Then
                     hasPluginTask = True
                     RequestGracefulStop(task)
                     handled = True
@@ -88,7 +87,7 @@ Namespace videoenhancer
             Return handled
         End Function
 
-        Private Shared Function IsPluginTask(task As 编码任务_v6) As Boolean
+        Private Shared Function IsPluginTask(task As HostTask) As Boolean
             If task Is Nothing Then Return False
             Try
                 Dim command = task.命令行
@@ -100,9 +99,9 @@ Namespace videoenhancer
         End Function
 
         ''' <summary>先恢复被宿主挂起的 CLI，写停止共享内存，并设置手动停止标记。</summary>
-        Private Shared Sub RequestGracefulStop(task As 编码任务_v6)
+        Private Shared Sub RequestGracefulStop(task As HostTask)
             If task Is Nothing Then Return
-            If task.状态 = 编码任务状态_v6.已暂停 Then
+            If task.IsPaused Then
                 ResumeCliProcess(task)
             End If
 
@@ -133,7 +132,7 @@ Namespace videoenhancer
         ''' 3FUI 手动停止会按全局设置清理 MP4。把任务显示路径临时改成非 MP4，
         ''' 等宿主完成收尾后再恢复；CLI 用标记文件区分可保留的完整尾部封装和残缺输出。
         ''' </summary>
-        Private Shared Sub PreserveOutputPath(task As 编码任务_v6)
+        Private Shared Sub PreserveOutputPath(task As HostTask)
             Try
                 If task Is Nothing OrElse String.IsNullOrWhiteSpace(task.ID) OrElse
                    String.IsNullOrWhiteSpace(task.输出文件) Then Return
@@ -165,7 +164,7 @@ Namespace videoenhancer
         End Sub
 
         ''' <summary>解除 3FUI 对 CLI 进程的挂起，确保 CLI 能读到停止字节。</summary>
-        Private Shared Sub ResumeCliProcess(task As 编码任务_v6)
+        Private Shared Sub ResumeCliProcess(task As HostTask)
             Try
                 Dim pid = task.当前进程ID
                 If pid = 0 Then Return
@@ -191,8 +190,8 @@ Namespace videoenhancer
             EnsureTimer()
         End Sub
 
-        Private Shared Function GetSelectedTasks() As List(Of 编码任务_v6)
-            Dim result As New List(Of 编码任务_v6)()
+        Private Shared Function GetSelectedTasks() As List(Of HostTask)
+            Dim result As New List(Of HostTask)()
             Try
                 Dim queueForm = HostAccess.GetDefaultInstance("Form_v6_编码队列")
                 If queueForm Is Nothing Then Return result
@@ -214,7 +213,7 @@ Namespace videoenhancer
         End Function
 
         ''' <summary>从任务命令行提取 -stop-shm 后面的共享内存名。</summary>
-        Private Shared Function ExtractStopShm(task As 编码任务_v6) As String
+        Private Shared Function ExtractStopShm(task As HostTask) As String
             Try
                 Dim cmd = task.命令行
                 If String.IsNullOrWhiteSpace(cmd) Then Return ""
@@ -415,10 +414,7 @@ Namespace videoenhancer
 
         Private Shared Function ReadHostOutputCleanupMode() As Integer
             Try
-                Dim settingsType = GetType(设置_v6)
-                Dim instanceProperty = settingsType.GetProperty("实例对象",
-                    BindingFlags.Public Or BindingFlags.NonPublic Or BindingFlags.Static)
-                Dim instance = If(instanceProperty Is Nothing, Nothing, instanceProperty.GetValue(Nothing))
+                Dim instance = HostSettings.Instance
                 If instance Is Nothing Then Return 2
                 Dim modeProperty = instance.GetType().GetProperty("任务失败自动删除输出文件",
                     BindingFlags.Public Or BindingFlags.NonPublic Or BindingFlags.Instance)

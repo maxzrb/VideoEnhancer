@@ -102,11 +102,10 @@
   4 路分别在四角。
 - 四宫格窗口的文字、标题、按钮和文件名角标使用 LakeUI `HtmlColorLabel` /
   `ModernButton`。只有视频卡片背景与渐变时间轴保留双缓冲自绘，避免透明按钮的文字残影。
-- 二级窗口的全部长方形控件由 `videoenhancer-layout.json` 的中心点、宽度和高度驱动；
-  窗口缩放时以 1200×720 设计坐标分别换算 X/Y 倍率。构建时 JSON 会嵌入插件并复制到
-  DLL 同目录，外部 JSON 优先，便于不重新编译即可调整布局。
-- 右侧选项区基于同一组 JSON 设计坐标统一执行 60% 水平缩放，预览区和顶部视频卡片
-  自动扩展到新的右侧边界。无边框标题栏的图标、标题文字及其他空白区域均可拖动窗口。
+- 二级窗口的布局直接定义在 `QuadGridForm.vb` 的 `BuildLayout()` 中，使用 96 DPI 下
+  的 1200×720 设计坐标；窗口大小变化时从原始坐标重新计算控件边界。
+  不再读取、嵌入或分发 `videoenhancer-layout.json`，调整布局后需要重新构建插件。
+- 无边框标题栏的图标、标题文字及其他空白区域均可拖动窗口。
 - videoenhancer.exe 路径与「更改路径」按钮已放回「超分主界面」页。
 
 ### 模型转换器
@@ -170,27 +169,29 @@
 推荐在仓库根目录通过解决方案构建：
 
 ```powershell
-dotnet build .\VideoEnhancer.slnx -c Release `
-  "-p:HostBin=C:\path\to\3FUI\bin"
+dotnet build .\VideoEnhancer.slnx -c Release
 ```
 
 也可以只构建插件：
 
 ```powershell
-dotnet build .\VideoEnhancerPlugin\VideoEnhancerPlugin.vbproj -c Release `
-  "-p:HostBin=C:\path\to\3FUI\bin"
+dotnet build .\VideoEnhancerPlugin\VideoEnhancerPlugin.vbproj -c Release
 ```
 
 项目会生成
-`VideoEnhancerPlugin\bin\Release\net10.0-windows\videoenhancer.dll`，
+`VideoEnhancerPlugin\bin\Release\net10.0-windows10.0.17763.0\videoenhancer.dll`，
+同时暂存为 `VideoEnhancerPlugin\obj\plugin-artifact\videoenhancer.3fui.dll`。
 CLI 发布时会将其作为 `videoenhancer.3fui.dll` 放入
 `Artifacts\VideoEnhancer.zip`。附加
-`"-p:PluginInstallDir=C:\path\to\3FUI\Plugin"` 可直接复制到测试宿主，
+`"-p:PluginInstallDir=Artifacts\test-host\Plugin"` 或设置 `VIDEOENHANCER_PLUGIN_DIR` 可直接复制到测试宿主，
 不需要从 ZIP 中手动提取。
 
-`HostBin` 目录必须包含 `FFmpegFreeUI.dll` 和 `LakeUI.dll`。它也可以通过
-`VIDEOENHANCER_HOST_BIN` 环境变量提供；仓库与 FFmpegFreeUI 并列时会自动查找
-相邻 Release/Debug 输出。LakeUI `5.1` 是最低基线，只接受后续 5.x 版本。
+构建只需要 .NET 10 SDK 和 NuGet 依赖，不需要宿主 DLL 或相邻源码仓库。
+`HostRuntime.vb` 在运行时访问进程内已加载的宿主，任务和进度写入直接作用于原对象。
+安装路径相对仓库根目录解析，未指定时不复制到任何宿主目录。
+LakeUI 编译引用通过 NuGet 固定为 `5.110.0`，
+目标平台为 Windows 10 1809 或更新版本。运行时由宿主提供 LakeUI `5.110` 或更新的 5.x，
+插件包不附带 LakeUI。
 
 ### 页面代码结构
 
@@ -200,6 +201,12 @@ CLI 发布时会将其作为 `videoenhancer.3fui.dll` 放入
   只保留主面板、共享主题、页签协调和生命周期。
 - 这些页面文件仍是 `PluginPanel` 的 Partial Class，不提供独立 Visual Studio Designer
   页面。这样可以避免设计器进程实例化完整 LakeUI 插件控件树而空白或卡死。
+- 主面板和四宫格窗体以 96 DPI 创建完整控件树后启用 `AutoScaleMode.Dpi`，与 3FUI
+  原生窗体保持一致。`LakeLayoutPanel.vb` 中的布局容器记录框架缩放比例，固定行列、
+  字段标题和滚动内容高度据此换算，重新布局不会恢复为未缩放的像素尺寸。
+- 页面统一采用紧凑的 96 DPI 尺寸：常规控件高 28、字段行高 56、基础列间距 8，
+  保留原字号；共享比例定义在 `PluginPanel.vb`，各页面在对应 VB 文件中安排布局。
+- 旧安装中的同名布局 JSON 不再影响界面；安装器仍保留对已知旧文件的迁移清理能力。
 
 ## 宿主兼容说明
 
@@ -232,8 +239,7 @@ CLI 发布时会将其作为 `videoenhancer.3fui.dll` 放入
   「插件总开关」文案加宽为「关闭此开关时，超分主页面功能不生效」，实时预览页左侧留 30px 边距；
   「预览输出」右键菜单项不再依赖插件总开关（实时预览始终可用），队列窗体重建后自动重挂；
   预览抽帧节流：最小抽帧间隔 + 64KB/0.25 秒阈值 + busy 期间合并待补一帧 + mjpeg 输出；
-  deploy.ps1 追加复制插件 DLL 到 `C:\PortableSoft\FFmpegFreeUI ReadyToRun x64\plugin`
-  （最新发布版 3FUI 插件目录）与开发版 `Video Enhancer GUI\Plugin`。
+  当时 deploy.ps1 追加了发布版和开发版宿主的插件复制；当前安装目录由参数或环境变量指定。
 
 - 1.1（实时预览抽帧修复 + 预览输出 + 设计器绝对定位）：实时预览抽帧改用 `-ss` 进度定位
   回退链（修复输出文件写入期间 `-sseof` 必然失败导致的持续黑屏）；CLI 中转任务

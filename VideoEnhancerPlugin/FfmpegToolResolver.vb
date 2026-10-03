@@ -1,6 +1,5 @@
 Imports System
 Imports System.IO
-Imports FFmpegFreeUI
 
 Namespace videoenhancer
 
@@ -26,7 +25,7 @@ Namespace videoenhancer
             End If
 
             ' 3FUI 可指定独立工作目录；读取宿主当前生效值而非进程当前目录。
-            Dim workingDirectory = 设置_v6.获取有效工作目录()
+            Dim workingDirectory = HostSettings.GetWorkingDirectory()
             If Not String.IsNullOrWhiteSpace(workingDirectory) Then
                 Dim configuredTool = Path.Combine(workingDirectory, fileName)
                 If File.Exists(configuredTool) Then Return Path.GetFullPath(configuredTool)

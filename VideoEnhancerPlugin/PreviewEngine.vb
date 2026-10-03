@@ -8,7 +8,6 @@ Imports System.Linq
 Imports System.Text
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
-Imports FFmpegFreeUI
 
 Namespace videoenhancer
 
@@ -339,7 +338,7 @@ Namespace videoenhancer
         End Sub
 
         ''' <summary>返回要预览的任务：优先用户选择的；否则队列最上面（第一个）执行中的任务。</summary>
-        Private Function ResolveSelectedTask(tasks As List(Of PreviewTaskInfo)) As 编码任务_v6
+        Private Function ResolveSelectedTask(tasks As List(Of PreviewTaskInfo)) As HostTask
             If _selectedTaskId <> "" Then
                 Dim selected = FindTaskById(_selectedTaskId)
                 If selected IsNot Nothing AndAlso selected.正在执行 Then
@@ -362,7 +361,7 @@ Namespace videoenhancer
             Return Nothing
         End Function
 
-        Private Shared Function FindTaskById(id As String) As 编码任务_v6
+        Private Shared Function FindTaskById(id As String) As HostTask
             Try
                 Return HostQueueAccess.FindTask(id)
             Catch ex As Exception
@@ -371,7 +370,7 @@ Namespace videoenhancer
             End Try
         End Function
 
-        Private Function BuildStatusText(task As 编码任务_v6, fps As Double, frame As Long, total As Long, nativeMode As Boolean) As String
+        Private Function BuildStatusText(task As HostTask, fps As Double, frame As Long, total As Long, nativeMode As Boolean) As String
             Dim sb As New StringBuilder()
             If nativeMode Then
                 sb.Append("原生 ffmpeg")

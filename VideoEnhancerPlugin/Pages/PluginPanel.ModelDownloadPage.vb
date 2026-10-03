@@ -11,7 +11,6 @@ Imports System.Text.RegularExpressions
 Imports System.Reflection
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
-Imports FFmpegFreeUI
 Imports LakeUI
 
 Namespace videoenhancer
@@ -83,7 +82,7 @@ Namespace videoenhancer
         Private Sub BuildOfficialModelDownloadPage()
             _pageDownloader.Dock = DockStyle.Fill
             _pageDownloader.BackColor = Color.Transparent
-            _pageDownloader.Padding = New Padding(0, 8, 0, 0)
+            _pageDownloader.Padding = New Padding(0, 4, 0, 0)
 
             Dim root As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
@@ -93,7 +92,7 @@ Namespace videoenhancer
                 .Margin = Padding.Empty,
                 .Padding = Padding.Empty
             }
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 58.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, CSng(UiRowHeight)))
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             Dim header As New ModernGridPanel With {
                 .Dock = DockStyle.Fill,
@@ -104,21 +103,21 @@ Namespace videoenhancer
                 .Padding = Padding.Empty
             }
             header.ColumnStyles.Add(New ColumnStyle(SizeType.Percent, 100.0F))
-            header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 174.0F))
-            header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 190.0F))
+            header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 128.0F))
+            header.ColumnStyles.Add(New ColumnStyle(SizeType.Absolute, 136.0F))
             header.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
             header.AddAt(CreateOfficialSectionHeading(
                 "模型资源库", "从 ModelScope 获取模型与后端组件"), 0, 0)
             _btnDownloadPluginUpdate.Text = "下载全部"
             _btnDownloadPluginUpdate.Dock = DockStyle.Fill
             _btnDownloadPluginUpdate.AutoSize = False
-            _btnDownloadPluginUpdate.Margin = New Padding(12, 7, 0, 7)
+            _btnDownloadPluginUpdate.Margin = New Padding(UiColumnGap, 4, 0, 4)
             ConfigureSecondaryButton(_btnDownloadPluginUpdate)
             AddHandler _btnDownloadPluginUpdate.Click, AddressOf OnDownloadAllClick
             header.AddAt(_btnDownloadPluginUpdate, 2, 0)
             _btnRefreshDownloads.Text = "刷新资源"
             _btnRefreshDownloads.Dock = DockStyle.Fill
-            _btnRefreshDownloads.Margin = New Padding(12, 7, 0, 7)
+            _btnRefreshDownloads.Margin = New Padding(UiColumnGap, 4, 0, 4)
             ConfigureSecondaryButton(_btnRefreshDownloads)
             AddHandler _btnRefreshDownloads.Click, Sub(sender, e) LoadDownloadModels(True)
             header.AddAt(_btnRefreshDownloads, 1, 0)
@@ -136,36 +135,16 @@ Namespace videoenhancer
             _downloadList.Margin = Padding.Empty
             _downloadList.AutoScroll = False
             _downloadList.Font = New Font("Microsoft YaHei UI", 9.2F)
-            _downloadList.BackColor = Color.Transparent
-            _downloadList.BackgroundColor = Color.Transparent
-            _downloadList.BackgroundSource = ModernPanel1
-            _downloadList.BorderColor = Color.Transparent
-            _downloadList.BorderSize = 0
-            _downloadList.BorderRadius = 0
+            ConfigureTransparentListAppearance(_downloadList)
             _downloadList.HeaderVisible = True
-            _downloadList.HeaderHeight = 38
-            _downloadList.HeaderBackColor = Color.FromArgb(36, 36, 36)
-            _downloadList.HeaderForeColor = UiTextSecondary
-            _downloadList.HeaderBorderColor = Color.FromArgb(52, 52, 52)
-            _downloadList.HeaderBorderWidth = 1
+            _downloadList.HeaderHeight = 30
             _downloadList.AllowColumnResize = True
             _downloadList.MultiSelect = False
             _downloadList.AllowDragReorder = False
-            _downloadList.ItemForeColor = UiTextSecondary
-            _downloadList.ItemHoverBackColor = Color.FromArgb(48, 255, 255, 255)
-            _downloadList.ItemSelectedBackColor = Color.FromArgb(54, 71, 156, 255)
-            _downloadList.ItemCornerRadius = 4
-            _downloadList.ItemPadding = New Padding(12, 8, 10, 8)
+            _downloadList.ItemPadding = New Padding(10, 5, 8, 5)
             _downloadList.ItemSpacing = 2
             _downloadList.ContentPadding = New Padding(0, 4, 0, 4)
             _downloadList.GroupHeight = 38
-            _downloadList.GroupBackColor = Color.FromArgb(31, 31, 31)
-            _downloadList.GroupForeColor = UiText
-            _downloadList.GroupBorderColor = Color.FromArgb(48, 48, 48)
-            _downloadList.ScrollBarWidth = 10
-            _downloadList.ScrollBarTrackColor = Color.FromArgb(18, 18, 18)
-            _downloadList.ScrollBarThumbColor = Color.FromArgb(72, 72, 72)
-            _downloadList.ScrollBarThumbHoverColor = Color.FromArgb(104, 104, 104)
             _downloadList.Columns.AddRange(New UltraDetailListView.ListColumn() {
                 New UltraDetailListView.ListColumn("资源名称", 520),
                 New UltraDetailListView.ListColumn("大小", 110),
@@ -174,15 +153,7 @@ Namespace videoenhancer
             })
             AddHandler _downloadList.ItemClick, AddressOf OnDownloadListItemClick
             AddHandler _downloadList.MouseDown, AddressOf OnDownloadListMouseDown
-            AddHandler _downloadList.ClientSizeChanged,
-                Sub(sender, e)
-                    If _downloadList.Columns.Count = 0 Then Return
-                    Dim resourceWidth = Math.Max(260, _downloadList.ClientSize.Width - 10 - 110 - 130 - 138)
-                    If _downloadList.Columns(0).Width <> resourceWidth Then
-                        _downloadList.Columns(0).Width = resourceWidth
-                        _downloadList.RefreshItems()
-                    End If
-                End Sub
+            ConfigureDpiListColumns(_downloadList, 260)
         End Sub
 
         Private Function DownloadExecutablePath() As String

@@ -213,26 +213,26 @@ BasicVSR++ 不支持与补帧组合。切换到 TensorRT、CUDA、NCNN 或其他
 
 ## 从源码构建
 
-要求安装 .NET 10 SDK。插件还需要 3FUI 构建目录中的
-`FFmpegFreeUI.dll` 和 LakeUI 5.1+（仅支持 5.x）。
+要求安装 .NET 10 SDK 和 PowerShell 7。构建不需要宿主 DLL 或相邻的 3FUI 源码仓库，
+LakeUI 编译依赖通过 NuGet 固定为 5.110.0。
+插件运行时通过 `HostRuntime.vb` 访问进程中已加载的宿主任务、预设和设置。
+插件目标平台与 LakeUI 一致，为 Windows 10 1809 或更新版本。
+运行插件的宿主必须提供 LakeUI 5.110+（仅支持 5.x），工作台滚动直接使用公开渲染事务接口。
+插件不附带另一份 LakeUI。
 
 仓库根目录的 `VideoEnhancer.slnx` 包含插件与 CLI；CLI 对插件声明了构建依赖，
 因此不会再依赖预先存在的 `videoenhancer.3fui.dll`：
 
 ```powershell
-dotnet build .\VideoEnhancer.slnx -c Release `
-  "-p:HostBin=C:\path\to\FFmpegFreeUI\bin\Release\net10.0-windows10.0.26100.0"
+dotnet build .\VideoEnhancer.slnx -c Release
 ```
 
 生成安装程序和手动安装包：
 
 ```powershell
-dotnet publish .\VideoEnhancer.slnx -c Release `
-  "-p:HostBin=C:\path\to\FFmpegFreeUI\bin\Release\net10.0-windows10.0.26100.0"
+dotnet publish .\VideoEnhancer.slnx -c Release
 ```
 
-`HostBin` 也可以通过环境变量 `VIDEOENHANCER_HOST_BIN` 设置。若仓库与
-`FFmpegFreeUI` 并列放置，项目会优先自动发现相邻的 Release、其次 Debug 输出。
 解决方案发布会生成图形安装程序、运行 EXE 和手动安装 ZIP，并放在仓库根目录的 `Artifacts`：
 
 ```text
@@ -253,12 +253,23 @@ Release 获取 `aria2-next`，SHA-256 不等于项目文件中锁定的值时立
 只构建插件时可直接运行：
 
 ```powershell
-dotnet build .\VideoEnhancerPlugin\VideoEnhancerPlugin.vbproj -c Release `
-  "-p:HostBin=C:\path\to\3FUI\bin"
+dotnet build .\VideoEnhancerPlugin\VideoEnhancerPlugin.vbproj -c Release
 ```
 
-如需同时安装插件 DLL，可附加
-`"-p:PluginInstallDir=C:\path\to\3FUI\Plugin"`。
+如需同时安装插件 DLL，可设置 `VIDEOENHANCER_PLUGIN_DIR`，或附加
+`"-p:PluginInstallDir=Artifacts\test-host\Plugin"`。相对路径以仓库根目录为基准。
+未指定安装目录时只生成本项目产物。
+
+| 环境变量 | 用途与默认值 |
+| --- | --- |
+| `VIDEOENHANCER_ARTIFACTS_DIR` | 发布输出目录，默认 `Artifacts`；也可用 MSBuild 的 `ArtifactsDirectory` 覆盖。 |
+| `VIDEOENHANCER_PLUGIN_DIR` | 可选的插件安装目录；不设置时不向宿主目录复制。 |
+| `VIDEOENHANCER_ARCHIVE_ROOT` | `deploy.ps1` 的存档根目录，默认发布输出目录下的 `releases`。 |
+| `VIDEOENHANCER_EXE` | GPU 矩阵测试的 EXE，默认 `Artifacts\videoenhancer.exe`；也可传 `--exe`。 |
+| `VIDEOENHANCER_REPOSITORY_ROOT` | 可选的界面测试仓库根目录；通常从测试程序所在目录自动查找。 |
+
+发布、安装和存档目录的环境变量可使用相对仓库根目录的路径。
+`deploy.ps1` 也支持 `-ArtifactsRoot`、`-ArchiveRoot` 和 `-PluginDirectories` 参数。
 
 完整发布和门禁流程见 [`release/发布流程.md`](release/发布流程.md)。
 

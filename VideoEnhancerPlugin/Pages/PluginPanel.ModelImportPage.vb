@@ -11,7 +11,6 @@ Imports System.Text.RegularExpressions
 Imports System.Reflection
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
-Imports FFmpegFreeUI
 Imports LakeUI
 
 Namespace videoenhancer
@@ -48,11 +47,11 @@ Namespace videoenhancer
                 .Padding = Padding.Empty,
                 .AllowDrop = True
             }
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 54.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 68.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 70.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 36.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 56.0F))
             root.RowStyles.Add(New RowStyle(SizeType.Percent, 100.0F))
-            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 72.0F))
+            root.RowStyles.Add(New RowStyle(SizeType.Absolute, 44.0F))
             AddHandler root.DragEnter, AddressOf OnModelImportDragEnter
             AddHandler root.DragDrop, AddressOf OnModelImportDragDrop
             root.AddAt(CreateOfficialSectionHeading(
@@ -65,36 +64,39 @@ Namespace videoenhancer
                 .BorderSize = 0,
                 .BackgroundSource = ModernPanel1,
                 .Margin = Padding.Empty,
-                .Padding = New Padding(0, 9, 0, 9)
+                .Padding = New Padding(0, 4, 0, 4)
             }
             _btnPickImportFile.Text = "选择模型或压缩包"
             _btnPickImportFile.Dock = DockStyle.Left
-            _btnPickImportFile.Width = 210
+            _btnPickImportFile.Width = 148
             ConfigureOfficialImportButton(_btnPickImportFile)
             AddHandler _btnPickImportFile.Click, AddressOf OnPickImportFile
             _btnPickImportFolder.Text = "选择模型文件夹"
             _btnPickImportFolder.Dock = DockStyle.Left
-            _btnPickImportFolder.Width = 210
+            _btnPickImportFolder.Width = 148
             ConfigureOfficialImportButton(_btnPickImportFolder)
             AddHandler _btnPickImportFolder.Click, AddressOf OnPickImportFolder
             ' 按当前字体测量文字，给高 DPI 和宿主字体预留按钮两侧空间。
             Dim fitSourceButton As Action(Of ModernButton) =
-                Sub(button) button.Width = Math.Max(210, TextRenderer.MeasureText(button.Text, button.Font).Width + 48)
+                Sub(button) button.Width = root.ScaleX(Math.Max(148, MeasureTextWidth96(button.Text, button.Font) + 24))
             AddHandler _btnPickImportFile.FontChanged, Sub(sender, args) fitSourceButton(_btnPickImportFile)
             AddHandler _btnPickImportFolder.FontChanged, Sub(sender, args) fitSourceButton(_btnPickImportFolder)
+            AddHandler _btnPickImportFile.DpiChangedAfterParent, Sub(sender, args) fitSourceButton(_btnPickImportFile)
+            AddHandler _btnPickImportFolder.DpiChangedAfterParent, Sub(sender, args) fitSourceButton(_btnPickImportFolder)
             fitSourceButton(_btnPickImportFile)
             fitSourceButton(_btnPickImportFolder)
             _lblImportSource.Text = "<font color=#888888>尚未选择；也可以拖入文件、文件夹或压缩包</font>"
             _lblImportSource.AutoSize = False
             _lblImportSource.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             Dim sourceValueBox = CreateOfficialValueBox(_lblImportSource)
+            sourceValueBox.Margin = Padding.Empty
             sourceValueBox.Dock = DockStyle.Fill
             Dim sourceGap1 As New ModernPanel With {
-                .Dock = DockStyle.Left, .Width = 10, .BackColor = Color.Transparent,
+                .Dock = DockStyle.Left, .Width = UiColumnGap, .BackColor = Color.Transparent,
                 .BackColor1 = Color.Transparent, .BorderSize = 0, .BackgroundSource = ModernPanel1
             }
             Dim sourceGap2 As New ModernPanel With {
-                .Dock = DockStyle.Left, .Width = 12, .BackColor = Color.Transparent,
+                .Dock = DockStyle.Left, .Width = UiColumnGap, .BackColor = Color.Transparent,
                 .BackColor1 = Color.Transparent, .BorderSize = 0, .BackgroundSource = ModernPanel1
             }
             ' 按 3FUI Designer 的 Dock 顺序：Fill 先加，其他控件从右向左加入。
@@ -108,10 +110,10 @@ Namespace videoenhancer
             Dim formats As New HtmlColorLabel With {
                 .Dock = DockStyle.Fill,
                 .Margin = New Padding(0, 8, 0, 4),
-                .Padding = New Padding(14, 0, 14, 0),
+                .Padding = New Padding(10, 0, 10, 0),
                 .BackColor1 = UiSurface,
                 .BorderSize = 0,
-                .BorderRadius = 10,
+                .BorderRadius = UiCornerRadius,
                 .AutoSize = False,
                 .LineSpacing = 5,
                 .TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft,
@@ -131,10 +133,10 @@ Namespace videoenhancer
                 .BorderSize = 0,
                 .BackgroundSource = ModernPanel1,
                 .Margin = Padding.Empty,
-                .Padding = New Padding(0, 9, 0, 9)
+                .Padding = New Padding(0, 8, 0, 8)
             }
             _btnImportModel.Dock = DockStyle.Right
-            _btnImportModel.Width = 210
+            _btnImportModel.Width = 148
             _btnImportModel.Text = "预检并导入模型"
             ConfigureOfficialImportButton(_btnImportModel, UiSuccess)
             AddHandler _btnImportModel.Click, AddressOf OnImportModelClick
@@ -160,7 +162,7 @@ Namespace videoenhancer
             button.HoverBackColor2 = Color.Transparent
             button.PressedBackColor1 = Color.FromArgb(80, 220, 220, 220)
             button.PressedBackColor2 = Color.Transparent
-            button.BorderRadius = 10
+            button.BorderRadius = UiCornerRadius
             button.BorderSize = 0
             button.Margin = New Padding(2)
             button.Padding = Padding.Empty
@@ -177,32 +179,15 @@ Namespace videoenhancer
             _importModelList.Margin = New Padding(0, 10, 0, 6)
             _importModelList.AutoScroll = False
             _importModelList.Font = New Font("Microsoft YaHei UI", 9.0F)
-            _importModelList.BackColor = Color.Transparent
-            _importModelList.BackgroundColor = Color.Transparent
-            _importModelList.BackgroundSource = ModernPanel1
-            _importModelList.BorderColor = UiStrokeSoft
-            _importModelList.BorderSize = 1
-            _importModelList.BorderRadius = 8
+            ConfigureTransparentListAppearance(_importModelList)
             _importModelList.HeaderVisible = True
-            _importModelList.HeaderHeight = 38
-            _importModelList.HeaderBackColor = Color.FromArgb(36, 36, 36)
-            _importModelList.HeaderForeColor = UiTextSecondary
-            _importModelList.HeaderBorderColor = Color.FromArgb(52, 52, 52)
-            _importModelList.HeaderBorderWidth = 1
+            _importModelList.HeaderHeight = 30
             _importModelList.AllowColumnResize = True
             _importModelList.MultiSelect = False
             _importModelList.AllowDragReorder = False
-            _importModelList.ItemForeColor = UiTextSecondary
-            _importModelList.ItemHoverBackColor = Color.FromArgb(48, 255, 255, 255)
-            _importModelList.ItemSelectedBackColor = Color.FromArgb(54, 71, 156, 255)
-            _importModelList.ItemCornerRadius = 4
-            _importModelList.ItemPadding = New Padding(12, 8, 10, 8)
+            _importModelList.ItemPadding = New Padding(10, 5, 8, 5)
             _importModelList.ItemSpacing = 2
             _importModelList.ContentPadding = New Padding(0, 4, 0, 4)
-            _importModelList.ScrollBarWidth = 10
-            _importModelList.ScrollBarTrackColor = Color.FromArgb(18, 18, 18)
-            _importModelList.ScrollBarThumbColor = Color.FromArgb(72, 72, 72)
-            _importModelList.ScrollBarThumbHoverColor = Color.FromArgb(104, 104, 104)
             _importModelList.Columns.AddRange(New UltraDetailListView.ListColumn() {
                 New UltraDetailListView.ListColumn("用户模型（双击修正 / Delete 删除）", 300),
                 New UltraDetailListView.ListColumn("架构", 150),
@@ -215,15 +200,7 @@ Namespace videoenhancer
             AddHandler _importModelList.KeyDown, AddressOf OnImportModelListKeyDown
             AddHandler _importModelList.PreviewKeyDown, AddressOf OnImportModelListPreviewKeyDown
             AddHandler _importModelList.MouseDown, AddressOf OnImportModelListMouseDown
-            AddHandler _importModelList.ClientSizeChanged,
-                Sub(sender, e)
-                    If _importModelList.Columns.Count = 0 Then Return
-                    Dim nameWidth = Math.Max(210, _importModelList.ClientSize.Width - 10 - 150 - 110 - 70 - 210 - 100)
-                    If _importModelList.Columns(0).Width <> nameWidth Then
-                        _importModelList.Columns(0).Width = nameWidth
-                        _importModelList.RefreshItems()
-                    End If
-                End Sub
+            ConfigureDpiListColumns(_importModelList, 210)
         End Sub
 
         Private Async Sub LoadUserModels()
@@ -478,6 +455,7 @@ Namespace videoenhancer
 
         Private Sub ShowUserModelCapabilityEditor(model As UserModelItem)
             Using dialog As New Form With {
+                .AutoScaleMode = AutoScaleMode.None,
                 .Text = "修正模型能力 - " & model.DisplayName,
                 .StartPosition = FormStartPosition.CenterParent,
                 .FormBorderStyle = FormBorderStyle.None,
@@ -489,6 +467,7 @@ Namespace videoenhancer
                 .ClientSize = New Size(820, 660),
                 .Font = New Font("Microsoft YaHei UI", 9.0F)
             }
+                dialog.SuspendLayout()
                 Dim chrome As New ThisIsYourWindow With {
                     .BorderColor = Color.FromArgb(72, 72, 72),
                     .BorderSize = 1,
@@ -673,10 +652,20 @@ Namespace videoenhancer
                 grid.Height = CInt(rowHeights.Sum()) + grid.Padding.Vertical
                 content.Controls.Add(grid)
                 dialog.Controls.Add(content)
+                dialog.AutoScaleMode = AutoScaleMode.Dpi
+                dialog.AutoScaleDimensions = New SizeF(96.0F, 96.0F)
+                dialog.ResumeLayout(True)
                 chrome.Attach(dialog)
-                Dim workingArea = Screen.FromControl(Me).WorkingArea
-                dialog.ClientSize = New Size(Math.Min(820, workingArea.Width - 16),
-                    Math.Min(grid.Height + chrome.CaptionHeight + chrome.BorderSize * 2, workingArea.Height - 16))
+                Dim fitDialog As Action =
+                    Sub()
+                        If dialog.IsDisposed OrElse dialog.Disposing Then Return
+                        Dim workingArea = Screen.FromControl(dialog).WorkingArea
+                        Dim chromeHeight = CInt(Math.Round((chrome.CaptionHeight + chrome.BorderSize * 2) * dialog.DeviceDpi / 96.0R))
+                        dialog.ClientSize = New Size(Math.Min(grid.ScaleX(820), workingArea.Width - grid.ScaleX(16)),
+                            Math.Min(grid.Height + Math.Max(chromeHeight, dialog.Padding.Vertical), workingArea.Height - grid.ScaleY(16)))
+                    End Sub
+                fitDialog()
+                AddHandler dialog.DpiChanged, Sub(sender, args) dialog.BeginInvoke(fitDialog)
                 Try
                     If dialog.ShowDialog(Me) = DialogResult.OK Then
                         LoadUserModels()

@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-10-16 21:53
+Last updated: 2026-10-16 21:54
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-10-16 21:54：**本轮完整修复已提交上游[PR #12](https://github.com/maxzrb/VideoEnhancer/pull/12)，OPEN、非草稿、可合并，未合并/发布/部署。**源码提交f29d0112b92a8572ddc3df8e61ec60123890ccfd，源user-Wing/VideoEnhancer-fork:fix/realtime-preview-20261016，目标maxzrb/VideoEnhancer:main，已附当前聊天；远端回读CLEAN、检查列表为空，不宣称CI通过。10项源码/测试/文档符合范围，版本仍1.3.13，未上传问题说明/媒体/二进制。收尾记录随同PR分支普通提交推送；已跟踪修复无其他未提交改动，用户videoenhancer pr.txt保留未跟踪，因此整个工作树并非完全干净，无需再次保存本轮源码。
 
 - 2026-10-16 21:53：用户授权将本轮完整实时预览修复提交maxzrb上游PR，取代之前不提交/推送限制；不授权合并、发行、部署或改版本。目标maxzrb/VideoEnhancer:main，源user-Wing/VideoEnhancer-fork:fix/realtime-preview-20261016，上游472d62f未变、当前无对应OPEN PR。提交前托管构建0警告0错误、25项预览基础回归、18项倍率UI及LakeUI5.112实际GPU换图重验；前轮5.110、真实4K原片和纯压制日志保留。只提交本轮10项源码/测试/文档，不纳入用户问题说明、媒体、提取宿主DLL及产物。版本仍1.3.13；准备普通提交和推送fork，不直接推origin/main。
 
@@ -861,3 +863,9 @@ git diff --check
 - 用户明确授权把这一轮更新提交maxzrb仓库PR。读取AGENTS/INDEX/STATUS、README，沿用本轮源码，不追加产品改动；轻量记忆仅用于fork PR路径和验收边界。git pull --ff-only已最新，origin/main仍472d62f；远端OPEN列表为空，fork确认为user-Wing/VideoEnhancer-fork且parent为maxzrb/VideoEnhancer，同名远端分支尚未存在。
 - 重新执行托管插件build（DesignTimeBuild=true --no-restore）0警告0错误，25项预览基础回归、18项倍率UI及LakeUI5.112 GPU表面同尺寸红→蓝测试通过。前轮5.110 GPU/真实4K原片四档/3秒p6纯压制/未封口写入与宿主契约已有日志，本轮不重复长编码，不冒充实际3FUI全部预设可视验收。
 - 准备显式暂存README、PreviewEngine、HostRuntime、插件README、ModelMetadataUi三个测试文件、PixelPreview测试及STATUS/中文进度，共10文件；用户videoenhancer pr.txt保持未跟踪且不上传，Artifacts和媒体/安装产物不提交。PR说明按用户简洁中文偏好列变更、验证和限制，版本保持1.3.13。普通提交后只推fork修复分支，再创建目标main的普通PR；不推上游main、不合并/发布/部署。
+
+### 2026-10-16 21:54 Codex：实时预览修复PR #12已创建
+
+- 显式暂存10项本轮源码/测试/文档，git diff --cached --check通过；提交f29d0112b92a8572ddc3df8e61ec60123890ccfd，普通push -u fork fix/realtime-preview-20261016成功，未写origin/main。gh pr create目标maxzrb/VideoEnhancer:main、head为user-Wing:fix/realtime-preview-20261016，创建[PR #12](https://github.com/maxzrb/VideoEnhancer/pull/12)并attach_artifact附到当前聊天。
+- 回读标题“修复实时预览卡死、刷新频率及音频先行阶段同步”，state=OPEN、isDraft=false、mergeStateStatus=CLEAN、statusCheckRollup为空；远端文件清单恰为本轮10文件，无版本/媒体/二进制，不能把本地回归通过写成远端CI通过。PR正文使用简洁中文列修复、命令和验证边界，普通构建FFF依赖下载限制及实际宿主可视复验未被掩盖。
+- 本条和中文进度记录作为文档收尾提交，普通推送同一PR分支后再核对HEAD/远端SHA与状态。用户videoenhancer pr.txt仍未跟踪、不暂存、不上传；本轮修改已保存，不需要用户再次提交，整个工作树因该用户说明而非完全干净。版本1.3.13保持，不合并PR、不发布、不覆盖本机安装。

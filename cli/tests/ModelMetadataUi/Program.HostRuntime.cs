@@ -24,6 +24,8 @@ partial class Program
             var native = FFmpegFreeUI.编码队列_v6.Task;
             var snapshot = (IList)SharedCall(queue, "GetQueueSnapshot");
             var task = SharedCall(queue, "FindTask", native.ID);
+            Check(Get(SharedCall(plugin.GetType("videoenhancer.HostTask")!, "Wrap", new object()), "当前步骤") == null,
+                  "未公开分步接口的旧宿主可回退为普通任务");
             Check(snapshot.Count == 1 && (string)Get(snapshot[0]!, "ID") == native.ID,
                   "IReadOnlyList 快照转换为任务视图");
             Check((bool)Get(task, "IsPaused"), "暂停状态按名称解析而非复制枚举值");
@@ -104,9 +106,13 @@ partial class Program
             foreach (var name in new[] { "编码队列_v6", "编码任务_v6", "预设管理_v6", "预设数据_v6", "设置_v6", "Form_v6_参数面板" })
                 Check(host.GetType("FFmpegFreeUI." + name) != null, "真实宿主类型契约 " + name);
             var taskType = host.GetType("FFmpegFreeUI.编码任务_v6")!;
-            foreach (var name in new[] { "ID", "输入文件", "输出文件", "命令行", "状态", "当前进程ID", "正在执行", "手动停止", "进度" })
+            foreach (var name in new[] { "ID", "输入文件", "输出文件", "命令行", "状态", "当前进程ID", "正在执行", "手动停止", "进度", "当前步骤" })
                 Check(taskType.GetProperty(name, Flags) != null || taskType.GetField(name, Flags) != null,
                       "真实任务成员契约 " + name);
+            var stepType = host.GetType("FFmpegFreeUI.编码步骤_v6")!;
+            foreach (var name in new[] { "显示名称", "实际执行参数", "命令行" })
+                Check(stepType.GetProperty(name, Flags) != null || stepType.GetField(name, Flags) != null,
+                      "真实编码步骤成员契约 " + name);
             foreach (var pair in new[] { ("编码队列_v6", "获取队列快照"), ("编码队列_v6", "根据ID获取任务"),
                 ("编码队列_v6", "计算输出位置_v6"), ("预设管理_v6", "从面板创建预设"),
                 ("预设管理_v6", "将预设数据转换为命令行"), ("预设管理_v6", "刷新参数总览") })
@@ -131,10 +137,17 @@ namespace FFmpegFreeUI
         public NativeState 状态 = NativeState.已暂停;
         public bool 正在执行 => true;
         public long 当前进程ID = 42;
+        public NativeStep 当前步骤 { get; set; }
         public bool 手动停止 { get; set; }
         public NativeProgress 进度 { get; set; } = new();
         public bool PauseCalled;
         public void 暂停() => PauseCalled = true;
+    }
+    public sealed class NativeStep
+    {
+        public string 显示名称 { get; set; } = "编码";
+        public string 命令行 { get; set; } = "";
+        public string 实际执行参数 { get; set; } = "";
     }
     public sealed class NativeProgress
     {

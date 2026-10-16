@@ -19,6 +19,7 @@ partial class Program
     [STAThread]
     static void Main(string[] args)
     {
+        if (RunPreviewToolFixture(args)) return;
         var mode = args.FirstOrDefault(arg => arg.StartsWith("--", StringComparison.Ordinal));
         if (mode == "--dpi" || mode == "--scroll" || mode == "--appearance")
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
@@ -37,8 +38,14 @@ partial class Program
         var directory = Path.Combine(root, "Artifacts/model-audit/ui/Plugin");
         Directory.CreateDirectory(directory);
         var pluginPath = Path.Combine(directory, "videoenhancer.3fui.dll");
-        File.Copy(Path.Combine(root, "VideoEnhancerPlugin/obj/plugin-artifact/videoenhancer.3fui.dll"), pluginPath, true);
+        File.Copy(Environment.GetEnvironmentVariable("VIDEOENHANCER_PREVIEW_PLUGIN") ??
+                  Path.Combine(root, "VideoEnhancerPlugin/obj/plugin-artifact/videoenhancer.3fui.dll"), pluginPath, true);
         var assembly = Assembly.LoadFrom(pluginPath);
+        if (mode == "--preview-engine" || mode == "--preview-probe")
+        {
+            RunPreviewEngineChecks(assembly, mode == "--preview-probe");
+            return;
+        }
         if (mode == "--host-runtime")
         {
             RunHostRuntimeChecks(assembly);

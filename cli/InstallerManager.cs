@@ -90,7 +90,7 @@ internal static class InstallerManager
     {
         if (args.Length < 2 || args.Length > 4 ||
             (args.Length > 2 && !args.Skip(2).All(arg => arg is "--quiet" or "--skip-legacy-cleanup")))
-            return Fail("请先点击“选择目录”，选择包含 FFmpegFreeUI.exe 的 3FUI 根目录。");
+            return Fail("请先点击“选择目录”，选择包含 FFmpegFreeUI.exe 或 FFmpegFreeUI.x64.exe 的 3FUI 根目录。");
         try
         {
             Install(args[1], args.Contains("--skip-legacy-cleanup"));
@@ -136,8 +136,8 @@ internal static class InstallerManager
     {
         const int capacity = 32768;
         var file = Marshal.AllocHGlobal(capacity * sizeof(char));
-        var filter = Marshal.StringToHGlobalUni("3FUI 主程序\0FFmpegFreeUI.exe\0\0");
-        var title = Marshal.StringToHGlobalUni("选择 3FUI 的 FFmpegFreeUI.exe");
+        var filter = Marshal.StringToHGlobalUni("3FUI 主程序\0" + HostInstallation.ExecutableFilter + "\0\0");
+        var title = Marshal.StringToHGlobalUni("选择 3FUI 主程序（" + HostInstallation.ExecutableNames + "）");
         try
         {
             Marshal.WriteInt16(file, 0);
@@ -166,10 +166,10 @@ internal static class InstallerManager
     private static string ValidateRoot(string selectedRoot)
     {
         if (string.IsNullOrWhiteSpace(selectedRoot))
-            throw new InvalidDataException("请先点击“选择目录”，选择包含 FFmpegFreeUI.exe 的 3FUI 根目录。");
+            throw new InvalidDataException("请先点击“选择目录”，选择包含 FFmpegFreeUI.exe 或 FFmpegFreeUI.x64.exe 的 3FUI 根目录。");
         var root = Path.GetFullPath(selectedRoot.Trim().Trim('"'));
-        if (!File.Exists(Path.Combine(root, "FFmpegFreeUI.exe")))
-            throw new InvalidDataException("所选目录不是 3FUI 根目录：" + root + "\n请重新选择包含 FFmpegFreeUI.exe 的目录，不要选择 Plugin 子目录。");
+        if (!HostInstallation.IsHostRoot(root))
+            throw new InvalidDataException("所选目录不是 3FUI 根目录：" + root + "\n请重新选择包含 FFmpegFreeUI.exe 或 FFmpegFreeUI.x64.exe 的目录，不要选择 Plugin 子目录。");
         return root;
     }
 

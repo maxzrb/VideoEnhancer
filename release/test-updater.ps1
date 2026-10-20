@@ -20,7 +20,7 @@ try {
     $pluginRoot = Join-Path $hostRoot 'Plugin'
     $coreRoot = Join-Path $pluginRoot 'videoenhancer'
     New-Item -ItemType Directory -Force -Path $coreRoot | Out-Null
-    [IO.File]::WriteAllText((Join-Path $hostRoot 'FFmpegFreeUI.exe'), 'test host', [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $hostRoot 'FFmpegFreeUI.x64.exe'), 'test host', [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $coreRoot 'aria2-next-keep.txt'), 'unchanged', [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $coreRoot 'videoenhancer.exe'), 'old exe', [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText((Join-Path $pluginRoot 'videoenhancer.3fui.dll'), 'old dll', [Text.UTF8Encoding]::new($false))

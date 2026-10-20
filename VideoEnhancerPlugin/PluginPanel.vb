@@ -454,6 +454,8 @@ Namespace videoenhancer
             ' 上次退出时已启用且 exe 存在 → 自动恢复启用状态
             If _config.Enabled AndAlso File.Exists(_config.ExePath) Then
                 TryEnable(_config.ExePath, True)
+            Else
+                HostSettings.ClearPluginProcessOverride(_config.ExePath)
             End If
             ' 「预览输出」右键菜单与插件总开关无关：启动即挂，并定期同步
             QueueHook.AttachQueueMenu()

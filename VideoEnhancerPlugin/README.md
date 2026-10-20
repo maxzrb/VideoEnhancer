@@ -4,7 +4,7 @@
 
 ## 安装
 
-1. 双击 GitHub Release 中的安装程序，点击“选择目录”，选择包含 `FFmpegFreeUI.exe` 的 3FUI 根目录，然后点击“安装”。安装后的目录结构为：
+1. 双击 GitHub Release 中的安装程序，点击“选择目录”，选择包含 `FFmpegFreeUI.exe` 或 `FFmpegFreeUI.x64.exe` 的 3FUI 根目录，然后点击“安装”。安装后的目录结构为：
    ```
    <主程序目录>\Plugin\videoenhancer.3fui.dll
    <主程序目录>\Plugin\videoenhancer\videoenhancer.exe

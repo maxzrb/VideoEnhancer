@@ -117,7 +117,7 @@ class RtxHdrAndQueueCompatibilityTests(unittest.TestCase):
         self.assertIn('startInfo.ArgumentList.Add("--apply-update")', updater)
         self.assertIn('SelfUpdateManager.Apply(args)', program)
         self.assertNotIn("VideoEnhancerInstaller.exe", updater)
-        self.assertIn('Path.Combine(root, "FFmpegFreeUI.exe")', installer)
+        self.assertIn("HostInstallation.IsHostRoot(root)", installer)
         bundle = (ROOT / "installer/Bundle/Bundle.wxs").read_text(encoding="utf-8")
         theme = (ROOT / "installer/Bundle/VideoEnhancerTheme.xml").read_text(encoding="utf-8")
         self.assertIn('<ExePackage Id="PortablePlugin"', bundle)

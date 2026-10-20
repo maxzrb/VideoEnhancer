@@ -81,6 +81,8 @@ try {
         (Get-FileHash -LiteralPath $installedLicense).Hash -ne (Get-FileHash -LiteralPath (Join-Path $root 'LICENSE')).Hash) {
         throw '安装后的项目许可证缺失或内容不一致'
     }
+    Rename-Item -LiteralPath (Join-Path $hostRoot 'FFmpegFreeUI.exe') -NewName 'FFmpegFreeUI.x64.exe'
+    if ((Invoke-Installer $hostRoot) -ne 0) { throw 'x64 名称的 3FUI 目录安装失败' }
     $dllHash = (Get-FileHash -LiteralPath $dll).Hash
     $exeHash = (Get-FileHash -LiteralPath $exe).Hash
     $env:VIDEOENHANCER_INSTALL_FAIL_AFTER = '2'

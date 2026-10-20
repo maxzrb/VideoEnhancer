@@ -29,7 +29,7 @@ internal static class SelfUpdateManager
         var packagePath = Path.GetFullPath(package);
         var pluginRoot = Path.GetFullPath(target).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (!Path.GetFileName(pluginRoot).Equals("Plugin", StringComparison.OrdinalIgnoreCase) ||
-            !File.Exists(Path.Combine(Path.GetDirectoryName(pluginRoot)!, "FFmpegFreeUI.exe")))
+            !HostInstallation.IsHostRoot(Path.GetDirectoryName(pluginRoot)!))
             return Fail("更新目标不是有效的 3FUI Plugin 目录");
         if (!File.Exists(packagePath)) return Fail("更新包不存在：" + packagePath);
         var applicationRoot = ApplicationLayoutManager.ApplicationRoot(pluginRoot);

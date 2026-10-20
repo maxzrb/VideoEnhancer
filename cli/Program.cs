@@ -867,6 +867,45 @@ internal static class Program
         }
     }
 
+    private static int RunNativeFfmpeg(string[] args)
+    {
+        var executable = FfmpegExe;
+        if (Path.GetFullPath(executable).Equals(Environment.ProcessPath, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("FFmpeg 路径不能指向 videoenhancer.exe 自身");
+        var start = new ProcessStartInfo(executable)
+        {
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true
+        };
+        foreach (var arg in args) start.ArgumentList.Add(arg);
+        // 按字节转发标准流，不改写滤镜列表、评测日志或二进制输出；宿主可继续发送 q 停止。
+        var job = CreateKillOnCloseJob();
+        try
+        {
+            using var process = Process.Start(start) ?? throw new IOException("无法启动 FFmpeg");
+            if (job != IntPtr.Zero) AssignProcessToJobObject(job, process.Handle);
+            var stdout = process.StandardOutput.BaseStream.CopyToAsync(Console.OpenStandardOutput());
+            var stderr = process.StandardError.BaseStream.CopyToAsync(Console.OpenStandardError());
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Console.OpenStandardInput().CopyToAsync(process.StandardInput.BaseStream);
+                    process.StandardInput.Close();
+                }
+                catch (IOException) { } // 子进程退出后不再接收输入。
+                catch (ObjectDisposedException) { }
+            });
+            process.WaitForExit();
+            Task.WaitAll(stdout, stderr);
+            return process.ExitCode;
+        }
+        finally
+        {
+            if (job != IntPtr.Zero) CloseHandle(job);
+        }
+    }
+
     private static int Run(string[] args)
     {
         if (args.Length > 0 && args[0].Equals("--create-installer-bundle", StringComparison.Ordinal))
@@ -894,6 +933,9 @@ internal static class Program
             CliHelp.Print(Console.Out, ToolVersion, DefaultModelScopeDataset);
             return 0;
         }
+
+        // 宿主的全局替代进程也会收到质量评测等工具的原生 FFmpeg 参数。
+        if (FfmpegPassthrough.IsNativeCommand(args)) return RunNativeFfmpeg(args);
 
         var o = CliArgumentParser.Parse(args);
         FfmpegPathOverride = o.FfmpegPath;

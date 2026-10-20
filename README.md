@@ -55,7 +55,7 @@ stable.json
 
 1. 安装或准备可运行的 3FUI。
 2. 从 GitHub Release 下载 `VideoEnhancerInstaller-<version>-win-x64.exe`。
-3. 双击安装程序，点击“选择目录”，选中包含 `FFmpegFreeUI.exe` 的 3FUI 根目录，然后点击“安装”。
+3. 双击安装程序，点击“选择目录”，选中包含 `FFmpegFreeUI.exe` 或 `FFmpegFreeUI.x64.exe` 的 3FUI 根目录，然后点击“安装”。
 4. 启动 3FUI，打开「视频超分」插件页面。
 5. 在模型下载页刷新远端清单，按当前后端下载需要的模型和运行环境。
 

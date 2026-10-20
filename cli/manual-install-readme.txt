@@ -4,7 +4,7 @@ VideoEnhancer 手动安装包
 本包内的目录结构与 3FUI 安装布局一致：
 
 先完全退出 3FUI。
-把解压出的 plugin 文件夹整体复制到 3FUI 根目录（与 FFmpegFreeUI.exe 同级），
+把解压出的 plugin 文件夹整体复制到 3FUI 根目录（与 FFmpegFreeUI.exe 或 FFmpegFreeUI.x64.exe 同级），
 如提示已有同名文件选择覆盖即可。完成后启动 3FUI，在插件里执行一次环境检查。
 请保持包内目录结构。插件配置与运行缓存保存在 plugin\videoenhancer 目录内。
 教程图片缓存保存在 plugin\videoenhancer\cache\TutorialImages，旧缓存会在加载教程时迁入。

@@ -130,7 +130,7 @@ Namespace videoenhancer
             StopEnvironmentCheck(2000)
             Try
                 QueueHook.Uninstall()
-                HostSettings.AlternativeProcessPath = ""
+                HostSettings.ClearPluginProcessOverride(_config.ExePath)
             Catch
             End Try
             _config.Enabled = False
@@ -297,7 +297,7 @@ Namespace videoenhancer
             Else
                 Try
                     QueueHook.Uninstall()
-                    HostSettings.AlternativeProcessPath = ""
+                    HostSettings.ClearPluginProcessOverride(_config.ExePath)
                 Catch
                 End Try
                 ShowStatus("已停用：编码队列恢复为直接执行 ffmpeg", False)

@@ -62,6 +62,14 @@ partial class Program
             var reserved = new HashSet<string> { "occupied.mkv" };
             Check((string)SharedCall(queue, "ComputeOutputPath", "input.mp4", preset, true, reserved) == "computed.mkv" &&
                   ReferenceEquals(FFmpegFreeUI.编码队列_v6.LastReserved, reserved), "输出计算保留原始预设与保留路径集合");
+            var pluginExe = Path.Combine(Path.GetTempPath(), "videoenhancer.exe");
+            settings.GetProperty("AlternativeProcessPath", Flags)!.SetValue(null, pluginExe);
+            SharedCall(settings, "ClearPluginProcessOverride", pluginExe);
+            Check(FFmpegFreeUI.设置_v6.实例对象.替代进程文件名 == "", "停用后清除本插件替代路径");
+            FFmpegFreeUI.设置_v6.实例对象.替代进程文件名 = "other-translator.exe";
+            SharedCall(settings, "ClearPluginProcessOverride", pluginExe);
+            Check(FFmpegFreeUI.设置_v6.实例对象.替代进程文件名 == "other-translator.exe", "停用时保留其他替代程序设置");
+
             var command = (string)SharedCall(plugin.GetType("videoenhancer.QueueCommandBuilder")!,
                 "BuildFfmpegSettings", preset, "input.mp4", "output with spaces.mkv");
             Check(command == "-c:v libx264 \"output with spaces.mkv\" -y", "预设转换和命令占位符替换保持编码参数");

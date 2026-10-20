@@ -40,6 +40,8 @@ Namespace videoenhancer
         Public Shared Sub Entry()
             Try
                 Dim config = PluginConfig.Load()
+                ' 主开关已关闭时也清除旧会话保存的插件替代路径，避免原生工具继续走中转器。
+                If Not config.Enabled Then HostSettings.ClearPluginProcessOverride(config.ExePath)
                 BackendProgress.Attach(_subscribeQueueEvents)
                 Dim panel As New PluginPanel(config)
                 If _addCustomWinformPanel IsNot Nothing Then

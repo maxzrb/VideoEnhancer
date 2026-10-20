@@ -327,6 +327,15 @@ Namespace videoenhancer
             End Set
         End Property
 
+        ''' <summary>停用时只清理本插件路径，保留用户或其他插件的替代程序设置。</summary>
+        Friend Shared Sub ClearPluginProcessOverride(exePath As String)
+            Dim current = AlternativeProcessPath.Trim().Trim(""""c)
+            If String.Equals(current, exePath, StringComparison.OrdinalIgnoreCase) OrElse
+                String.Equals(current, System.IO.Path.Combine(PortableRuntime.PluginRoot, "videoenhancer.exe"), StringComparison.OrdinalIgnoreCase) Then
+                AlternativeProcessPath = ""
+            End If
+        End Sub
+
         Friend Shared Function GetWorkingDirectory() As String
             If HostRuntime.ResolveType("设置_v6", False) Is Nothing Then Return ""
             Return CStr(HostRuntime.InvokeShared("设置_v6", "获取有效工作目录"))

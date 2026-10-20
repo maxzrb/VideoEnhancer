@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-10-20 15:41
+Last updated: 2026-10-20 16:16
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-10-20 16:16：**1.3.14已正式发行并验收**：[GitHub Release](https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.3.14)，五项资产及ModelScope Releases/Models备用EXE同步；发行源码及注释标签6fe8545。10项远端实下载大小/SHA256、双源故障回退分支隔离检查、完整安装/回滚/Burn及预览门禁通过。本机正式1.3.14完整部署45文件一致，5项保护配置/组件及157模型清单保持、FFF API11通过；未启动宿主，实际图片/预览仍待用户重开验收。独立Backend 2026.09.30.1审计UNCHANGED，未重发Python/RTX/模型。VMAF自动枚举、ARM和旧低显存问题保留。收尾记录普通提交推送后核对干净工作树。
 
 - 2026-10-20 15:41：用户明确授权发布1.3.14。启动main/origin/main=50be815且干净，v1.3.14标签/Release未存在；版本源与分类说明已同步1.3.14，旧1.3.13版本记录完整保留历史。按既有流程准备后端真实目录逐文件审计、必要发行门禁、五项GitHub资产与运行镜像；源码ZIP仅GitHub。VMAF枚举/ARM/旧低显存问题保留。
 
@@ -141,7 +143,9 @@ Updated by: Codex
 
 ## Active TODO
 
-- [x] 用户授权提交前述两组修复：d7441ae、99ed3d9，本地已保存，尚未推送。
+- [x] 正式发布1.3.14：源码/标签、五项GitHub资产、运行镜像、远端十项hash、双源故障回退分支隔离检查与本机正式升级完成。
+
+- [x] 用户授权提交前述两组修复：d7441ae、99ed3d9，已随main推送并包含于1.3.14。
 - [x] PR12固定c68cb93审核完成，报告docs/pr12-review.md；25预览/18倍率UI/宿主接口/双LakeUI渲染通过。
 - [x] PR12两项P2已在dbf7e24修复；29项预览与组合门禁通过，测试入口/双方记录完整保留。远端合并与本机部署执行见最新会话。
 
@@ -239,6 +243,10 @@ Updated by: Codex
 
 ## Environment Notes
 
+- 2026-10-20 16:16当前安装：C:/Program portable/3FUI/3FUI，宿主6.2.38，正式插件1.3.14。CLI SHA256=5f236644884228834d51f8f0716db0e055e55b60cbf42e31f26fd7052ea38133，插件DLL SHA256=e369f39f5e36892ccc515a18b1308ee4f6a3967db324948419bb93bac3db6916；备份及45文件部署证据见Artifacts/release-1.3.14/local-install，本条优先于旧版本安装记录。
+
+- 2026-10-20 16:16：本机代理127.0.0.1:7897使GitHub资产TLS报10053，远端验收使用requests.trust_env=False及aria2无代理分段实下载通过，不改系统代理；.NET空代理单流下载仍受限，回退分支用隔离端点验证。aria2构建上游连接不稳定，复用锁定SHA的项目缓存经本地HTTP供MSBuild读取，固定hash仍强制验证，服务已关闭。
+
 - 2026-10-20 15:29当前本机3FUI6.2.38路径C:/Program portable/3FUI/3FUI；已安装合并e6524b2对应1.3.13本地测试版，CLI SHA256=0d0678700e742c9cbc4a95670798dbab303dbb89e33953b48e015161d25ac985，插件DLL SHA256=9ca2c588ab46b5d77e083d8f60f606a3a106dba3349b66aeaef96b5bab449bf4。备份 `C:\Codex Program\3fui plugin\Artifacts\local-test-20261020\backup-20261020-152721`；配置/独立组件5项与模型157文件保持，FFF API11验证；本条优先于旧正式发行hash。
 
 - 2026-10-06 20:36当前maxzr设备/工作区C:/Codex Program/3fui plugin；正式安装C:/Program portable/3FUI/3FUI已为1.3.13，完整载荷补齐FFF独立DLL且保护项hash保持。备份C:\Codex Program\3fui plugin\Artifacts\.refactor-tmp\backup-before-release-1.3.13-20261006-203252；所有发布检查临时目录设在项目Artifacts/release-1.3.13/temp。本条优先于以下历史设备/安装记录。
@@ -298,6 +306,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-10-20 16:16：main和v1.3.14已atomic普通推送origin，发行标签固定6fe8545；五项正式资产已公开。仅文档收尾待普通提交推送；不移动标签、不重打已公开资产，完成后核对远端HEAD及工作树。
 
 - 2026-10-20 15:29：main合并提交e6524b2已普通推送origin，包含PR12原头c68cb93和修正dbf7e24；GitHub PR12状态MERGED。无force/tag/Release。仅本次收尾记录待单独提交推送，最终核对远端HEAD及工作树；本机备份/安装产物留项目忽略目录。
 
@@ -969,3 +979,15 @@ git diff --check
 - 用户明确授权“发布1.3.14release”，覆盖仅本机试用限制；同工具续接，读取AGENTS/INDEX/STATUS及发布流程，git pull --ff-only最新、main50be815/工作树干净，v1.3.14不存在。凭据只通过工具状态核验，无明文token写入；pwsh7/.NET10.0.402/GitHub与ModelScope CLI可用。
 - 版本两项目同步1.3.14，分类Release Notes包含宿主名称、图片参数/详情、PR12及审核补修、原生工具转发，并明确VMAF枚举尚未解决；旧当前1.3.13完整移入版本历史。计划完成后端逐文件审计、完整publish/必要门禁，再冻结五资产、提交标签与发布双源运行/单GitHub源码，并验证远端哈希。
 - 不新增ARM实现，不改变模型/画质参数，不追加长片或GPU测速；后端是否重发以现场目录审计为准。当前记录/版本准备将先提交保存，正式发布仍未完成。
+
+### 2026-10-20 16:16 Codex — 1.3.14正式发布与本机升级
+
+- 授权：用户明确“发布1.3.14release”，沿用已合并修正、本机安装测试授权；无额外确认或子代理。
+- 源码：6fe8545同步CLI/插件Version、分类Release Notes及版本记录；main与注释标签v1.3.14已atomic推送。GitHub正式Release五项资产、ModelScope白名单六文件及Models备用EXE均发布，源码ZIP仅GitHub，旧发行资产未覆盖。
+- 后端审计：直接比本机目录发现9个CLI释放脚本差异，均逐字节等于当前cli/embedded-tools；候选目录为安装后端快照，仅将CLI覆盖脚本恢复原已发布基线并排除新增CLI脚本，不改原安装。其余29,709文件逐项SHA256比较UNCHANGED，审计与差异证据位于Artifacts/release-1.3.14/backend-audit、backend-runtime-overlay.json；独立后端仍2026.09.30.1，不上传Python/RTX/模型或空channel。
+- 构建：完整publish通过，110项源码/二进制/安装API11分离检查通过。Burn验收发现WiX沿用旧1.3.13载荷，强制-t:Rebuild后重新分发本地安装器，正式上传前实际安装hash/回滚/无缓存登记全通过；未覆盖任何已公开发行资产。
+- 必要门禁：发布5项、Backend更新6项、安装两宿主名/回滚、自更新/保护组件、Burn、下载队列/组件状态/队列UI、宿主/滚动/DPI/18倍率UI、图片参数与错误详情、29预览、双LakeUI5.110/5.112实际GPU换图、9项ordered-backend Python通过；日志与checks-summary位于Artifacts/release-1.3.14。不追加长视频推理或历史性能对比。
+- 远端验收：GitHub latest=v1.3.14、非草稿/非预发行、正文与stable说明完全一致。GitHub5项、ModelScope4项及Models备用EXE共10项实际下载大小/SHA256与冻结asset-hashes一致；API版本目录恰3个运行文件、无源码；Backend channel仍2026.09.30.1/两条旧补丁。真实插件更新器故障注入：GitHub查询失败转线上ModelScope清单通过；ModelScope包失败后执行GitHub下载分支，隔离HTTP端点提供已从GitHub实下载并验证SHA的发行EXE，最终插件校验SHA通过。GitHub线上单连接下载受本机网络限制未完成，不能宣称真实线上第二回退端到端通过；GitHub五资产另用aria2直连分段实下载并核验通过。初始代理TLS失败及未完成单流日志保留。
+- 本机：C:\Program portable\3FUI\3FUI正式升级1.3.14，45文件与最终ZIP逐项hash一致，5保护项与157模型清单/大小/时间保持，CLI --version和FFF API11通过。备份C:\Codex Program\3fui plugin\Artifacts\release-1.3.14\local-install\backup-20261020-155804；证据Artifacts/release-1.3.14/local-install/local-deployment.json。未自动启动3FUI，用户实际窗口验收待完成。
+- 边界：VMAF内置模型自动枚举、原生ARM宿主支持/架构保护、6GB/1080p/4x保存OOM及旧版同条件性能差异未解决；不把原生FFmpeg转发等同全部质量评测修复。
+- 收尾：本文件快照/TODO/Git/环境和本条、中文工作进度及版本记录更新，随后普通commit/push记录并核对主工作树干净、远端HEAD一致；无需额外保存本轮改动，后续新工作再考虑Git提交。发行标签保持6fe8545。

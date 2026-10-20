@@ -275,6 +275,39 @@ partial class Program
                 PumpUntil(() => !(bool)Field(engine, "_tickBusy"));
             }
 
+            using (var engine = (IDisposable)CreateEngine())
+            {
+                ((System.Collections.IDictionary)Field(engine, "_inputFpsCache")).Clear();
+                File.WriteAllText(Path.Combine(directory, "mode.txt"), "stall");
+                var failed = (Task<double>)Call(engine, "ProbeInputFpsAsync", native.输入文件, CancellationToken.None);
+                PumpUntil(() => failed.IsCompleted, 4000);
+                Check(failed.GetAwaiter().GetResult() == 0 &&
+                      !((System.Collections.IDictionary)Field(engine, "_inputFpsCache")).Contains(native.输入文件),
+                      "帧率超时不缓存零值");
+                File.WriteAllText(Path.Combine(directory, "mode.txt"), "");
+                var recovered = (Task<double>)Call(engine, "ProbeInputFpsAsync", native.输入文件, CancellationToken.None);
+                PumpUntil(() => recovered.IsCompleted);
+                Check(recovered.GetAwaiter().GetResult() == 24 &&
+                      (double)((System.Collections.IDictionary)Field(engine, "_inputFpsCache"))[native.输入文件]! == 24,
+                      "同一输入在超时后恢复探测并缓存有效帧率");
+            }
+
+            foreach (var option in new[] { "-ffmpeg-settings ", "--ffmpeg-settings=" })
+            {
+                native.输出文件 = Path.Combine(directory, "enhanced.mkv");
+                native.当前步骤 = new()
+                {
+                    显示名称 = "命令行",
+                    实际执行参数 = $"-i \"{output}\" {option}\"-c:v libx264 out.mkv -y\" --ffprobe-path \"{directory}\\ffprobe.exe\""
+                };
+                var wrapped = SharedCall(plugin.GetType("videoenhancer.HostTask")!, "Wrap", native);
+                var values = new object[] { wrapped, "", false };
+                var resolved = (string)engineType.GetMethod("ResolvePreviewOutput", Flags)!.Invoke(null, values)!;
+                Check(resolved == native.输出文件 && !(bool)values[2],
+                      "有当前步骤的CLI中转保留增强输出，不误取末尾工具路径：" + option.Trim());
+            }
+            native.当前步骤 = null;
+
             var media = Environment.GetEnvironmentVariable("VIDEOENHANCER_PREVIEW_MEDIA");
             if (!string.IsNullOrEmpty(media))
             {

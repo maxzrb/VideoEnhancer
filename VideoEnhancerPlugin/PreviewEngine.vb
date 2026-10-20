@@ -346,6 +346,15 @@ Namespace videoenhancer
             End If
             context = task.当前进程ID.ToString(CultureInfo.InvariantCulture) & "|" & stage & "|" & command
             Dim tokens = CommandLineTokenizer.Tokenize(If(command, ""))
+            ' 宿主也为 CLI 中转创建当前步骤；其末尾可能是工具路径，不能当作视频输出。
+            Dim enhancerCommand = tokens.Any(Function(item)
+                                                 Dim optionName = item.Text.Split("="c)(0)
+                                                 Return optionName = "-ffmpeg-settings" OrElse optionName = "--ffmpeg-settings"
+                                             End Function)
+            If enhancerCommand Then
+                waiting = False
+                Return task.输出文件
+            End If
             waiting = tokens.Any(Function(item) item.Text = "-vn") OrElse
                 stage.Contains("ffprobe", StringComparison.OrdinalIgnoreCase) OrElse
                 (stage.Contains("音频") AndAlso Not stage.Contains("视频"))
@@ -909,7 +918,8 @@ Private Function EstimateFpsByTime(taskId As String, seconds As Double) As Doubl
                 Throw
             Catch
             End Try
-            _inputFpsCache(inputPath) = fps
+            ' 超时或临时不可读不代表有效的零帧率，下一轮仍需允许恢复探测。
+            If fps > 0 Then _inputFpsCache(inputPath) = fps
             Return fps
         End Function
 

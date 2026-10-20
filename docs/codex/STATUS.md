@@ -1,11 +1,17 @@
 # Project Status
 
-Last updated: 2026-10-06 20:36
+Last updated: 2026-10-20 14:55
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-10-20 14:55：图片超分截图已定位并复现：手工引用 `Z:\` 等末尾反斜杠目录吞掉后续ONNX后端/模型参数，CLI退回默认NCNN报模型缺失，并非简单未下载。图片启动改为ArgumentList逐参数传递；主错误优先展示、进度/状态分行、详情按钮及完整UTF8错误日志已补。插件Release构建0警告0错误，真实子进程参数回读/错误详情/600与1100宽布局及96/120/144/192DPI往返通过。未跑真实ONNX推理或在反馈者设备验收，未部署/发布，1.3.13保持；本轮只重建插件DLL，先前候选EXE/ZIP/安装器尚未包含图片修复，后续分发前须完整重打包。
+
+- 2026-10-20 13:53：同工具继续核查ARM问题；CLI RID=win-x64、Burn Platform=x64，FFF.Native.dll PE Machine实测0x8664。当前不能宣称兼容ARM64原生宿主。建议下一步安装器读取宿主EXE实际PE架构并对ARM64明确拒绝/提示，不能只加入arm64文件名；也不应仅因OS为ARM64就将x64仿真情形等同原生ARM宿主。用户本轮询问方案，尚未实施架构检测或完整ARM移植，无ARM设备运行验收。
+
+- 2026-10-20 13:13：新 Codex 会话，main/origin/main 472d62f 启动同步且干净。已修复首次下载 `FFmpegFreeUI.x64.exe` 被安装器/自更新器拒绝的问题，统一识别两种名称并同步提示。质量评测全局替代进程误收原生 FFmpeg 参数的冲突已补转发，已停用启动时清除本插件遗留路径。完整 publish、两种名称安装/x64自更新回滚、真实 FFmpeg 六项/宿主接口/既有七项通过；本地候选 1.3.13，未部署/发布/提交。第三方原反馈细节未知，**启用时内置 VMAF 模型扫描目标仍受全局替代路径影响，未解决**，不得宣称完整质量评测已恢复。详见 [排查说明](../host-install-quality-compatibility.md)。
 
 - 2026-10-06 20:36：**1.3.13已正式发行并完成验收**：[GitHub Release](https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.3.13)五项正式资产，main/发行标签源码b97622a。四宫格三文件及按钮/窗体/回调/释放/专属DPI残留安全剥离，当前实时预览双LakeUI回调通过。完整对应源码合为一个独立ZIP仅GitHub；ModelScope仅本版三个运行附件与stable/说明，Models备用EXE同步，API列表确认无源码附件。10项远端实下载大小/SHA通过。完整安装载荷已安全部署本机，45文件与ZIP一致、FFF10DLL齐全，配置/用户模型/aria2/7zip/RTX保持，未启动宿主。后端2026.09.30.1无变化，不重发Python/模型/RTX。必要本地门禁通过，6GB/1080p/4x保存OOM及同条件历史速度差异仍保留。本条收尾记录待普通提交推送，最后核对干净工作树与远端SHA。
 
@@ -118,6 +124,13 @@ Updated by: Codex
 - 保留现有 WiX Burn 6.0.2 窗口；链仅含 Permanent EXE，Cache=remove，默认 Burn 日志关闭，/log 诊断保留。实测正常成功/正常失败后无本次载荷缓存、Bundle 缓存、临时卸载和依赖登记。不是 MSI；旧缓存及异常强杀/断电、Windows 自身记录不保证清零。
 
 ## Active TODO
+
+- [x] 图片超分盘符根目录/末尾反斜杠参数吞并：改ArgumentList，真实进程回读保留ONNX后端/模型；错误正文和完整详情入口及DPI布局通过。
+- [ ] 后续分发前完整重打包含图片修复的CLI内嵌插件/安装器/ZIP；反馈者实机重试ONNX图片任务，当前可临时使用不带末尾反斜杠的子目录。
+
+- [x] 安装/自更新兼容 FFmpegFreeUI.x64.exe；文件选择器、提示/说明和定向安装回滚通过。
+- [x] 原生 FFmpeg 工具命令转发与停用/冷启动插件路径清理；真实滤镜查询、PSNR/SSIM和标准流/退出码验证通过。
+- [ ] 质量评测第三方原反馈缺报错/版本/复现；启用插件时内置 VMAF 模型自动枚举仍扫描中转器，需要宿主独立 FFmpeg 路径或任务级执行程序接口。暂用停用后刷新/重开评测或本地模型，不能关闭整个反馈。
 
 - [x] 正式发行1.3.13并剥离四宫格专属代码；全部必要门禁、十项远端下载hash、单GitHub源码与本机完整升级验收通过。
 
@@ -262,6 +275,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-10-20 13:13：启动 `git pull --ff-only` 已最新，main=origin/main=472d62f；本轮源码/测试/文档均未提交，工作树非干净。未 push、建标签、远端发行或覆盖正式安装；版本保持已发布 1.3.13，本地产物属于候选。建议继续或切换设备前考虑 Git 提交。
 
 - 2026-10-06 20:36：main与origin/main已推送发行源码b97622a；v1.3.13注释标签解引用同一SHA，GitHub Release五资产正式公开。仅本次文档收尾待普通提交推送，完成后核对git status及远端SHA；不用改发行标签或重发冻结资产。
 
@@ -826,3 +841,33 @@ git diff --check
 - 本地部署前确认宿主/处理任务退出，备份C:\Codex Program\3fui plugin\Artifacts\.refactor-tmp\backup-before-release-1.3.13-20261006-203252，通过内部完整安装载荷静默安装并跳过旧版清理。45文件与手动ZIP逐项匹配，FFF API11十DLL固定hash匹配，--version为1.3.13；配置/用户模型清单/aria2/7zip/RTX六项原hash保持，没有启动宿主或重发RTX。EXE d4e7d7764966d311c2e3d89e470a62f1e03c076e1d829431d940386c512f3767，DLL 3ad7ddc26a1bf86b3aed28ec21eeedaf51537c0dcfecd66847d89561a2007985；local-deployment.json保存备份和保护项前后hash。
 - 验证：Release build 0警告0错误、Python顺序9项、110项打包/隔离安装/API11、安装/更新/回滚/Burn、发布门禁、队列/组件状态/队列UI、宿主/滚动/主面板DPI及LakeUI5.110/5.112真实预览回调均通过。安装/Burn旧硬编码路径问题已修复并定向重跑；没有重复长GPU测速、没有承诺全部9FPS或修复既有低显存4x OOM，宿主可视交互仍待实际使用反馈。
 - 更新STATUS当前快照/TODO/环境/验证/Git及本条、追加中文进度、更新1.3.13版本发行与冻结资产记录。发行前git status干净、origin/main和tag均b97622a；本条为后续记录提交，普通推送后再次核对本地/远端SHA和干净状态，无需用户额外保存本轮文件。
+
+
+### 2026-10-20 13:13 Codex：宿主 x64 名称与质量评测兼容排查
+
+- 启动使用 AGENTS/INDEX/STATUS 与 HandShake，识别新 Codex 会话；git pull --ff-only 最新、main472d62f干净。执行环境核对为 pwsh7、Python/miniconda3、dotnet，所有新产物/临时目录位于本项目。仅读取本机3FUI版本6.2.38/工具路径，没有修改正式安装。
+- 修改 cli/HostInstallation.cs、InstallerManager/SelfUpdateManager 及安装UI/RTF/README/手动说明，统一接受标准和x64名称；扩展现有安装/x64自更新测试与旧静态断言。
+- 新增 cli/FfmpegPassthrough.cs、Program原生工具转发；Entry/HostRuntime/PluginPanel/UpscalePage加入停用启动与选择性清理。新增真实FFmpeg脚本和HostRuntime两项行为断言。文档 docs/host-install-quality-compatibility.md记录已修部分、源码证据与未解边界。
+- 上游源码通过GitHub读取固定457b4c6（与本机6.2.38一致）至Artifacts/host-quality-audit；确认质量评测也走全局替代路径且扫描EXE枚举模型。原反馈来自第三方、具体情况未知；不能认定全部同根因，内置VMAF自动枚举仍未解决，不使用全局临时切换等并发风险方案。
+- 验证：完整solution Release publish通过；release/test-installer.ps1 两名安装/哈希/无效目录/回滚通过；test-updater.ps1 x64-only更新/组件保持/回滚通过；test-ffmpeg-passthrough.py六项（filters逐字节、PSNR、SSIM、二进制stdin/stdout、stderr/退出码、增强路由）通过；ModelMetadataUi --host-runtime及既有test_rtx_hdr_controls.py七项通过。首次标准流继承测试失败后已显式按字节复制并复验。最终git diff --check与UTF8/BOM检查均通过；既有文件UTF8/BOM保持。
+- 首次publish因GitHub下载EOF失败，file协议重试不被DownloadFile支持；最终用项目内localhost服务提供已缓存固定aria2，构建照常校验固定SHA，未更改生产下载源。临时服务关闭，日志Artifacts/host-compat-20261020。一次批量修改/构建命令被自动审批拒绝，随后用可审阅apply_patch执行源码编辑、单独正常构建完成，未要求用户额外授权。
+- 更新STATUS快照/TODO/Git及中文进度；版本保持1.3.13，不改版本迭代记录。未提交/推送/部署/发布或启动宿主，不追加长片/GPU测试。工作树非干净，建议继续或切换工具前考虑Git提交。下一步取得原用户报错并复验、处理VMAF自动扫描与全局路径设计。
+
+
+### 2026-10-20 13:53 Codex：ARM安装兼容性判断
+
+- 同工具续查，重读AGENTS/INDEX、STATUS快照/最新会话与HandShake既有指引。git pull --ff-only已最新，main472d62f；保留上一轮全部未提交修改，工作树非干净。
+- 核查cli/VideoEnhancer.csproj固定win-x64，installer/Bundle/VideoEnhancer.Bundle.wixproj固定x64；项目缓存FFF.Native.dll读取PE头Machine=0x8664（AMD64）。原生预览库与后端不能因托管插件DLL可能跨架构就视作ARM兼容。
+- 微软官方文档确认普通ARM64进程不能加载普通x64 DLL，x64仿真应用与ARM64原生宿主应区分：https://learn.microsoft.com/en-us/windows/arm/arm64ec 。Windows11 on ARM可仿真x64 EXE，但不能以此宣称当前插件整链已通过ARM设备验收。
+- 建议安装器按所选宿主实际PE Machine做检查，而非只看名称/OS；原生ARM宿主明确提示当前仅支持x64。完整ARM移植须另审原生DLL、Python/推理后端和分发清单。用户仅询问是否需要兼容，未修改产品或扩大为完整移植任务，建议待后续明确实施范围。
+- 仅读取源码/PE及官方文档，无构建或新增测试；更新本文件和中文进度，不改版本/部署/发布/提交。git diff --check收尾核验；继续或切换工具/设备前建议考虑Git提交。
+
+
+### 2026-10-20 14:55 Codex：图片超分根目录转义与错误显示修复
+
+- 同工具续接，按AGENTS/INDEX/STATUS定位；git pull --ff-only最新，main472d62f，保留全部之前未提交改动。用户补图确认ONNX Runtime/RealHatGAN-JP-Illustration-2x-fix1及下载页已安装，前图输出Z:\。更正前轮仅笼统“模型未找到”的判断，不能要求用户重复下载作为根因修复。
+- 用原QuoteCommandArgument算法启动真实Python argv回读，--image-output的Z:\结尾转义关闭引号，后续image-suffix/image-png/backend/modelpath/upscale-precision全被吞入同一个输出参数，能解释默认NCNN分支错误。没有在反馈者机器运行或检查其实际文件。
+- 修改VideoEnhancerPlugin/Pages/PluginPanel.ImagePage.vb：抽出CreateImageStartInfo改ArgumentList逐项传参并删除手工QuoteCommandArgument；保留原处理流程。错误摘要复用CliErrorMessage优先[错误]正文，进度条独立一行、状态48逻辑像素另行及查看错误详情按钮，内容高度272→328；完整stderr、逐参数清单、退出码和时间UTF8写logs/image-last-error.txt，点击用默认文本编辑器查看，写入/打开失败回退现有LakeUI提示。
+- 新增cli/tests/ModelMetadataUi/Program.Image.cs，Program.cs增加--image与--echo-args探针；真实子进程验证Z:\及UNC末尾反斜杠、中文空格输入目录逐项无损、ONNX与模型独立；错误摘要不再取末行用法提示，详情保留原文，600/1100宽度布局通过。首次探针有可空注解警告，改为既有项目风格后复验无警告。Program.DpiLayout.cs更新图片内容高度并检查错误行缩放。
+- 验证：dotnet build VideoEnhancerPlugin/VideoEnhancerPlugin.vbproj -c Release -p:PluginInstallDir=通过0警告0错误；ModelMetadataUi --image与--dpi通过，DPI覆盖本机144启动及96/120/144/192往返与既有窗口边界。git diff --check、图片页UTF8/BOM保持及无替换字符检查通过。日志Artifacts/host-compat-20261020/image-build.log、image-test.log、image-dpi-test.log。未做GPU/ONNX真实增强，不宣称原设备全流程已验收。
+- 更新STATUS快照/TODO和中文进度，版本不变，不改版本迭代记录。仅插件DLL重建，早前Artifacts/host-compat-20261020候选安装器/EXE/ZIP未重新打包，不能作为含本轮修复的发布包。未部署、启动宿主、提交/推送/发布；工作树非干净，继续或切换工具/设备前建议考虑Git提交。

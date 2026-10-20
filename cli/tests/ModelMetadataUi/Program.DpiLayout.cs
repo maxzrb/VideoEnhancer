@@ -71,8 +71,11 @@ partial class Program
                 $"{dpi} DPI 字段标题和编辑器对齐");
             var imageRoot = (Control)Field(panel, "_imageRoot");
             var segmentRoot = (Control)Field(panel, "_segmentRoot");
-            Check(imageRoot.Height == Pixels(272, targetScale) && segmentRoot.Height == Pixels(656, targetScale),
+            Check(imageRoot.Height == Pixels(328, targetScale) && segmentRoot.Height == Pixels(656, targetScale),
                 $"{dpi} DPI 图片和分段页内容高度一致");
+            var imageStatus = (Control)Field(panel, "_lblImageProgress");
+            Check(imageStatus.Parent!.Height == Pixels(48, targetScale),
+                $"{dpi} DPI 图片错误提示保留独立两行区域");
             var tabs = Field(panel, "_tabs");
             var tabCount = ((IEnumerable)Get(tabs, "Items")).Cast<object>().Count();
             for (var index = 0; index < tabCount; index++)

@@ -25,6 +25,7 @@ Namespace videoenhancer
         Private ReadOnly _btnImageOutput As New ModernButton()
         Private ReadOnly _btnImageStart As New ModernButton()
         Private ReadOnly _btnImageClear As New ModernButton()
+        Private ReadOnly _btnImageErrorDetails As New ModernButton()
         Private ReadOnly _switchImageOriginal As New LakeUI.BooleanSwitch()
         Private ReadOnly _switchImagePng As New LakeUI.BooleanSwitch()
         Private ReadOnly _txtImageOutput As New ModernTextBox()
@@ -41,7 +42,9 @@ Namespace videoenhancer
         Private _imageProcess As Process
         Private _imageRunning As Boolean
         Private _imageCompleteReceived As Boolean
-        Private Const ImageContentHeight As Integer = 272
+        Private _imageErrorDetails As String = ""
+        Private _imageErrorLogPath As String = ""
+        Private Const ImageContentHeight As Integer = 328
         ' ────────────────────────── 图片超分页 ──────────────────────────
 
         Private Sub BuildOfficialImagePage()
@@ -159,7 +162,7 @@ Namespace videoenhancer
             AddWorkbenchControl(root, _imageOutputScaleHint, 172, UiFieldHeight, 0.28F, 1.0F)
             SyncOutputScaleControls()
 
-            Dim progressRow As New ModernHorizontalPanel(-1.0F, 16.0F, 300.0F)
+            Dim progressRow As New ModernHorizontalPanel(-1.0F)
             _imageProgress.Minimum = 0
             _imageProgress.Maximum = 1000
             _imageProgress.Dock = DockStyle.Fill
@@ -178,8 +181,16 @@ Namespace videoenhancer
             _lblImageProgress.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             _lblImageProgress.Text = "<font color=#888888>等待开始</font>"
             progressRow.AddColumn(_imageProgress, 0)
-            progressRow.AddColumn(_lblImageProgress, 2)
             AddWorkbenchRow(root, progressRow, 232, 28)
+            Dim statusRow As New ModernHorizontalPanel(-1.0F, 12.0F, 128.0F)
+            statusRow.AddColumn(_lblImageProgress, 0)
+            ConfigureSecondaryButton(_btnImageErrorDetails)
+            _btnImageErrorDetails.Text = "查看错误详情"
+            _btnImageErrorDetails.Dock = DockStyle.Fill
+            _btnImageErrorDetails.Enabled = False
+            AddHandler _btnImageErrorDetails.Click, AddressOf OnImageErrorDetails
+            statusRow.AddColumn(_btnImageErrorDetails, 2)
+            AddWorkbenchRow(root, statusRow, 264, 48)
             _pageImage.Controls.Add(root)
             BindScrollableGpuBackgroundSources(root, ModernPanel1)
             SyncImageRootBounds()
@@ -318,6 +329,46 @@ Namespace videoenhancer
             _config.ImagePng = _cmbImageFormat.SelectedIndex <> 1
             _config.Save()
 
+            Dim psi = CreateImageStartInfo(outputPath)
+            _imageProcess = New Process With {.StartInfo = psi, .EnableRaisingEvents = True}
+            Dim errors As New StringBuilder()
+            AddHandler _imageProcess.OutputDataReceived, Sub(s, ev) If ev.Data IsNot Nothing Then HandleImageProgressLine(ev.Data)
+            AddHandler _imageProcess.ErrorDataReceived, Sub(s, ev) If ev.Data IsNot Nothing Then SyncLock errors : errors.AppendLine(ev.Data) : End SyncLock
+            _imageRunning = True
+            _imageCompleteReceived = False
+            _btnImageStart.Enabled = False
+            _btnImageErrorDetails.Enabled = False
+            _imageErrorDetails = ""
+            _imageProgress.Value = 0
+            _lblImageProgress.Text = "<font color=#D8D8D8>正在加载模型…</font>"
+            Try
+                _imageProcess.Start()
+                _imageProcess.BeginOutputReadLine()
+                _imageProcess.BeginErrorReadLine()
+                Task.Run(Sub()
+                    _imageProcess.WaitForExit()
+                    Dim code = _imageProcess.ExitCode
+                    Dim errorText As String
+                    SyncLock errors : errorText = errors.ToString() : End SyncLock
+                    If IsHandleCreated Then BeginInvoke(New Action(Sub()
+                        _imageRunning = False
+                        _btnImageStart.Enabled = True
+                        If code = 0 OrElse _imageCompleteReceived Then
+                            _imageProgress.Value = 1000
+                            _lblImageProgress.Text = "<font color=#96D2A0>处理完成</font>"
+                        Else
+                            SetImageFailure(errorText, code, psi)
+                        End If
+                    End Sub))
+                End Sub)
+            Catch ex As Exception
+                _imageRunning = False
+                _btnImageStart.Enabled = True
+                SetImageFailure(ex.ToString(), -1, psi)
+            End Try
+        End Sub
+
+        Private Function CreateImageStartInfo(outputPath As String) As ProcessStartInfo
             Dim args As New List(Of String)()
             For Each path In _imageFiles : args.Add("--image-input") : args.Add(path) : Next
             For Each path In _imageFolders : args.Add("--image-folder") : args.Add(path) : Next
@@ -339,44 +390,47 @@ Namespace videoenhancer
                 .FileName = _config.ExePath, .WorkingDirectory = Path.GetDirectoryName(_config.ExePath),
                 .UseShellExecute = False, .CreateNoWindow = True,
                 .RedirectStandardOutput = True, .RedirectStandardError = True,
-                .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8,
-                .Arguments = String.Join(" ", args.Select(Function(value) QuoteCommandArgument(value)))
+                .StandardOutputEncoding = Encoding.UTF8, .StandardErrorEncoding = Encoding.UTF8
             }
+            ' 逐参数交给系统转义，避免 Z:\ 或目录末尾反斜杠吞掉后续后端和模型参数。
+            For Each value In args : psi.ArgumentList.Add(value) : Next
             PortableRuntime.ConfigureProcess(psi)
-            _imageProcess = New Process With {.StartInfo = psi, .EnableRaisingEvents = True}
-            Dim errors As New StringBuilder()
-            AddHandler _imageProcess.OutputDataReceived, Sub(s, ev) If ev.Data IsNot Nothing Then HandleImageProgressLine(ev.Data)
-            AddHandler _imageProcess.ErrorDataReceived, Sub(s, ev) If ev.Data IsNot Nothing Then SyncLock errors : errors.AppendLine(ev.Data) : End SyncLock
-            _imageRunning = True
-            _imageCompleteReceived = False
-            _btnImageStart.Enabled = False
-            _imageProgress.Value = 0
-            _lblImageProgress.Text = "<font color=#D8D8D8>正在加载模型…</font>"
+            Return psi
+        End Function
+
+        Private Sub SetImageFailure(errorText As String, exitCode As Integer, startInfo As ProcessStartInfo)
+            Dim message = CliErrorMessage(errorText, "处理程序未返回详细原因，退出码 " & exitCode.ToString())
+            Dim summary = If(message.Length > 60, message.Substring(0, 60) & "…", message)
+            _lblImageProgress.Text = "<font color=#E07878>处理失败：" & EscapeHtml(summary) & "</font>"
+            _imageErrorDetails = "时间：" & DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") & Environment.NewLine &
+                "退出码：" & exitCode.ToString() & Environment.NewLine &
+                "程序：" & startInfo.FileName & Environment.NewLine &
+                "参数（每行一项）：" & Environment.NewLine & String.Join(Environment.NewLine, startInfo.ArgumentList) &
+                Environment.NewLine & Environment.NewLine & "完整错误输出：" & Environment.NewLine & errorText
+            _imageErrorLogPath = ""
             Try
-                _imageProcess.Start()
-                _imageProcess.BeginOutputReadLine()
-                _imageProcess.BeginErrorReadLine()
-                Task.Run(Sub()
-                    _imageProcess.WaitForExit()
-                    Dim code = _imageProcess.ExitCode
-                    Dim errorText As String
-                    SyncLock errors : errorText = errors.ToString() : End SyncLock
-                    If IsHandleCreated Then BeginInvoke(New Action(Sub()
-                        _imageRunning = False
-                        _btnImageStart.Enabled = True
-                        If code = 0 OrElse _imageCompleteReceived Then
-                            _imageProgress.Value = 1000
-                            _lblImageProgress.Text = "<font color=#96D2A0>处理完成</font>"
-                        Else
-                            _lblImageProgress.Text = "<font color=#E07878>处理失败：" & EscapeHtml(LastNonEmptyLine(errorText)) & "</font>"
-                        End If
-                    End Sub))
-                End Sub)
+                Dim folder = Path.Combine(PortableRuntime.ApplicationRoot, "logs")
+                Directory.CreateDirectory(folder)
+                Dim logPath = Path.Combine(folder, "image-last-error.txt")
+                File.WriteAllText(logPath, _imageErrorDetails, New UTF8Encoding(False))
+                _imageErrorLogPath = logPath
             Catch ex As Exception
-                _imageRunning = False
-                _btnImageStart.Enabled = True
-                _lblImageProgress.Text = "<font color=#E07878>启动失败：" & EscapeHtml(ex.Message) & "</font>"
+                _imageErrorDetails &= Environment.NewLine & "错误详情未能写入文件：" & ex.Message
             End Try
+            _btnImageErrorDetails.Enabled = True
+        End Sub
+
+        Private Sub OnImageErrorDetails(sender As Object, e As EventArgs)
+            If _imageErrorDetails.Length = 0 Then Return
+            If _imageErrorLogPath.Length > 0 Then
+                Try
+                    Process.Start(New ProcessStartInfo(_imageErrorLogPath) With {.UseShellExecute = True})
+                    Return
+                Catch ex As Exception
+                    Trace.WriteLine("[VideoEnhancer] 无法打开图片错误详情：" & ex.Message)
+                End Try
+            End If
+            ShowLakeInfo(Me, _imageErrorDetails, "图片超分错误详情")
         End Sub
 
         Private Sub HandleImageProgressLine(line As String)
@@ -401,11 +455,6 @@ Namespace videoenhancer
         Private Shared Function FormatDuration(seconds As Double) As String
             Dim value = TimeSpan.FromSeconds(Math.Max(0, seconds))
             Return value.ToString(If(value.TotalHours >= 1, "hh\:mm\:ss", "mm\:ss"))
-        End Function
-
-        Private Shared Function QuoteCommandArgument(value As String) As String
-            If value Is Nothing Then value = ""
-            Return """" & value.Replace(""""c, "\""") & """"
         End Function
 
     End Class

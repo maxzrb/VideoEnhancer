@@ -19,6 +19,11 @@ partial class Program
     [STAThread]
     static void Main(string[] args)
     {
+        if (args.FirstOrDefault() == "--echo-args")
+        {
+            Console.Write(System.Text.Json.JsonSerializer.Serialize(args.Skip(1).ToArray()));
+            return;
+        }
         var mode = args.FirstOrDefault(arg => arg.StartsWith("--", StringComparison.Ordinal));
         if (mode == "--dpi" || mode == "--scroll" || mode == "--appearance")
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
@@ -39,6 +44,11 @@ partial class Program
         var pluginPath = Path.Combine(directory, "videoenhancer.3fui.dll");
         File.Copy(Path.Combine(root, "VideoEnhancerPlugin/obj/plugin-artifact/videoenhancer.3fui.dll"), pluginPath, true);
         var assembly = Assembly.LoadFrom(pluginPath);
+        if (mode == "--image")
+        {
+            RunImageChecks(assembly);
+            return;
+        }
         if (mode == "--host-runtime")
         {
             RunHostRuntimeChecks(assembly);

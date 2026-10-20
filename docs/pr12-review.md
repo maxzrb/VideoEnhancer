@@ -2,7 +2,7 @@
 
 初审时间：2026-10-20 15:12，Codex。初审发现以下两项 P2。
 
-2026-10-20 15:24 复验：两项均已在 `dbf7e24` 修复，预览29项及当前主线组合回归通过；按用户授权完成本地合并，准备同步main并部署本机。以下发现保留初审头与复现历史，不再表示问题未修复。
+2026-10-20 15:24 复验：两项均已在 `dbf7e24` 修复，预览29项及当前主线组合回归通过；已按用户授权通过e6524b2合并推送main，GitHub PR12为MERGED，并完成本机备份安装。以下发现保留初审头与复现历史，不再表示问题未修复。
 
 - PR：https://github.com/maxzrb/VideoEnhancer/pull/12
 - 固定审核头：`c68cb935677cf6f09a01ff5b60572f7dcee1881f`，基线 `472d62f`。
@@ -63,3 +63,12 @@ FPS_FRESH_ENGINE|fps=24
 - 预览回归由25项扩为29项，包含真实超时恢复与两种中转参数形式。组合版图片参数/详情、DPI、宿主接口、18项倍率UI、110项打包与隔离安装、两宿主名安装回滚及六项原生FFmpeg转发通过。完整solution publish成功，固定依赖仍作SHA校验。
 - Program.cs冲突同时保留图片参数回读和预览夹具/引擎入口；两份记录逐会话校验保留双方历史。产品代码自动合并。
 - 用户现已授权修正后合并并安装本机；执行结果以后续STATUS最新记录为准。未授权新Release，因此版本仍1.3.13。
+
+
+## 2026-10-20 15:29 部署结果
+
+最终合并提交 `e6524b2` 已同步origin/main，包含原PR头与修正提交 `dbf7e24`，PR12回读MERGED。保持1.3.13本地测试版，不创建Release或修改发行标签。
+
+从合并提交重新完整publish后，内部安装载荷部署到 `C:/Program portable/3FUI/3FUI`；45文件与最终ZIP逐项SHA相同，5项配置/独立组件保护hash保持，157个模型文件清单及大小/修改时间保持，安装EXE --version=1.3.13，FFF真实API=11。旧目标文件逐项备份在 `C:\Codex Program\3fui plugin\Artifacts\local-test-20261020\backup-20261020-152721`。没有启动宿主或代替用户作实际可视验收。
+
+安装CLI SHA256：`0d0678700e742c9cbc4a95670798dbab303dbb89e33953b48e015161d25ac985`；插件DLL SHA256：`9ca2c588ab46b5d77e083d8f60f606a3a106dba3349b66aeaef96b5bab449bf4`。完整证据为项目忽略目录 `Artifacts/local-test-20261020/local-deployment.json`，临时依赖服务已关闭。

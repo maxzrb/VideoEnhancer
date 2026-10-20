@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-10-20 15:24
+Last updated: 2026-10-20 15:29
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-10-20 15:29：**PR12修正、远端合并及本机完整安装已完成。** dbf7e24修复两项P2，e6524b2合入main并普通推送，PR12回读MERGED。完整最终publish及组合门禁通过；本机C:/Program portable/3FUI/3FUI已安装本地测试版1.3.13，45文件与最终ZIP逐项SHA一致，5项配置/独立组件hash及157模型文件清单/元数据保持，CLI版本与FFF API11通过。备份 `C:\Codex Program\3fui plugin\Artifacts\local-test-20261020\backup-20261020-152721`；证据Artifacts/local-test-20261020/local-deployment.json。未启动宿主，等用户重开实际测试；无新Release/标签/版本变动。收尾记录提交推送后核对干净工作树。
 
 - 2026-10-20 15:24：用户明确授权“修正后合并，然后安装本机3FUI测试”。PR12两项P2已提交dbf7e24并本地合入main，29项预览及图片/多DPI/宿主/18倍率UI/110打包隔离安装/两宿主名安装回滚/六项原生FFmpeg转发均通过，完整publish成功。测试入口及两份记录冲突保留双方历史解决。准备保存合并提交、普通推送以合并远端PR并部署本机；无新Release，1.3.13保持。
 
@@ -142,7 +144,8 @@ Updated by: Codex
 - [x] PR12两项P2已在dbf7e24修复；29项预览与组合门禁通过，测试入口/双方记录完整保留。远端合并与本机部署执行见最新会话。
 
 - [x] 图片超分盘符根目录/末尾反斜杠参数吞并：改ArgumentList，真实进程回读保留ONNX后端/模型；错误正文和完整详情入口及DPI布局通过。
-- [ ] 后续分发前完整重打包含图片修复的CLI内嵌插件/安装器/ZIP；反馈者实机重试ONNX图片任务，当前可临时使用不带末尾反斜杠的子目录。
+- [x] 含图片修复及PR12修正的CLI内嵌插件/安装器/ZIP已完整重打并本机部署。
+- [ ] 用户重开本机3FUI验收图片盘符根目录、错误详情及实时预览；第三方反馈者实际ONNX图片任务仍待复验。
 
 - [x] 安装/自更新兼容 FFmpegFreeUI.x64.exe；文件选择器、提示/说明和定向安装回滚通过。
 - [x] 原生 FFmpeg 工具命令转发与停用/冷启动插件路径清理；真实滤镜查询、PSNR/SSIM和标准流/退出码验证通过。
@@ -234,6 +237,8 @@ Updated by: Codex
 
 ## Environment Notes
 
+- 2026-10-20 15:29当前本机3FUI6.2.38路径C:/Program portable/3FUI/3FUI；已安装合并e6524b2对应1.3.13本地测试版，CLI SHA256=0d0678700e742c9cbc4a95670798dbab303dbb89e33953b48e015161d25ac985，插件DLL SHA256=9ca2c588ab46b5d77e083d8f60f606a3a106dba3349b66aeaef96b5bab449bf4。备份 `C:\Codex Program\3fui plugin\Artifacts\local-test-20261020\backup-20261020-152721`；配置/独立组件5项与模型157文件保持，FFF API11验证；本条优先于旧正式发行hash。
+
 - 2026-10-06 20:36当前maxzr设备/工作区C:/Codex Program/3fui plugin；正式安装C:/Program portable/3FUI/3FUI已为1.3.13，完整载荷补齐FFF独立DLL且保护项hash保持。备份C:\Codex Program\3fui plugin\Artifacts\.refactor-tmp\backup-before-release-1.3.13-20261006-203252；所有发布检查临时目录设在项目Artifacts/release-1.3.13/temp。本条优先于以下历史设备/安装记录。
 
 - 2026-10-05 17:55：当前 Steve/Windows11、SDK10.0.401/runtime10.0.12；官方便携 Python3.12.10 在忽略目录 Artifacts/python-tests。生成 .NET 许可在 cli/obj，清除本轮误写源码目录的三个生成文件。没有沿用旧机器宿主/GPU路径。
@@ -291,6 +296,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-10-20 15:29：main合并提交e6524b2已普通推送origin，包含PR12原头c68cb93和修正dbf7e24；GitHub PR12状态MERGED。无force/tag/Release。仅本次收尾记录待单独提交推送，最终核对远端HEAD及工作树；本机备份/安装产物留项目忽略目录。
 
 - 2026-10-20 15:12：main已提交d7441ae、99ed3d9，origin/main仍472d62f，未推送；启动pull已最新。PR12 fetch到origin/pr-12-review=c68cb93，项目Artifacts/pr12-review detached工作树干净。本轮审核报告/STATUS/中文进度将单独提交，最终核对主工作树干净；不实际合并PR。
 
@@ -943,3 +950,13 @@ git diff --check
 - main执行git merge --no-ff --no-commit修正分支；产品代码自动合并，Program.cs两处冲突完整保留image/echo及previewfixture/preview-engine入口；STATUS和中文进度冲突保留双方并按时间排列会话。冲突原始字节存Artifacts/pr12-merge-conflicts，逐会话对比索引两侧原文均保留。
 - 组合版完整solution publish成功；复用项目内localhost提供已校验aria2缓存，生产URL不改。图片参数/详情、DPI96/120/144/192往返、HostRuntime、18倍率UI、29预览、110项第三方打包/隔离安装/API11、两种宿主名安装/回滚及六项真实FFmpeg转发通过。产物/日志Artifacts/local-test-20261020。没有长视频或GPU测速。
 - 更新审核报告，将原发现标为已修复但保留初审证据。准备保存带PR完整祖先的merge提交、普通push origin main使远端PR合并，再重建最终载荷并备份覆盖本机。版本1.3.13不变，配置/模型/独立组件须核对保护，最终安装与远端SHA结果后续追加。
+
+
+### 2026-10-20 15:29 Codex：PR12远端合并、本机安装及收尾
+
+- main以e6524b2保存非快进合并，保留PR12完整祖先及dbf7e24修正；git push origin main成功472d62f→e6524b2，gh回读PR12 MERGED（mergedAt2026-10-20T07:24:12Z）。此前两组d7441ae/99ed3d9及审核记录也随main同步，无force或新版本Release。
+- 从合并提交再次完整publish至Artifacts/local-test-20261020，确保最终载荷来自合并源码；生产下载源保持，项目localhost缓存仍经固定SHA校验。此前组合29预览、图片参数/详情、多DPI、宿主/18倍率UI、110打包/隔离安装/API11、安装两名/回滚、六FFmpeg转发全部通过；最终重建只改变提交元数据，部署逐文件核对最终ZIP，不宣称完整宿主实际运行或新长视频测试。
+- 部署前再次确认无宿主/增强任务，不结束任何用户程序；对45个载荷目标中既有文件逐项备份并hash验证至 `C:\Codex Program\3fui plugin\Artifacts\local-test-20261020\backup-20261020-152721`。使用最终内部便携载荷--install-folder/--quiet/--skip-legacy-cleanup安装，保留现有事务回滚且不跑旧文件清理。未写Settings或插件配置/用户清单/模型/Python/RTX目录。
+- 实际安装45文件逐项SHA与最终手动ZIP一致；5个存在保护文件hash前后相同；157个模型文件相对路径/长度/mtime_ns清单完全相同，不对整个权重做无必要hash。aria2/7zip在部署前与载荷相同；配置保持。CLI --version=1.3.13，ctypes按插件同样加载标志调用FFF3FP_GetApiVersion=11。CLI hash 0d0678700e742c9cbc4a95670798dbab303dbb89e33953b48e015161d25ac985；DLL hash 9ca2c588ab46b5d77e083d8f60f606a3a106dba3349b66aeaef96b5bab449bf4。完整证据local-deployment.json及deploy-local.py保存在忽略目录。
+- 没有启动3FUI，由用户重开验收。旧文件可由项目内备份恢复；无已发布标签或资产变动，仍是1.3.13本地测试版。VMAF模型自动枚举、ARM架构识别建议及旧低显存问题均不因此关闭。临时localhost依赖服务已关闭。
+- 更新PR12报告结论、STATUS当前快照/环境/TODO/Git和中文进度；不改版本迭代记录。随后提交并普通推送收尾记录，核对远端HEAD与本地一致、主工作树及修正worktree干净。工作已保存，无需用户额外提交本轮内容；继续或切换工具/设备前可确认Git状态。

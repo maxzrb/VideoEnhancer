@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-10-20 14:55
+Last updated: 2026-10-20 15:12
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-10-20 15:12：按用户授权已分两提交保存前述修复：d7441ae（x64宿主名/自更新/原生工具兼容）、99ed3d9（图片参数转义/错误详情）。PR12固定头c68cb93审核完成：普通构建0警告0错误，25预览/18倍率UI/宿主/双LakeUI实际GPU换图通过；独立探针确认两项P2：超时帧率0永久缓存、CLI中转末尾工具路径误作输出，建议先修再合并。报告 [PR12审核](../pr12-review.md)。与当前main有Program.cs测试入口及两份记录冲突，产品代码自动合并；未实际合并/推送/发布/部署。审核记录将单独提交保存，最后核对干净工作树。
 
 - 2026-10-20 14:55：图片超分截图已定位并复现：手工引用 `Z:\` 等末尾反斜杠目录吞掉后续ONNX后端/模型参数，CLI退回默认NCNN报模型缺失，并非简单未下载。图片启动改为ArgumentList逐参数传递；主错误优先展示、进度/状态分行、详情按钮及完整UTF8错误日志已补。插件Release构建0警告0错误，真实子进程参数回读/错误详情/600与1100宽布局及96/120/144/192DPI往返通过。未跑真实ONNX推理或在反馈者设备验收，未部署/发布，1.3.13保持；本轮只重建插件DLL，先前候选EXE/ZIP/安装器尚未包含图片修复，后续分发前须完整重打包。
 
@@ -124,6 +126,10 @@ Updated by: Codex
 - 保留现有 WiX Burn 6.0.2 窗口；链仅含 Permanent EXE，Cache=remove，默认 Burn 日志关闭，/log 诊断保留。实测正常成功/正常失败后无本次载荷缓存、Bundle 缓存、临时卸载和依赖登记。不是 MSI；旧缓存及异常强杀/断电、Windows 自身记录不保证清零。
 
 ## Active TODO
+
+- [x] 用户授权提交前述两组修复：d7441ae、99ed3d9，本地已保存，尚未推送。
+- [x] PR12固定c68cb93审核完成，报告docs/pr12-review.md；25预览/18倍率UI/宿主接口/双LakeUI渲染通过。
+- [ ] PR12合并前修复：探测超时不能永久缓存帧率0；CLI中转命令不能误取末尾ffprobe工具路径作视频输出。后续合并保留Program.cs两种测试入口和双方进度记录。
 
 - [x] 图片超分盘符根目录/末尾反斜杠参数吞并：改ArgumentList，真实进程回读保留ONNX后端/模型；错误正文和完整详情入口及DPI布局通过。
 - [ ] 后续分发前完整重打包含图片修复的CLI内嵌插件/安装器/ZIP；反馈者实机重试ONNX图片任务，当前可临时使用不带末尾反斜杠的子目录。
@@ -275,6 +281,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-10-20 15:12：main已提交d7441ae、99ed3d9，origin/main仍472d62f，未推送；启动pull已最新。PR12 fetch到origin/pr-12-review=c68cb93，项目Artifacts/pr12-review detached工作树干净。本轮审核报告/STATUS/中文进度将单独提交，最终核对主工作树干净；不实际合并PR。
 
 - 2026-10-20 13:13：启动 `git pull --ff-only` 已最新，main=origin/main=472d62f；本轮源码/测试/文档均未提交，工作树非干净。未 push、建标签、远端发行或覆盖正式安装；版本保持已发布 1.3.13，本地产物属于候选。建议继续或切换设备前考虑 Git 提交。
 
@@ -871,3 +879,14 @@ git diff --check
 - 新增cli/tests/ModelMetadataUi/Program.Image.cs，Program.cs增加--image与--echo-args探针；真实子进程验证Z:\及UNC末尾反斜杠、中文空格输入目录逐项无损、ONNX与模型独立；错误摘要不再取末行用法提示，详情保留原文，600/1100宽度布局通过。首次探针有可空注解警告，改为既有项目风格后复验无警告。Program.DpiLayout.cs更新图片内容高度并检查错误行缩放。
 - 验证：dotnet build VideoEnhancerPlugin/VideoEnhancerPlugin.vbproj -c Release -p:PluginInstallDir=通过0警告0错误；ModelMetadataUi --image与--dpi通过，DPI覆盖本机144启动及96/120/144/192往返与既有窗口边界。git diff --check、图片页UTF8/BOM保持及无替换字符检查通过。日志Artifacts/host-compat-20261020/image-build.log、image-test.log、image-dpi-test.log。未做GPU/ONNX真实增强，不宣称原设备全流程已验收。
 - 更新STATUS快照/TODO和中文进度，版本不变，不改版本迭代记录。仅插件DLL重建，早前Artifacts/host-compat-20261020候选安装器/EXE/ZIP未重新打包，不能作为含本轮修复的发布包。未部署、启动宿主、提交/推送/发布；工作树非干净，继续或切换工具/设备前建议考虑Git提交。
+
+
+### 2026-10-20 15:12 Codex：保存两组修复并审核PR12
+
+- 用户明确要求“提交以上两个修复，并审核pr12”。同工具续接，读取AGENTS/INDEX/STATUS并沿用HandShake；git pull --ff-only最新，保留前述全部源码/测试/记录。核对已有构建/定向验证日志、审查差异与git diff --check，不重复无关测试；ARM只记录建议，没有假装实现。
+- 分组显式暂存后提交：d7441ae fix: accept x64 host names and forward native ffmpeg tools（20项安装/更新/原生工具/对应说明与测试），99ed3d9 fix: preserve image job arguments and expose full error details（6项图片代码/测试及历次状态进度记录）。两提交后主工作树干净，main领先origin/main2，无推送或发行授权操作。
+- PR12=https://github.com/maxzrb/VideoEnhancer/pull/12已附本聊天；gh固定头c68cb935677cf6f09a01ff5b60572f7dcee1881f、基线472d62f，回读OPEN/CLEAN、检查空。应用管理worktree创建因尚未fetch的ref失败，没有成功创建；fetch PR到origin/pr-12-review后在项目Artifacts/pr12-review建detached工作树，始终保持产品/测试跟踪文件不改。
+- 普通Release插件构建0警告0错误，复用主项目已存在FFF缓存但仍执行固定SHA校验；没有使用作者DesignTimeBuild绕过。25预览基础回归、18倍率UI、HostRuntime测试通过；LakeUI5.110/5.112实际回调及GPU红→蓝表面读回均通过。证据Artifacts/pr12-review-*.log。未跑完整发行包/长片/实际3FUI用户任务或部署。
+- 独立审核探针确认2项P2：RunProbeAsync 2500ms超时空串被ProbeInputFpsAsync缓存为0，恢复工具后同引擎仍0且仅调用1次，新引擎24；ResolvePreviewOutput把合法CLI命令末尾--ffprobe-path的EXE当输出，真实宿主普通命令行任务也有当前步骤，造成回退原帧或关键帧无图。诊断首次因WinForms同步上下文未泵消息而挂起，终止自身诊断并清除该上下文后复验；不计作产品缺陷。源码/证据位于忽略目录Artifacts/pr12-audit-probe。
+- git merge-tree只读检查显示产品代码可自动合并，cli/tests/ModelMetadataUi/Program.cs与两份操作记录有冲突，尚未实际合并/组合运行。报告docs/pr12-review.md给出发现位置/复现/建议/验证边界，建议两项修正后合并。未向GitHub提交审核消息/评论/批准或修改PR。
+- 当前快照/TODO/Git及中文进度同步，本轮报告记录单独提交保存后核对干净工作树。版本仍1.3.13，无版本迭代记录变更，无push/tag/Release/正式安装修改。源码已保存，继续或切换工具/设备前建议核对Git提交与远端同步状态。

@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-10-20 15:29
+Last updated: 2026-10-20 15:41
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-10-20 15:41：用户明确授权发布1.3.14。启动main/origin/main=50be815且干净，v1.3.14标签/Release未存在；版本源与分类说明已同步1.3.14，旧1.3.13版本记录完整保留历史。按既有流程准备后端真实目录逐文件审计、必要发行门禁、五项GitHub资产与运行镜像；源码ZIP仅GitHub。VMAF枚举/ARM/旧低显存问题保留。
 
 - 2026-10-20 15:29：**PR12修正、远端合并及本机完整安装已完成。** dbf7e24修复两项P2，e6524b2合入main并普通推送，PR12回读MERGED。完整最终publish及组合门禁通过；本机C:/Program portable/3FUI/3FUI已安装本地测试版1.3.13，45文件与最终ZIP逐项SHA一致，5项配置/独立组件hash及157模型文件清单/元数据保持，CLI版本与FFF API11通过。备份 `C:\Codex Program\3fui plugin\Artifacts\local-test-20261020\backup-20261020-152721`；证据Artifacts/local-test-20261020/local-deployment.json。未启动宿主，等用户重开实际测试；无新Release/标签/版本变动。收尾记录提交推送后核对干净工作树。
 
@@ -960,3 +962,10 @@ git diff --check
 - 实际安装45文件逐项SHA与最终手动ZIP一致；5个存在保护文件hash前后相同；157个模型文件相对路径/长度/mtime_ns清单完全相同，不对整个权重做无必要hash。aria2/7zip在部署前与载荷相同；配置保持。CLI --version=1.3.13，ctypes按插件同样加载标志调用FFF3FP_GetApiVersion=11。CLI hash 0d0678700e742c9cbc4a95670798dbab303dbb89e33953b48e015161d25ac985；DLL hash 9ca2c588ab46b5d77e083d8f60f606a3a106dba3349b66aeaef96b5bab449bf4。完整证据local-deployment.json及deploy-local.py保存在忽略目录。
 - 没有启动3FUI，由用户重开验收。旧文件可由项目内备份恢复；无已发布标签或资产变动，仍是1.3.13本地测试版。VMAF模型自动枚举、ARM架构识别建议及旧低显存问题均不因此关闭。临时localhost依赖服务已关闭。
 - 更新PR12报告结论、STATUS当前快照/环境/TODO/Git和中文进度；不改版本迭代记录。随后提交并普通推送收尾记录，核对远端HEAD与本地一致、主工作树及修正worktree干净。工作已保存，无需用户额外提交本轮内容；继续或切换工具/设备前可确认Git状态。
+
+
+### 2026-10-20 15:41 Codex：准备1.3.14正式发行
+
+- 用户明确授权“发布1.3.14release”，覆盖仅本机试用限制；同工具续接，读取AGENTS/INDEX/STATUS及发布流程，git pull --ff-only最新、main50be815/工作树干净，v1.3.14不存在。凭据只通过工具状态核验，无明文token写入；pwsh7/.NET10.0.402/GitHub与ModelScope CLI可用。
+- 版本两项目同步1.3.14，分类Release Notes包含宿主名称、图片参数/详情、PR12及审核补修、原生工具转发，并明确VMAF枚举尚未解决；旧当前1.3.13完整移入版本历史。计划完成后端逐文件审计、完整publish/必要门禁，再冻结五资产、提交标签与发布双源运行/单GitHub源码，并验证远端哈希。
+- 不新增ARM实现，不改变模型/画质参数，不追加长片或GPU测速；后端是否重发以现场目录审计为准。当前记录/版本准备将先提交保存，正式发布仍未完成。

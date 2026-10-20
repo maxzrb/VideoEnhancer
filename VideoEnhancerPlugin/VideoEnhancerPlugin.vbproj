@@ -8,7 +8,7 @@
     <OutputType>Library</OutputType>
     <AssemblyName>videoenhancer</AssemblyName>
     <RootNamespace />
-    <Version>1.3.13</Version>
+    <Version>1.3.14</Version>
     <IsPublishable>false</IsPublishable>
   </PropertyGroup>
 

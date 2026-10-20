@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-10-20 15:12
+Last updated: 2026-10-20 15:24
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-10-20 15:24：用户明确授权“修正后合并，然后安装本机3FUI测试”。PR12两项P2已提交dbf7e24并本地合入main，29项预览及图片/多DPI/宿主/18倍率UI/110打包隔离安装/两宿主名安装回滚/六项原生FFmpeg转发均通过，完整publish成功。测试入口及两份记录冲突保留双方历史解决。准备保存合并提交、普通推送以合并远端PR并部署本机；无新Release，1.3.13保持。
 
 - 2026-10-20 15:12：按用户授权已分两提交保存前述修复：d7441ae（x64宿主名/自更新/原生工具兼容）、99ed3d9（图片参数转义/错误详情）。PR12固定头c68cb93审核完成：普通构建0警告0错误，25预览/18倍率UI/宿主/双LakeUI实际GPU换图通过；独立探针确认两项P2：超时帧率0永久缓存、CLI中转末尾工具路径误作输出，建议先修再合并。报告 [PR12审核](../pr12-review.md)。与当前main有Program.cs测试入口及两份记录冲突，产品代码自动合并；未实际合并/推送/发布/部署。审核记录将单独提交保存，最后核对干净工作树。
 
@@ -14,6 +16,14 @@ Updated by: Codex
 - 2026-10-20 13:53：同工具继续核查ARM问题；CLI RID=win-x64、Burn Platform=x64，FFF.Native.dll PE Machine实测0x8664。当前不能宣称兼容ARM64原生宿主。建议下一步安装器读取宿主EXE实际PE架构并对ARM64明确拒绝/提示，不能只加入arm64文件名；也不应仅因OS为ARM64就将x64仿真情形等同原生ARM宿主。用户本轮询问方案，尚未实施架构检测或完整ARM移植，无ARM设备运行验收。
 
 - 2026-10-20 13:13：新 Codex 会话，main/origin/main 472d62f 启动同步且干净。已修复首次下载 `FFmpegFreeUI.x64.exe` 被安装器/自更新器拒绝的问题，统一识别两种名称并同步提示。质量评测全局替代进程误收原生 FFmpeg 参数的冲突已补转发，已停用启动时清除本插件遗留路径。完整 publish、两种名称安装/x64自更新回滚、真实 FFmpeg 六项/宿主接口/既有七项通过；本地候选 1.3.13，未部署/发布/提交。第三方原反馈细节未知，**启用时内置 VMAF 模型扫描目标仍受全局替代路径影响，未解决**，不得宣称完整质量评测已恢复。详见 [排查说明](../host-install-quality-compatibility.md)。
+
+- 2026-10-16 21:54：**本轮完整修复已提交上游[PR #12](https://github.com/maxzrb/VideoEnhancer/pull/12)，OPEN、非草稿、可合并，未合并/发布/部署。**源码提交f29d0112b92a8572ddc3df8e61ec60123890ccfd，源user-Wing/VideoEnhancer-fork:fix/realtime-preview-20261016，目标maxzrb/VideoEnhancer:main，已附当前聊天；远端回读CLEAN、检查列表为空，不宣称CI通过。10项源码/测试/文档符合范围，版本仍1.3.13，未上传问题说明/媒体/二进制。收尾记录随同PR分支普通提交推送；已跟踪修复无其他未提交改动，用户videoenhancer pr.txt保留未跟踪，因此整个工作树并非完全干净，无需再次保存本轮源码。
+
+- 2026-10-16 21:53：用户授权将本轮完整实时预览修复提交maxzrb上游PR，取代之前不提交/推送限制；不授权合并、发行、部署或改版本。目标maxzrb/VideoEnhancer:main，源user-Wing/VideoEnhancer-fork:fix/realtime-preview-20261016，上游472d62f未变、当前无对应OPEN PR。提交前托管构建0警告0错误、25项预览基础回归、18项倍率UI及LakeUI5.112实际GPU换图重验；前轮5.110、真实4K原片和纯压制日志保留。只提交本轮10项源码/测试/文档，不纳入用户问题说明、媒体、提取宿主DLL及产物。版本仍1.3.13；准备普通提交和推送fork，不直接推origin/main。
+
+- 2026-10-16 21:42：**针对纯压制预览继续补修：音频/探测阶段等待视频，阶段/进程/时间回退及输出截断重置游标，使用当前步骤临时视频输出；失败关键帧保留重试。**已确认用户安装的是上轮修复DLL（4F40…），不能归咎旧版未替换。本轮新DLL CBDCE1173744CD436FA50007CB4840B2CA1EB4444C926D03E28D58D0AE1B93C1尚未部署。原安装DLL在新增音频阶段测试失败；修订版25项基础检查通过。用户OP原片为3840×2160/约48fps/AV1/yuv444p12le，3秒p6/CRF12禁音频纯压制144包/3.003秒成功，模拟音频→真实视频编码期间收到6张不同预览。原片四档也持续换图，但解码使实际间隔约1.26/1.32/4.01/6.12秒，不能宣称精确达到选项周期。原片8秒无损截段未封口写入可更新三个关键帧；两版LakeUI GPU表面读回确认实际插件回调红→蓝正常，没有修改LakeUI控件。真实安装宿主分步成员契约与18项倍率UI通过；完整宿主实际任务/全部用户预设可视验收仍待替换候选DLL后确认。版本1.3.13保持，普通发行构建FFF下载限制保持，未提交/推送/PR/发布/改安装或用户原视频；工作树非干净，建议确认后提交。
+
+- 2026-10-16 20:56：**本机源码已同步最新origin/main 472d62f（1.3.13），实时预览两项修复已完成本地回归，未安装/提交/推送/发布。**从最新上游建立fix/realtime-preview-20261016，旧分支和用户未跟踪videoenhancer pr.txt保留；PR11当前已MERGED，不再沿用旧OPEN状态。关键帧/输入帧率探测均异步、单航班、2500ms超时终止进程；关键帧改-read_intervals窗口包PTS/flags，不解码全量帧，独立记录探测大小，支持PTS0。定时模式按上次抽帧进度而非上一Tick判断、取消0.25秒内容门槛，调度100ms，切换模式/任务/隐藏/停止取消旧工作并拒绝旧画面。旧代码两项失败复现；新增慢探测/UI心跳/超时/去重/取消和真实媒体回归通过，0.5/1/2/3秒实测约0.53/1.10/2.08/3.04秒，未封口AV1/yuv444p12le样本持续显示多个新关键帧且写入进程正常完成。托管DLL构建0警告0错误；普通构建受FFF固定上游下载失败阻挡，使用DesignTimeBuild=true跳过依赖下载进行编译，不能称完整发行构建通过。38项Python、18项倍率UI、宿主契约和LakeUI5.110/5.112预览回调通过。现版本保持1.3.13，原GB级原片/实际3FUI可视交互仍需用户复验；建议提交保存本轮修复后再切换工具。
 
 - 2026-10-06 20:36：**1.3.13已正式发行并完成验收**：[GitHub Release](https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.3.13)五项正式资产，main/发行标签源码b97622a。四宫格三文件及按钮/窗体/回调/释放/专属DPI残留安全剥离，当前实时预览双LakeUI回调通过。完整对应源码合为一个独立ZIP仅GitHub；ModelScope仅本版三个运行附件与stable/说明，Models备用EXE同步，API列表确认无源码附件。10项远端实下载大小/SHA通过。完整安装载荷已安全部署本机，45文件与ZIP一致、FFF10DLL齐全，配置/用户模型/aria2/7zip/RTX保持，未启动宿主。后端2026.09.30.1无变化，不重发Python/模型/RTX。必要本地门禁通过，6GB/1080p/4x保存OOM及同条件历史速度差异仍保留。本条收尾记录待普通提交推送，最后核对干净工作树与远端SHA。
 
@@ -129,7 +139,7 @@ Updated by: Codex
 
 - [x] 用户授权提交前述两组修复：d7441ae、99ed3d9，本地已保存，尚未推送。
 - [x] PR12固定c68cb93审核完成，报告docs/pr12-review.md；25预览/18倍率UI/宿主接口/双LakeUI渲染通过。
-- [ ] PR12合并前修复：探测超时不能永久缓存帧率0；CLI中转命令不能误取末尾ffprobe工具路径作视频输出。后续合并保留Program.cs两种测试入口和双方进度记录。
+- [x] PR12两项P2已在dbf7e24修复；29项预览与组合门禁通过，测试入口/双方记录完整保留。远端合并与本机部署执行见最新会话。
 
 - [x] 图片超分盘符根目录/末尾反斜杠参数吞并：改ArgumentList，真实进程回读保留ONNX后端/模型；错误正文和完整详情入口及DPI布局通过。
 - [ ] 后续分发前完整重打包含图片修复的CLI内嵌插件/安装器/ZIP；反馈者实机重试ONNX图片任务，当前可临时使用不带末尾反斜杠的子目录。
@@ -850,6 +860,40 @@ git diff --check
 - 验证：Release build 0警告0错误、Python顺序9项、110项打包/隔离安装/API11、安装/更新/回滚/Burn、发布门禁、队列/组件状态/队列UI、宿主/滚动/主面板DPI及LakeUI5.110/5.112真实预览回调均通过。安装/Burn旧硬编码路径问题已修复并定向重跑；没有重复长GPU测速、没有承诺全部9FPS或修复既有低显存4x OOM，宿主可视交互仍待实际使用反馈。
 - 更新STATUS当前快照/TODO/环境/验证/Git及本条、追加中文进度、更新1.3.13版本发行与冻结资产记录。发行前git status干净、origin/main和tag均b97622a；本条为后续记录提交，普通推送后再次核对本地/远端SHA和干净状态，无需用户额外保存本轮文件。
 
+### 2026-10-16 20:56 Codex：同步最新源码并修复实时预览卡死与频率切换
+
+- 同工具跨日期续做，读取AGENTS/INDEX/STATUS、根README（根目录无project/changelog）及用户videoenhancer pr.txt。轻量记忆仅作旧PR/路径/边界定位，现场git/源码为准。旧分支git pull --ff-only已最新，但仅同步fork；git fetch origin取得472d62f/v1.3.13，gh回读PR11已于10月6日合并。新建fix/realtime-preview-20261016从origin/main开始，保留旧fix分支、备份和未跟踪说明文件，无reset/stash，不把用户说明纳入修改。
+- 根因复核：WinForms Tick同步ReadToEnd后才WaitForExit，原超时不能覆盖读管道，关键帧使用全文件-show_frames/skip_frame触发反复解码；输入帧率探测也存在同类同步读取。定时模式每Tick更新_lastProgressSeconds，慢速内容进度无法累计到0.25秒门槛；500ms调度抖动还可能将0.5秒请求延迟到1秒。
+- 先增加ModelMetadataUi --preview-engine/--preview-probe及独立进程工具夹具，未修复版本分别在0.5秒累计进度断言、关键帧Tick耗时断言失败，确认可复现。PreviewEngine改Async Tick并用_tickBusy防重入；stdout/stderr异步排空、WaitForExitAsync和2500ms linked token覆盖读取/等待，取消或超时结束进程树。关键帧按-lastProbePosition/当前进度构造有界-read_intervals，show_packets解析PTS/flags，未命中也记录探测大小；首个PTS0有效，不再遗失busy期间的关键帧目标。
+- 定时模式仅在StartExtract更新已抽帧大小/进度，1ms以上新内容进度即可触发，实际开始仍受所选0.5/1/2/3秒节流；轮询100ms避免500ms相位抖动。切换任务/频率/模式、隐藏和停止取消旧探测/抽帧，后台及UI回调均拒绝过期画面并释放图片；未更改控件几何、CLI、后端、模型、版本或用户预设。
+- 验证：慢探测时UI心跳继续、探测单航班、真实超时结束PID、文件无增长不重探、0秒首关键帧和新包标记更新、四类取消及慢抽帧不回灌均通过。真实ffmpeg动态样本实测四档约0.53/1.10/2.08/3.04秒、相邻画面PNG哈希不同；实时复制写入AV1/4:4:4 12-bit MKV时显示至少三个新关键帧，写入进程正常退出，覆盖未封口场景。样本Artifacts/preview-20261016，独立夹具TEMP/VideoEnhancer-preview-*；仅小样本，不冒充用户1.3GB原片和实际宿主可视验收。
+- 构建限制：上游AcquireFffNative固定下载请求失败，常规插件构建被依赖获取阻挡，没有擅自修订URL/哈希/许可。用-p:DesignTimeBuild=true --no-restore跳过原生获取，仅编译托管插件，0警告0错误；两版LakeUI实际插件回调、宿主运行契约、18项倍率UI及38项Python通过。未称完整安装/打包成功，也未覆盖安装目录或操作用户任务。
+- README、插件README、STATUS和中文进度同步；旧文件有混合换行，格式修整只保留未改行原换行，不全文件规范化。版本保持1.3.13，不更新版本迭代记录。工作树含本轮源码/回归/文档及用户原说明，未commit/push/创建PR/合并/发布，建议验证后考虑提交保存。
+- 20:59最终收尾：预览31项检查全部通过，最后一轮四档0.55/1.10/2.09/3.05秒；日志Artifacts/preview-20261016/preview-regression.log，最后夹具TEMP/VideoEnhancer-preview-760abf56cbf24bbb853d07c70536088e。混合换行保留后再次构建托管插件0警告0错误，日志同目录managed-build.log，最终DLL位于VideoEnhancerPlugin/obj/plugin-artifact/videoenhancer.3fui.dll，SHA256 4F40BDB91C96F0BF19F580003F58A2F089CB407F4B4C1BC127304C4C0AD0F3DD；git diff --check通过。无测试ffmpeg/ffprobe/ModelMetadataUi残留，不部署或推送；实际用户大文件与宿主可视复验仍保留。
+
+### 2026-10-16 21:42 Codex：音频先行、分步临时输出与关键帧重试补修
+
+- 同工具延续，已读取AGENTS/INDEX/STATUS及README相关说明；git pull --ff-only已最新，保留fix/realtime-preview-20261016全部先前修改和用户videoenhancer pr.txt。轻量记忆只用于验证边界。本机安装DLL SHA为4F40…，对应上轮候选，用户确实已替换；本轮不关闭/启动用户3FUI，不覆盖配置、安装或原视频。
+- PreviewEngine读取当前步骤显示名称/实际执行参数（尚未执行时回退步骤命令），识别-vn、音频和ffprobe阶段，明确等待视频，不把音频out_time当视频位置；当前进程/阶段/命令变化、时间回退或输出变小均取消旧工作并清空游标。视频抽帧优先使用当前步骤命令末尾的绝对输出路径，支持末尾-y/-n，不再只找尚未生成的最终封装文件。HostRuntime新增可选当前步骤访问，旧宿主缺少成员可回退。
+- 新关键帧先缓存，只有成功抽取且当前代UI回调有效时才提交已显示PTS；失败保留目标，文件大小不变也可按最小0.5秒重试；关键帧不回退到普通进度/原始输入冒充命中。避免关键包尚未写完整时一次失败后等整个长GOP。未修改PixelPreviewImage/PluginPanel显示路径、控件几何、CLI、模型、后端、编码预设和版本。
+- 回归：用可选VIDEOENHANCER_PREVIEW_PLUGIN直接测试用户当前安装DLL，新增音频阶段第一项断言失败；修订版25项基础检查全部通过，包括音频等待、实际临时输出、同任务时间回退、失败关键帧原地重试、阶段切换取消旧图和恢复，以及既有异步/超时/心跳/单航班/频率/隐藏/停止检查。Program.Preview.cs及Program/HostRuntime夹具扩展，不改宿主业务行为。
+- 用户给定OP.mkv实查943306349字节、3840×2160、7001/146fps、AV1/yuv444p12le，含FLAC和ASS。原片窗口包探测0/30/60秒各约0.09–0.10秒；真实媒体四档持续取得不同图，显示间隔1.26/1.32/4.01/6.12秒，复杂4K解码不保证按0.5/1/2/3秒精确呈现，测试上限按抽帧预算而非小图+1秒设置。8秒无损截段在重封装写入、未封口期间持续显示三个新关键帧，写入正常结束；该项是复制写入，不冒充重新编码。
+- 实际纯压制：原片5秒处取3秒内容，不超分，SVT-AV1 p6/CRF12/yuv444p12le/禁音频，enable-tf=0:enable-cdef=-1:lp=4，测试GOP48便于短段产生关键帧（不声称完全复用用户全部预设）。先模拟音频阶段80秒进度，再用真实FFmpeg -progress驱动视频阶段；最终封装路径始终不存在，144视频包/3.003秒正常完成，预览6帧且6个PNG哈希不同。输出位于TEMP/VideoEnhancer-preview-6cae4856360c41849b75c52b83b7136d/native-p6-video.mkv，编码日志同目录；原视频未修改。该项不是整段压制或实际3FUI宿主UI验收。
+- LakeUI绘制：computer-use技能已完整读取，但当前无node_repl运行工具，未做屏幕自动化；改用独立测试程序与真实WinForms消息循环读回LakeUI V5 GPU表面。DrawToBitmap不包含GPU表面，早期读回还因VB整数除法优先级误取边框像素，均纠正且移除诊断性强制重绘/篡改。最终测试只调用实际OnPreviewFrameReady，不额外刷新控件：5.110和5.112均从同尺寸红图绘制为蓝图，RGBA分别255/255/0/0和255/0/0/255。未因测试伪失败给产品追加Invalidate或改LakeUI。
+- 从本机FFmpegFreeUI.exe单文件包只提取托管程序集至忽略的Artifacts目录，宿主现有当前步骤/编码步骤显示名称/实际执行参数/命令行元数据契约通过；不运行宿主、不载入用户设置。18项倍率UI通过。托管插件DesignTimeBuild=true --no-restore构建0警告0错误，未重试/改造FFF下载和完整安装包；新DLL位于VideoEnhancerPlugin/obj/plugin-artifact/videoenhancer.3fui.dll，SHA256 CBDCE1173744CD436FA50007CB4840B2CA1EB4444C926D03E28D58D0AE1B93C1，安装DLL仍4F40…。
+- 证据集中Artifacts/preview-20261016：preview-phase-regression.log、preview-2160-followup.log、preview-native-encode.log、render-5110/5112.log、host-followup.log、managed-followup-build.log；媒体及提取DLL均忽略不提交。README与插件README更新音频等待/临时输出/关键帧重试，并纠正插件README把当前PixelPictureBox写成PictureBox的旧说明；STATUS与中文进度同步，版本保持1.3.13、不改版本迭代记录。实际宿主重新加载候选DLL后的可视复验待用户确认；无commit/push/PR/发行/部署，工作树非干净，建议确认后考虑提交。
+
+### 2026-10-16 21:53 Codex：准备提交实时预览修复上游PR
+
+- 用户明确授权把这一轮更新提交maxzrb仓库PR。读取AGENTS/INDEX/STATUS、README，沿用本轮源码，不追加产品改动；轻量记忆仅用于fork PR路径和验收边界。git pull --ff-only已最新，origin/main仍472d62f；远端OPEN列表为空，fork确认为user-Wing/VideoEnhancer-fork且parent为maxzrb/VideoEnhancer，同名远端分支尚未存在。
+- 重新执行托管插件build（DesignTimeBuild=true --no-restore）0警告0错误，25项预览基础回归、18项倍率UI及LakeUI5.112 GPU表面同尺寸红→蓝测试通过。前轮5.110 GPU/真实4K原片四档/3秒p6纯压制/未封口写入与宿主契约已有日志，本轮不重复长编码，不冒充实际3FUI全部预设可视验收。
+- 准备显式暂存README、PreviewEngine、HostRuntime、插件README、ModelMetadataUi三个测试文件、PixelPreview测试及STATUS/中文进度，共10文件；用户videoenhancer pr.txt保持未跟踪且不上传，Artifacts和媒体/安装产物不提交。PR说明按用户简洁中文偏好列变更、验证和限制，版本保持1.3.13。普通提交后只推fork修复分支，再创建目标main的普通PR；不推上游main、不合并/发布/部署。
+
+### 2026-10-16 21:54 Codex：实时预览修复PR #12已创建
+
+- 显式暂存10项本轮源码/测试/文档，git diff --cached --check通过；提交f29d0112b92a8572ddc3df8e61ec60123890ccfd，普通push -u fork fix/realtime-preview-20261016成功，未写origin/main。gh pr create目标maxzrb/VideoEnhancer:main、head为user-Wing:fix/realtime-preview-20261016，创建[PR #12](https://github.com/maxzrb/VideoEnhancer/pull/12)并attach_artifact附到当前聊天。
+- 回读标题“修复实时预览卡死、刷新频率及音频先行阶段同步”，state=OPEN、isDraft=false、mergeStateStatus=CLEAN、statusCheckRollup为空；远端文件清单恰为本轮10文件，无版本/媒体/二进制，不能把本地回归通过写成远端CI通过。PR正文使用简洁中文列修复、命令和验证边界，普通构建FFF依赖下载限制及实际宿主可视复验未被掩盖。
+- 本条和中文进度记录作为文档收尾提交，普通推送同一PR分支后再核对HEAD/远端SHA与状态。用户videoenhancer pr.txt仍未跟踪、不暂存、不上传；本轮修改已保存，不需要用户再次提交，整个工作树因该用户说明而非完全干净。版本1.3.13保持，不合并PR、不发布、不覆盖本机安装。
 
 ### 2026-10-20 13:13 Codex：宿主 x64 名称与质量评测兼容排查
 
@@ -890,3 +934,12 @@ git diff --check
 - 独立审核探针确认2项P2：RunProbeAsync 2500ms超时空串被ProbeInputFpsAsync缓存为0，恢复工具后同引擎仍0且仅调用1次，新引擎24；ResolvePreviewOutput把合法CLI命令末尾--ffprobe-path的EXE当输出，真实宿主普通命令行任务也有当前步骤，造成回退原帧或关键帧无图。诊断首次因WinForms同步上下文未泵消息而挂起，终止自身诊断并清除该上下文后复验；不计作产品缺陷。源码/证据位于忽略目录Artifacts/pr12-audit-probe。
 - git merge-tree只读检查显示产品代码可自动合并，cli/tests/ModelMetadataUi/Program.cs与两份操作记录有冲突，尚未实际合并/组合运行。报告docs/pr12-review.md给出发现位置/复现/建议/验证边界，建议两项修正后合并。未向GitHub提交审核消息/评论/批准或修改PR。
 - 当前快照/TODO/Git及中文进度同步，本轮报告记录单独提交保存后核对干净工作树。版本仍1.3.13，无版本迭代记录变更，无push/tag/Release/正式安装修改。源码已保存，继续或切换工具/设备前建议核对Git提交与远端同步状态。
+
+
+### 2026-10-20 15:24 Codex：修正PR12、组合验证并准备合并部署
+
+- 用户明确授权修正后合并并安装本机3FUI测试，覆盖前轮仅审核限制；不扩展为新版本发布。读取AGENTS/INDEX/STATUS，git pull --ff-only最新，main740fe15干净且领先origin3；PR12仍c68cb93/OPEN。本机3FUI6.2.38路径C:/Program portable/3FUI/3FUI可读，初查无宿主/增强任务进程。
+- 项目内Artifacts/pr12-review从固定头建立codex/pr12-preview-fixes，修正FPS失败不缓存0及中转命令输出路径，两项产品改动与四项回归提交dbf7e24。普通插件build0警告0错误，29项预览通过。
+- main执行git merge --no-ff --no-commit修正分支；产品代码自动合并，Program.cs两处冲突完整保留image/echo及previewfixture/preview-engine入口；STATUS和中文进度冲突保留双方并按时间排列会话。冲突原始字节存Artifacts/pr12-merge-conflicts，逐会话对比索引两侧原文均保留。
+- 组合版完整solution publish成功；复用项目内localhost提供已校验aria2缓存，生产URL不改。图片参数/详情、DPI96/120/144/192往返、HostRuntime、18倍率UI、29预览、110项第三方打包/隔离安装/API11、两种宿主名安装/回滚及六项真实FFmpeg转发通过。产物/日志Artifacts/local-test-20261020。没有长视频或GPU测速。
+- 更新审核报告，将原发现标为已修复但保留初审证据。准备保存带PR完整祖先的merge提交、普通push origin main使远端PR合并，再重建最终载荷并备份覆盖本机。版本1.3.13不变，配置/模型/独立组件须核对保护，最终安装与远端SHA结果后续追加。

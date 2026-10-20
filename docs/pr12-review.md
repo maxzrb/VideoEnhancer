@@ -1,6 +1,8 @@
 # PR #12 审核
 
-审核时间：2026-10-20 15:12，Codex。结论：建议先修复以下两项 P2 问题再合并。
+初审时间：2026-10-20 15:12，Codex。初审发现以下两项 P2。
+
+2026-10-20 15:24 复验：两项均已在 `dbf7e24` 修复，预览29项及当前主线组合回归通过；按用户授权完成本地合并，准备同步main并部署本机。以下发现保留初审头与复现历史，不再表示问题未修复。
 
 - PR：https://github.com/maxzrb/VideoEnhancer/pull/12
 - 固定审核头：`c68cb935677cf6f09a01ff5b60572f7dcee1881f`，基线 `472d62f`。
@@ -53,3 +55,11 @@ FPS_FRESH_ENGINE|fps=24
 `git merge-tree --write-tree HEAD origin/pr-12-review` 的只读合并检查显示：产品代码可自动合并；`cli/tests/ModelMetadataUi/Program.cs`、`docs/codex/STATUS.md`、`version/工作进度.md` 有冲突。后续合并需同时保留图片探针入口、PR预览夹具入口以及双方全部会话记录。未做实际合并或组合运行。
 
 本次仅完成本地审核报告，没有向GitHub提交评论/Approve/Request changes，没有合并PR、推送主线、创建标签或Release。原先VMAF模型自动枚举限制、ARM架构检测建议及低显存问题不属于本PR新增发现。
+
+
+## 修复与合并复验
+
+- `dbf7e24`：输入FPS只缓存正值；超时保持取消语义并允许下一轮恢复。对有当前步骤的CLI命令识别 `-ffmpeg-settings` / `--ffmpeg-settings=`，直接保留任务输出。
+- 预览回归由25项扩为29项，包含真实超时恢复与两种中转参数形式。组合版图片参数/详情、DPI、宿主接口、18项倍率UI、110项打包与隔离安装、两宿主名安装回滚及六项原生FFmpeg转发通过。完整solution publish成功，固定依赖仍作SHA校验。
+- Program.cs冲突同时保留图片参数回读和预览夹具/引擎入口；两份记录逐会话校验保留双方历史。产品代码自动合并。
+- 用户现已授权修正后合并并安装本机；执行结果以后续STATUS最新记录为准。未授权新Release，因此版本仍1.3.13。

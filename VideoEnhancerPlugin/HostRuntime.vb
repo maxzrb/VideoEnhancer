@@ -161,6 +161,17 @@ Namespace videoenhancer
             End Get
         End Property
 
+        Friend ReadOnly Property 当前步骤 As Object
+            Get
+                Try
+                    Return HostRuntime.ReadMember(Instance, "当前步骤")
+                Catch ex As MissingMemberException
+                    ' 兼容尚未公开分步任务的旧宿主。
+                    Return Nothing
+                End Try
+            End Get
+        End Property
+
         Friend Property 手动停止 As Boolean
             Get
                 Return HostRuntime.ReadValue(Of Boolean)(Instance, "手动停止")

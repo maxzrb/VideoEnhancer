@@ -8,6 +8,8 @@ Imports System.Linq
 Imports System.Text
 Imports System.Threading.Tasks
 Imports System.Windows.Forms
+Imports CancellationToken = System.Threading.CancellationToken
+Imports CancellationTokenSource = System.Threading.CancellationTokenSource
 
 Namespace videoenhancer
 
@@ -36,7 +38,8 @@ Namespace videoenhancer
 
         Private ReadOnly _config As PluginConfig
         Private ReadOnly _owner As Control
-        Private ReadOnly _timer As New Timer() With {.Interval = 500}
+        ' 调度精度高于最短切换间隔，避免500ms计时抖动把0.5秒选项拖成1秒。
+        Private ReadOnly _timer As New Timer() With {.Interval = 100}
         Private ReadOnly _lock As New Object()
         Private ReadOnly _timeEstimate As New Dictionary(Of String, TimeSample)(StringComparer.Ordinal)
         Private ReadOnly _inputFpsCache As New Dictionary(Of String, Double)(StringComparer.OrdinalIgnoreCase)
@@ -44,6 +47,8 @@ Namespace videoenhancer
         Private _running As Boolean = False
         Private _visible As Boolean = True
         Private _busy As Boolean = False
+        Private _tickBusy As Boolean = False
+        Private _workCancellation As New CancellationTokenSource()
         Private _intervalSeconds As Double = 1.0
         Private _keyframeMode As Boolean = False
         Private _ffmpeg As String = ""
@@ -56,15 +61,19 @@ Namespace videoenhancer
         Private _lastExtractAt As DateTime = DateTime.MinValue
         Private _lastExtractStartAt As DateTime = DateTime.MinValue
         Private _lastKeyframePts As Double = -1
+        Private _availableKeyframePts As Double = -1
+        Private _lastContext As String = ""
+        Private _lastObservedProgress As Double = -1
         Private _lastProbeAt As DateTime = DateTime.MinValue
+        Private _lastProbeSize As Long = -1
+        Private _lastProbePosition As Double = 0
         Private _lastExtractError As String = ""
         Private _lastExtractFailAt As DateTime = DateTime.MinValue
-        Private _pendingExtract As Boolean = False
 
-        ' 抽帧节流：输出至少增长 64KB 或进度前进 0.25 秒才值得抽一帧；
+        ' 抽帧节流：输出至少增长 64KB 或内容位置已有新进度才值得抽一帧；
         ' 两次抽帧开始之间至少间隔 max(0.5, 所选切换间隔) 秒，避免高帧率时进程风暴。
         Private Const MinSizeDelta As Long = 65536
-        Private Const MinProgressDelta As Double = 0.25
+        Private Const MinProgressDelta As Double = 0.001
 
         Private Structure TimeSample
             Public Wall As DateTime
@@ -77,6 +86,7 @@ Namespace videoenhancer
             Public Input As String
             Public SeekSeconds As Double      ' 关键帧模式的目标位置；<0 = 未指定
             Public ProgressSeconds As Double  ' 已知内容位置；<0 = 未知
+            Public Cancellation As CancellationToken
         End Structure
 
         Public Sub New(config As PluginConfig, owner As Control)
@@ -90,16 +100,17 @@ Namespace videoenhancer
                 Return _intervalSeconds
             End Get
             Set(value As Double)
-                If value > 0 Then
+                If value > 0 AndAlso (value <> _intervalSeconds OrElse _keyframeMode) Then
                     _intervalSeconds = value
                     _keyframeMode = False
+                    ResetTaskState()
                 End If
             End Set
         End Property
 
         Private ReadOnly Property MinExtractGap As Double
             Get
-                Return Math.Max(0.5, _intervalSeconds)
+                Return If(_keyframeMode, 0.5, Math.Max(0.5, _intervalSeconds))
             End Get
         End Property
 
@@ -110,7 +121,9 @@ Namespace videoenhancer
         End Property
 
         Public Sub SetKeyframeMode(enabled As Boolean)
+            If _keyframeMode = enabled Then Return
             _keyframeMode = enabled
+            ResetTaskState()
         End Sub
 
         ''' <summary>当前要预览的任务 ID；为空时自动选择队列最上面的执行中任务。</summary>
@@ -140,6 +153,7 @@ Namespace videoenhancer
                     End If
                 Else
                     _timer.Stop()
+                    ResetTaskState()
                 End If
             End Set
         End Property
@@ -157,12 +171,14 @@ Namespace videoenhancer
         Public Sub Stop_()
             _running = False
             _timer.Stop()
+            ResetTaskState()
         End Sub
 
         Public Sub Dispose() Implements IDisposable.Dispose
             Stop_()
             RemoveHandler _timer.Tick, AddressOf OnTick
             _timer.Dispose()
+            _workCancellation.Dispose()
         End Sub
 
         Private Sub RaiseStatus(text As String, isError As Boolean)
@@ -174,10 +190,11 @@ Namespace videoenhancer
             End Try
         End Sub
 
-        Private Sub OnTick(sender As Object, e As EventArgs)
-            If Not _running OrElse Not _visible Then
+        Private Async Sub OnTick(sender As Object, e As EventArgs)
+            If Not _running OrElse Not _visible OrElse _tickBusy Then
                 Return
             End If
+            _tickBusy = True
             Try
                 ResolveTools()
                 If _ffmpeg = "" Then
@@ -197,8 +214,23 @@ Namespace videoenhancer
                     _lastTaskId = task.ID
                     ResetTaskState()
                 End If
-
                 Dim tele = BackendProgress.GetTelemetry(task.ID)
+                Dim progress = task.进度
+                Dim progressSeconds = If(progress Is Nothing, 0, progress.当前时间.TotalSeconds)
+                Dim context As String = ""
+                Dim waitingForVideo As Boolean = False
+                Dim output = ResolvePreviewOutput(task, context, waitingForVideo)
+                If (_lastContext <> "" AndAlso _lastContext <> context) OrElse
+                   progressSeconds + MinProgressDelta < _lastObservedProgress Then
+                    ResetTaskState()
+                End If
+                _lastContext = context
+                _lastObservedProgress = progressSeconds
+                Dim cancellation = _workCancellation.Token
+                If waitingForVideo AndAlso (tele Is Nothing OrElse tele.Frame <= 0) Then
+                    RaiseStatus("当前步骤无视频帧（音频处理/媒体探测），等待视频编码开始…", False)
+                    Return
+                End If
                 Dim fps As Double = 0
                 Dim frame As Long = 0
                 Dim total As Long = 0
@@ -209,7 +241,8 @@ Namespace videoenhancer
                     total = tele.TotalFrames
                 ElseIf task.进度 IsNot Nothing AndAlso task.进度.当前时间 > TimeSpan.Zero Then
                     nativeMode = True
-                    Dim inputFps = ProbeInputFps(task.输入文件)
+                    Dim inputFps = Await ProbeInputFpsAsync(task.输入文件, cancellation)
+                    cancellation.ThrowIfCancellationRequested()
                     Dim speed = EstimateFpsByTime(task.ID, task.进度.当前时间.TotalSeconds)
                     fps = speed * inputFps
                     If inputFps > 0 Then
@@ -220,7 +253,6 @@ Namespace videoenhancer
                     End If
                 End If
 
-                Dim output = task.输出文件
                 Dim hasOutput As Boolean = Not String.IsNullOrWhiteSpace(output) AndAlso File.Exists(output)
                 Dim size As Long = 0
                 If hasOutput Then
@@ -230,13 +262,16 @@ Namespace videoenhancer
                         size = 0
                     End Try
                 End If
-                Dim progressSeconds As Double = 0
-                If task.进度 IsNot Nothing Then
-                    progressSeconds = task.进度.当前时间.TotalSeconds
+                If _lastExtractSize >= 0 AndAlso size < _lastExtractSize Then
+                    ResetTaskState()
+                    _lastContext = context
+                    _lastObservedProgress = progressSeconds
+                    cancellation = _workCancellation.Token
                 End If
                 ' CLI 中转任务没有 3FUI 原生 ffmpeg 进度：用遥测帧号 + 输入帧率换算内容位置
                 If progressSeconds <= 0 AndAlso frame > 0 Then
-                    Dim inputFps = ProbeInputFps(task.输入文件)
+                    Dim inputFps = Await ProbeInputFpsAsync(task.输入文件, cancellation)
+                    cancellation.ThrowIfCancellationRequested()
                     If inputFps > 0 Then
                         progressSeconds = frame / inputFps
                     End If
@@ -245,11 +280,18 @@ Namespace videoenhancer
                 Dim shouldSwitch As Boolean = False
                 Dim seekSeconds As Double = -1
                 If _keyframeMode Then
-                    shouldSwitch = CheckKeyframeProbe(output, size, seekSeconds)
+                    If Not _busy Then
+                        seekSeconds = Await CheckKeyframeProbeAsync(output, size, progressSeconds, cancellation)
+                        cancellation.ThrowIfCancellationRequested()
+                        _availableKeyframePts = Math.Max(_availableKeyframePts, seekSeconds)
+                        seekSeconds = _availableKeyframePts
+                        shouldSwitch = seekSeconds > _lastKeyframePts + 0.001 AndAlso
+                            (DateTime.UtcNow - _lastExtractStartAt).TotalSeconds >= MinExtractGap
+                    End If
                 Else
                     Dim elapsed = (DateTime.UtcNow - _lastExtractStartAt).TotalSeconds
                     If elapsed >= MinExtractGap Then
-                        ' 输出至少增长 64KB 或进度前进 0.25 秒才切换，避免高帧率下频繁抽帧
+                        ' 有新进度即可按所选间隔换帧，不额外等待慢速编码积累0.25秒内容。
                         Dim sizeChanged As Boolean = size - _lastExtractSize >= MinSizeDelta
                         Dim progressChanged As Boolean = progressSeconds - _lastProgressSeconds >= MinProgressDelta
                         If hasOutput Then
@@ -259,36 +301,73 @@ Namespace videoenhancer
                         End If
                     End If
                 End If
-                _lastProgressSeconds = progressSeconds
-
                 If shouldSwitch AndAlso Not _busy Then
-                    StartExtract(output, task.输入文件, seekSeconds, progressSeconds, size)
-                ElseIf shouldSwitch AndAlso _busy Then
-                    ' 抽帧进行中：记下待补一次，完成后用最新位置补一帧（合并突发，避免进程风暴）
-                    _pendingExtract = True
-                End If
-                ' busy 结束后只补一次最新帧（取最新进度）
-                If Not _busy AndAlso _pendingExtract AndAlso
-                   (DateTime.UtcNow - _lastExtractStartAt).TotalSeconds >= MinExtractGap Then
-                    _pendingExtract = False
                     StartExtract(output, task.输入文件, seekSeconds, progressSeconds, size)
                 End If
 
                 RaiseStatus(BuildStatusText(task, fps, frame, total, nativeMode), False)
+            Catch ex As OperationCanceledException
+                ' 切换任务、模式或隐藏预览后丢弃旧探测，不覆盖新状态。
             Catch ex As Exception
                 RaiseStatus("预览引擎异常：" & ex.Message, True)
+            Finally
+                _tickBusy = False
             End Try
         End Sub
 
         Private Sub ResetTaskState()
+            _workCancellation.Cancel()
+            _workCancellation.Dispose()
+            _workCancellation = New CancellationTokenSource()
             _lastExtractSize = -1
             _lastProgressSeconds = -1
             _lastExtractAt = DateTime.MinValue
             _lastExtractStartAt = DateTime.MinValue
             _lastKeyframePts = -1
+            _availableKeyframePts = -1
+            _lastContext = ""
+            _lastObservedProgress = -1
             _lastProbeAt = DateTime.MinValue
-            _pendingExtract = False
+            _lastProbeSize = -1
+            _lastProbePosition = 0
+            _lastExtractError = ""
+            _timeEstimate.Remove(_lastTaskId)
         End Sub
+
+        ''' <summary>分步编码时使用当前步骤的实际输出；音频进度不能当作视频时间。</summary>
+        Private Shared Function ResolvePreviewOutput(task As HostTask, ByRef context As String, ByRef waiting As Boolean) As String
+            Dim stepItem = task.当前步骤
+            Dim command = task.命令行
+            Dim stage = If(task.进度 Is Nothing, "", task.进度.当前阶段)
+            If stepItem IsNot Nothing Then
+                command = HostRuntime.ReadValue(Of String)(stepItem, "实际执行参数")
+                If String.IsNullOrWhiteSpace(command) Then command = HostRuntime.ReadValue(Of String)(stepItem, "命令行")
+                stage = HostRuntime.ReadValue(Of String)(stepItem, "显示名称")
+            End If
+            context = task.当前进程ID.ToString(CultureInfo.InvariantCulture) & "|" & stage & "|" & command
+            Dim tokens = CommandLineTokenizer.Tokenize(If(command, ""))
+            ' 宿主也为 CLI 中转创建当前步骤；其末尾可能是工具路径，不能当作视频输出。
+            Dim enhancerCommand = tokens.Any(Function(item)
+                                                 Dim optionName = item.Text.Split("="c)(0)
+                                                 Return optionName = "-ffmpeg-settings" OrElse optionName = "--ffmpeg-settings"
+                                             End Function)
+            If enhancerCommand Then
+                waiting = False
+                Return task.输出文件
+            End If
+            waiting = tokens.Any(Function(item) item.Text = "-vn") OrElse
+                stage.Contains("ffprobe", StringComparison.OrdinalIgnoreCase) OrElse
+                (stage.Contains("音频") AndAlso Not stage.Contains("视频"))
+            ' 无当前步骤的 CLI 中转仍按任务最终输出读取，不解析其 backend 参数。
+            If stepItem IsNot Nothing Then
+                Dim index = tokens.Count - 1
+                While index >= 0 AndAlso (tokens(index).Text = "-y" OrElse tokens(index).Text = "-n")
+                    index -= 1
+                End While
+                If index >= 0 AndAlso Path.IsPathRooted(tokens(index).Text) Then Return tokens(index).Text
+            End If
+            Return task.输出文件
+        End Function
 
         Private Sub ResetForIdle()
             If _lastTaskId <> "" Then
@@ -435,15 +514,17 @@ Namespace videoenhancer
             Return ts.ToString("mm\:ss", CultureInfo.InvariantCulture)
         End Function
 
-        ''' <summary>关键帧模式：ffprobe 列出输出文件关键帧 pts，命中新关键帧才切换。</summary>
-        Private Function CheckKeyframeProbe(output As String, size As Long, ByRef seekSeconds As Double) As Boolean
+        ''' <summary>异步解包有界时间窗口，不解码或全量扫描；独立记录探测大小，避免重复查询。</summary>
+        Private Async Function CheckKeyframeProbeAsync(output As String, size As Long, progressSeconds As Double,
+                                                       cancellation As CancellationToken) As Task(Of Double)
             If (DateTime.UtcNow - _lastProbeAt).TotalMilliseconds < 500 Then
-                Return False
+                Return -1
             End If
             _lastProbeAt = DateTime.UtcNow
-            If _ffprobe = "" OrElse String.IsNullOrWhiteSpace(output) OrElse Not File.Exists(output) OrElse size <= _lastExtractSize Then
-                Return False
+            If _ffprobe = "" OrElse String.IsNullOrWhiteSpace(output) OrElse Not File.Exists(output) OrElse size <= _lastProbeSize Then
+                Return -1
             End If
+            _lastProbeSize = size
             Dim maxPts As Double = -1
             Try
                 Dim psi As New ProcessStartInfo()
@@ -457,38 +538,67 @@ Namespace videoenhancer
                 psi.ArgumentList.Add("error")
                 psi.ArgumentList.Add("-select_streams")
                 psi.ArgumentList.Add("v:0")
-                psi.ArgumentList.Add("-skip_frame")
-                psi.ArgumentList.Add("nokey")
-                psi.ArgumentList.Add("-show_frames")
+                Dim start = Math.Max(_lastProbePosition, Math.Max(0, progressSeconds - 10))
+                Dim finish = Math.Max(start + 10, progressSeconds)
+                psi.ArgumentList.Add("-read_intervals")
+                psi.ArgumentList.Add(start.ToString("0.###", CultureInfo.InvariantCulture) & "%" & finish.ToString("0.###", CultureInfo.InvariantCulture))
+                psi.ArgumentList.Add("-show_packets")
                 psi.ArgumentList.Add("-show_entries")
-                psi.ArgumentList.Add("frame=pts_time")
+                psi.ArgumentList.Add("packet=pts_time,flags")
                 psi.ArgumentList.Add("-of")
                 psi.ArgumentList.Add("csv=p=0")
                 psi.ArgumentList.Add(output)
-                Using p = Process.Start(psi)
-                    If p Is Nothing Then
-                        Return False
-                    End If
-                    Dim text = p.StandardOutput.ReadToEnd()
-                    p.WaitForExit(10000)
-                    For Each line In text.Split(Convert.ToChar(10))
-                        Dim t As Double
-                        If Double.TryParse(line.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, t) Then
-                            If t > maxPts Then
-                                maxPts = t
-                            End If
+                Dim text = Await RunProbeAsync(psi, cancellation)
+                cancellation.ThrowIfCancellationRequested()
+                For Each line In text.Split(Convert.ToChar(10))
+                    Dim fields = line.Trim().Split(","c)
+                    Dim pts As Double
+                    If fields.Length >= 2 AndAlso Double.TryParse(fields(0), NumberStyles.Float, CultureInfo.InvariantCulture, pts) Then
+                        _lastProbePosition = Math.Max(_lastProbePosition, pts)
+                        If fields(1).Contains("K") AndAlso pts > maxPts Then
+                            maxPts = pts
                         End If
-                    Next
-                End Using
+                    End If
+                Next
+            Catch ex As OperationCanceledException
+                Throw
             Catch
-                Return False
+                Return -1
             End Try
             If maxPts > _lastKeyframePts + 0.001 Then
-                _lastKeyframePts = maxPts
-                seekSeconds = maxPts
-                Return True
+                Return maxPts
             End If
-            Return False
+            Return -1
+        End Function
+
+        ''' <summary>同时排空管道；超时与取消覆盖读取和进程等待，并结束残留探测进程。</summary>
+        Private Shared Async Function RunProbeAsync(psi As ProcessStartInfo, cancellation As CancellationToken) As Task(Of String)
+            cancellation.ThrowIfCancellationRequested()
+            PortableRuntime.ConfigureProcess(psi)
+            psi.RedirectStandardError = True
+            Using timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation)
+                timeout.CancelAfter(2500)
+                Using process As New Process() With {.StartInfo = psi}
+                    If Not process.Start() Then Return ""
+                    Try
+                        Dim output = process.StandardOutput.ReadToEndAsync(timeout.Token)
+                        Dim errors = process.StandardError.ReadToEndAsync(timeout.Token)
+                        Await process.WaitForExitAsync(timeout.Token).ConfigureAwait(False)
+                        Dim text = Await output.ConfigureAwait(False)
+                        Await errors.ConfigureAwait(False)
+                        cancellation.ThrowIfCancellationRequested()
+                        Return text
+                    Catch ex As OperationCanceledException
+                        Try
+                            process.Kill(entireProcessTree:=True)
+                            process.WaitForExit(1000)
+                        Catch
+                        End Try
+                        cancellation.ThrowIfCancellationRequested()
+                        Return ""
+                    End Try
+                End Using
+            End Using
         End Function
 
         ''' <summary>在后台线程开始一次抽帧；记录开始时间与文件大小，避免同一状态反复重试。</summary>
@@ -499,7 +609,8 @@ Namespace videoenhancer
                 .Output = output,
                 .Input = input,
                 .SeekSeconds = seekSeconds,
-                .ProgressSeconds = progressSeconds
+                .ProgressSeconds = progressSeconds,
+                .Cancellation = _workCancellation.Token
             }
             Try
                 System.Threading.Tasks.Task.Run(New Action(Sub() DoExtract(plan)))
@@ -508,10 +619,12 @@ Namespace videoenhancer
             End Try
             ' 无论成功与否都记录本次尝试时的文件大小，避免同一状态反复重试
             _lastExtractSize = size
+            _lastProgressSeconds = progressSeconds
         End Sub
 
         Private Sub DoExtract(plan As ExtractPlan)
             Try
+                plan.Cancellation.ThrowIfCancellationRequested()
                 Dim img As Image = Nothing
                 Dim errorText As String = ""
                 Try
@@ -520,11 +633,20 @@ Namespace videoenhancer
                     End If
                 Catch
                 End Try
-                If img Is Nothing Then
+                If plan.Cancellation.IsCancellationRequested Then
+                    If img IsNot Nothing Then img.Dispose()
+                    Return
+                End If
+                If img Is Nothing AndAlso plan.SeekSeconds < 0 Then
                     Try
                         img = ExtractFromInput(plan, errorText)
                     Catch
                     End Try
+                End If
+
+                If plan.Cancellation.IsCancellationRequested Then
+                    If img IsNot Nothing Then img.Dispose()
+                    Return
                 End If
 
                 SyncLock _lock
@@ -542,10 +664,12 @@ Namespace videoenhancer
                         If _owner IsNot Nothing AndAlso _owner.IsHandleCreated Then
                             Dim captured = img
                             _owner.BeginInvoke(New Action(Sub()
-                                If Not _running Then
+                                If Not _running OrElse Not _visible OrElse plan.Cancellation.IsCancellationRequested Then
                                     captured.Dispose()
                                     Return
                                 End If
+                                ' 已发现但尚未可解码的关键帧必须保留重试，不能提前消费。
+                                If plan.SeekSeconds >= 0 Then _lastKeyframePts = plan.SeekSeconds
                                 RaiseEvent FrameReady(Me, captured)
                             End Sub))
                         Else
@@ -568,11 +692,8 @@ Namespace videoenhancer
         ''' </summary>
         Private Function ExtractFromOutput(plan As ExtractPlan, ByRef errorText As String) As Image
             ' 关键帧模式：直接定位到目标关键帧
-            If plan.SeekSeconds > 0 Then
-                Dim img = ExtractAt(plan.Output, plan.SeekSeconds, errorText)
-                If img IsNot Nothing Then
-                    Return img
-                End If
+            If plan.SeekSeconds >= 0 Then
+                Return ExtractAt(plan.Output, plan.SeekSeconds, errorText, plan.Cancellation)
             End If
             ' 已知内容位置 → -ss 逐级回退（越靠前越容易读到已写完的数据）
             If plan.ProgressSeconds > 0 Then
@@ -582,14 +703,14 @@ Namespace videoenhancer
                     If t < 0 Then
                         t = 0
                     End If
-                    Dim img = ExtractAt(plan.Output, t, errorText)
+                    Dim img = ExtractAt(plan.Output, t, errorText, plan.Cancellation)
                     If img IsNot Nothing Then
                         Return img
                     End If
                 Next
             End If
             ' 位置未知 → 尝试读取文件末尾（文件已完整写入或容器头可读时有效）
-            Return ExtractOutputEof(plan.Output, errorText)
+            Return ExtractOutputEof(plan.Output, errorText, plan.Cancellation)
         End Function
 
         ''' <summary>输出文件不可读时回退输入文件（输入总是完整可读，显示当前处理的画面内容）。</summary>
@@ -599,7 +720,7 @@ Namespace videoenhancer
                 Return Nothing
             End If
             Dim t As Double = -1
-            If plan.SeekSeconds > 0 Then
+            If plan.SeekSeconds >= 0 Then
                 t = plan.SeekSeconds
             ElseIf plan.ProgressSeconds > 0 Then
                 t = plan.ProgressSeconds
@@ -607,16 +728,17 @@ Namespace videoenhancer
             If t < 0 Then
                 Return Nothing
             End If
-            Dim img = ExtractAt(input, t, errorText)
+            Dim img = ExtractAt(input, t, errorText, plan.Cancellation)
             If img Is Nothing AndAlso t > 0.5 Then
-                img = ExtractAt(input, t - 0.5, errorText)
+                img = ExtractAt(input, t - 0.5, errorText, plan.Cancellation)
             End If
             Return img
         End Function
 
         ''' <summary>ffmpeg -ss 定位抽帧（-ss 在 -i 之前，输入定位，速度快）。</summary>
-        Private Function ExtractAt(path As String, seconds As Double, ByRef errorText As String) As Image
+        Private Function ExtractAt(path As String, seconds As Double, ByRef errorText As String, cancellation As CancellationToken) As Image
             Try
+                cancellation.ThrowIfCancellationRequested()
                 Dim psi As New ProcessStartInfo()
                 psi.FileName = _ffmpeg
                 psi.UseShellExecute = False
@@ -639,15 +761,16 @@ Namespace videoenhancer
                 psi.ArgumentList.Add("-q:v")
                 psi.ArgumentList.Add("2")
                 psi.ArgumentList.Add("-")
-                Return RunCapture(psi, errorText)
+                Return RunCapture(psi, errorText, cancellation)
             Catch
                 Return Nothing
             End Try
         End Function
 
         ''' <summary>ffmpeg -sseof 读取文件末尾抽帧（仅对已完整/可定位文件可靠）。</summary>
-        Private Function ExtractOutputEof(path As String, ByRef errorText As String) As Image
+        Private Function ExtractOutputEof(path As String, ByRef errorText As String, cancellation As CancellationToken) As Image
             Try
+                cancellation.ThrowIfCancellationRequested()
                 Dim psi As New ProcessStartInfo()
                 psi.FileName = _ffmpeg
                 psi.UseShellExecute = False
@@ -670,14 +793,14 @@ Namespace videoenhancer
                 psi.ArgumentList.Add("-q:v")
                 psi.ArgumentList.Add("2")
                 psi.ArgumentList.Add("-")
-                Return RunCapture(psi, errorText)
+                Return RunCapture(psi, errorText, cancellation)
             Catch
                 Return Nothing
             End Try
         End Function
 
         ''' <summary>运行 ffmpeg 并抓取 stdout 的图像字节（mjpeg），超时强制结束，返回克隆位图；失败时带回错误提示。</summary>
-        Private Function RunCapture(psi As ProcessStartInfo, ByRef errorText As String) As Image
+        Private Function RunCapture(psi As ProcessStartInfo, ByRef errorText As String, cancellation As CancellationToken) As Image
             PortableRuntime.ConfigureProcess(psi)
             Using p As New Process()
                 p.StartInfo = psi
@@ -689,13 +812,15 @@ Namespace videoenhancer
                 Try
                     Dim copy = p.StandardOutput.BaseStream.CopyToAsync(ms)
                     Dim errTask = p.StandardError.ReadToEndAsync()
-                    Dim exited = p.WaitForExit(6000)
-                    If Not exited Then
-                        Try : p.Kill() : Catch : End Try
-                        Try : copy.Wait(1000) : Catch : End Try
-                        errorText = "抽帧超时"
-                        Return Nothing
-                    End If
+                    Dim elapsed = Stopwatch.StartNew()
+                    While Not p.WaitForExit(100)
+                        If cancellation.IsCancellationRequested OrElse elapsed.ElapsedMilliseconds >= 6000 Then
+                            Try : p.Kill(entireProcessTree:=True) : Catch : End Try
+                            Try : copy.Wait(1000) : Catch : End Try
+                            errorText = "抽帧超时或已取消"
+                            Return Nothing
+                        End If
+                    End While
                     Try : copy.Wait(1000) : Catch : End Try
                     If ms.Length <= 0 Then
                         Dim err = ""
@@ -752,7 +877,7 @@ Private Function EstimateFpsByTime(taskId As String, seconds As Double) As Doubl
         End Function
 
         ''' <summary>用 ffprobe 探测输入视频帧率（avg_frame_rate，num/den），结果缓存。</summary>
-        Private Function ProbeInputFps(inputPath As String) As Double
+        Private Async Function ProbeInputFpsAsync(inputPath As String, cancellation As CancellationToken) As Task(Of Double)
             If String.IsNullOrWhiteSpace(inputPath) Then
                 Return 0
             End If
@@ -779,23 +904,22 @@ Private Function EstimateFpsByTime(taskId As String, seconds As Double) As Doubl
                     psi.ArgumentList.Add("-of")
                     psi.ArgumentList.Add("default=noprint_wrappers=1:nokey=1")
                     psi.ArgumentList.Add(inputPath)
-                    Using p = Process.Start(psi)
-                        If p IsNot Nothing Then
-                            Dim text = p.StandardOutput.ReadToEnd()
-                            p.WaitForExit(8000)
-                            For Each line In text.Split(Convert.ToChar(10))
-                                Dim v = ParseRationalFps(line.Trim())
-                                If v > 0 Then
-                                    fps = v
-                                    Exit For
-                                End If
-                            Next
+                    Dim text = Await RunProbeAsync(psi, cancellation)
+                    cancellation.ThrowIfCancellationRequested()
+                    For Each line In text.Split(Convert.ToChar(10))
+                        Dim v = ParseRationalFps(line.Trim())
+                        If v > 0 Then
+                            fps = v
+                            Exit For
                         End If
-                    End Using
+                    Next
                 End If
+            Catch ex As OperationCanceledException
+                Throw
             Catch
             End Try
-            _inputFpsCache(inputPath) = fps
+            ' 超时或临时不可读不代表有效的零帧率，下一轮仍需允许恢复探测。
+            If fps > 0 Then _inputFpsCache(inputPath) = fps
             Return fps
         End Function
 

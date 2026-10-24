@@ -1181,6 +1181,31 @@ internal static class Program
         {
             return Fail("缺少必需参数：-ffmpeg-settings \"<FFmpeg 编码参数 + 输出路径>\"");
         }
+
+        // 在检查推理环境和构建 Engine 前确认最终编码，避免长时间推理后才发现编码器不兼容。
+        string customEncoder;
+        string outputFile;
+        bool overwrite;
+        try
+        {
+            (customEncoder, outputFile, overwrite) = SplitFfmpegSettings(o.FfmpegSettings);
+        }
+        catch (ArgumentException ex)
+        {
+            return Fail(ex.Message);
+        }
+        if (o.RtxHdr)
+        {
+            try { SelectRtxCodec(customEncoder, hdr: true); }
+            catch (InvalidOperationException ex) { return Fail(ex.Message); }
+        }
+        if (VideoEncodingDefaults.RequiresSvtY412(Tokenize(customEncoder)))
+        {
+            var encoderHelp = RunProcessCapture(FfmpegExe, new[] { "-hide_banner", "-h", "encoder=libsvtav1" }, 10);
+            if (!encoderHelp.Ok || !VideoEncodingDefaults.SupportsY412(encoderHelp.Output + "\n" + encoderHelp.Error))
+                return Fail("当前 FFmpeg 不支持 libsvtav1 / yuv444p12le，任务未开始。请使用支持 SVT 12-bit 4:4:4 的构建，或在 3FUI 中明确选择其他视频编码参数。FFmpeg：" + FfmpegExe);
+        }
+
         // 停止共享内存在此处就创建并持有（进程结束自动释放），插件点击“停止”时按名打开写入 1 即可触发
         var stopWatcher = o.HasStopShm ? new StopWatcher(o.StopShm) : null;
         var segmentedUpscale = !string.IsNullOrWhiteSpace(o.SegmentsBase64);
@@ -1328,19 +1353,6 @@ internal static class Program
             {
                 return Fail("-interp-factor 必须是大于 1 的数字，当前值：" + interpFactor);
             }
-        }
-
-        // 5. 拆分 ffmpeg-settings：最后一项为输出路径，其余为编码参数
-        string customEncoder;
-        string outputFile;
-        bool overwrite;
-        try
-        {
-            (customEncoder, outputFile, overwrite) = SplitFfmpegSettings(o.FfmpegSettings);
-        }
-        catch (ArgumentException ex)
-        {
-            return Fail(ex.Message);
         }
 
         outputFile = Path.GetFullPath(outputFile);
@@ -2724,6 +2736,11 @@ internal static class Program
             }
             cleaned.Add(tok);
         }
+        if (!VideoEncodingDefaults.HasVideoEncoder(cleaned))
+        {
+            cleaned.AddRange(Tokenize(VideoEncodingDefaults.Arguments));
+            Console.Error.WriteLine("[编码兜底] 未指定视频编码器，使用 SVT y412 超分预设（p6 / CRF12 / yuv444p12le）；不支持的 FFmpeg 将直接报错。");
+        }
         var custom = string.Join(" ", cleaned);
 
         foreach (var t in cleaned)
@@ -2733,12 +2750,6 @@ internal static class Program
                 Console.Error.WriteLine(
                     "[警告] 参数 \"" + t + "\" 含空格；rve-backend 按空白拆分编码参数，可能导致该参数失效");
             }
-        }
-
-        if (custom.Length == 0)
-        {
-            throw new ArgumentException(
-                "-ffmpeg-settings 除输出路径外还需包含编码参数，例如：-c:v libx264 -crf 18 \"输出.mkv\"");
         }
 
         return (custom, output, overwrite);

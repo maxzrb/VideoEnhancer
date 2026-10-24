@@ -121,6 +121,12 @@ Namespace videoenhancer
         Private Const UiCornerRadius As Integer = 6
 
         Private ReadOnly _config As PluginConfig
+        Friend ReadOnly Property Configuration As PluginConfig
+            Get
+                Return _config
+            End Get
+        End Property
+
         Private _uiReady As Boolean = False
         ' ── 选项卡分栏：超分主界面 / 实时预览 / 高级功能 / 模型转换器 ──
         Private ReadOnly _tabs As New ModernTabControl()

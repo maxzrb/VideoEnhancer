@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-02 19:55
+Last updated: 2026-11-02 19:57
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-02 19:57：**PR13/14/15均已远端MERGED，补修及组合测试完成。** 普通push main将a4f4bf0更新至1e9e2ed，GitHub回读三PR merged=true/closed（北京时间19:57:13），两项P2补修7b0ea06/0422327均在主线；产品合并提交2edcfb1。完整publish、打包/安装/回滚/Burn和宿主/预览/转换回归、真实两帧ONNX-TRT-RVE-FFmpeg及缓存复用、手动约束图对齐、VMAF24项恢复均通过，详见[报告](../pr13-pr15-review.md)。收尾仅文档补记后普通提交推送并核对干净工作树。版本仍1.3.14；没有覆盖本机正式安装、发布新版本或全模型/长视频压力验收。
 
 - 2026-11-02 19:55：**PR13/14/15补修、本地安全合并及组合测试已完成。** PR13数字第0路编码保护7b0ea06；PR15目录协议输出inputMultiple并传入手动ONNX转换0422327。三次无冲突merge3c2fb3f/4a50f0b/2edcfb1保留完整PR祖先。完整publish、110打包/API11/隔离安装、22模型/HDR、转换/宿主/图片/预览与安装/自更新/Burn均通过；实际宿主6.2.43恢复24模型项并保留AUTO。实际SPANF3两帧96x64→192x128、二次复用已验证缓存；手动无metadata约束图经真实CLI目录取得16倍数，1920x1080→1920x1088构建序列化成功。原设备安装/后端/模型未改，未发布，版本仍1.3.14；准备普通push并回读三个PR合并状态，见报告及最新会话。
 
@@ -149,8 +151,8 @@ Updated by: Codex
 
 ## Active TODO
 
-- [x] PR13：7b0ea06修正数字第0路编码器识别，真实FFmpeg保持FFV1，音频单独指定/末项覆盖回归通过；已本地合并。
-- [x] PR15：0422327将统一目录能力的inputMultiple传入手动转换，内置/用户/旧协议/真实子进程及1920x1088 GPU构建通过；已本地合并。
+- [x] PR13：7b0ea06修正数字第0路编码器识别，真实FFmpeg保持FFV1，音频单独指定/末项覆盖回归通过；已随main推送，远端PR13回读MERGED。
+- [x] PR15：0422327将统一目录能力的inputMultiple传入手动转换，内置/用户/旧协议/真实子进程及1920x1088 GPU构建通过；已随main推送，远端PR15回读MERGED。
 - [x] 审查PR13/14/15固定头，报告docs/pr13-pr15-review.md；PR14实际宿主6.2.43模型补全入口及既有24项HostRuntime通过。旧VMAF待办在合并部署前继续保留。
 
 - [x] 正式发布1.3.14：源码/标签、五项GitHub资产、运行镜像、远端十项hash、双源故障回退分支隔离检查与本机正式升级完成。
@@ -318,6 +320,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-11-02 19:57：普通git push origin main成功a4f4bf0→1e9e2ed；GitHub连接器回读PR13/14/15均closed、merged=true，mergedAt=2026-11-02T11:57:13Z。HEAD/origin/main/ls-remote三者均1e9e2ed且主工作树干净；两个补修worktree亦干净。自产品2edcfb1之后仅三份操作文档变化，验证产物仍对应产品源码。此条远端确认另作收尾文档提交推送，最终核对本地/远端一致；无需用户重复提交已保存工作。
 
 - 2026-11-02 19:55：上轮审查记录b625fd8已保存；补修7b0ea06/0422327及三个merge本地完成，产品合并HEAD=2edcfb129945b948ddfcd2d5962f4dd2c5533972。推送前fetch确认origin/main仍a4f4bf0、PR13/14/15头仍ea56d0b/22f0540/9cefb61，无新增上游差异。测试均通过，准备保存本条及报告后普通推送主线；无force或fork分支改写。
 
@@ -1031,3 +1035,10 @@ git diff --check
 - 手动GPU：用无metadata且要求16倍数的小ONNX图放入隔离目录对应内置能力项，从合并EXE实际JSON目录读取16，经合并DLL真实CreateTensorRtConversionStartInfo启动转换器，默认1080高对齐1088，1920x1088 Engine序列化成功。该夹具验证能力传递，不冒称四个大型HAT逐一GPU验收。
 - PR14组合实测：独立进程加载实际宿主6.2.43及合并DLL、真实FFmpeg，恢复24模型项且AUTO保持；未操作用户运行中的宿主。证据在Artifacts/pr13-pr15-merged/vmaf.log。验证汇总checks-summary.json、构建/门禁/完整GPU日志均留该忽略目录。
 - 本文件快照/TODO/Git和中文进度、审核报告已同步，版本仍1.3.14，不改版本迭代记录。git diff --check及UTF8/历史记录保持检查后保存文档并普通push，再回读三个PR与远端HEAD收尾。没有安装本机3FUI、Release/tag或后端/权重升级；后续部署和用户实际宿主验收不在本轮测试结论内。建议每步继续前核对提交，源码补修和合并均已保存。
+
+### 2026-11-02 19:57 Codex：远端合并回读与收尾
+
+- git push origin main正常完成a4f4bf0→1e9e2ed，包含全部PR祖先、两个P2补修、三次本地merge及审查/测试记录。没有force、改写fork或新增Release/tag。
+- GitHub连接器回读PR13、14、15均state=closed且merged=true，合并时间2026-11-02T11:57:13Z（北京时间19:57:13）；不以单纯本地merge替代远端完成判断。HEAD、origin/main和git ls-remote均1e9e2ed；主工作树和两个补修worktree干净。
+- 产品源码自2edcfb1未变化，仅报告/STATUS/中文进度文档收尾；前条完整构建与必要验证继续适用，不重复测试。所有产物与独立测试在项目Artifacts/pr13-pr15-merged，没有覆盖本机正式安装或源模型/后端。
+- 当前快照/TODO/Git及报告、中文进度已补远端成功结果；收尾普通文档commit/push后最后核对干净及远端SHA一致。用户请求的修正、安全合并和测试完成，版本保持1.3.14；全模型和长视频、用户实际宿主可视验收不冒称已完成。工作已提交保存，继续或切换工具/设备前可核对Git，无需重复提交本轮内容。

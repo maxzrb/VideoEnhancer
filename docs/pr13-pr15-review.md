@@ -59,3 +59,7 @@
 ## 2026-11-02 19:57 远端确认
 
 普通推送主线成功，GitHub回读PR13、PR14、PR15均为MERGED（北京时间19:57:13）。主线1e9e2ed包含全部原始PR及两项补修；产品合并提交为2edcfb1，后续仅操作记录收尾。构建与必要测试均通过，结论为本轮修复和安全合并完成。未部署到用户正式安装，未发布新版本；版本仍为1.3.14。
+
+## 2026-11-02 20:04 本机部署
+
+已按用户授权部署到本机3FUI 6.2.43，仍显示1.3.14。45载荷文件与已验证ZIP逐项hash一致，5项保护文件和157模型清单保持；实际CLI版本、FFF API11及28项ONNX目录/HAT倍数约束通过。已同步配套的两个ONNX辅助脚本，未换Python/后端包/RTX/模型。备份：`C:\Codex Program\3fui plugin\Artifacts\pr13-pr15-merged\local-install\backup-20261102-200411`；完整证据：`Artifacts/pr13-pr15-merged/local-install/local-deployment.json`。没有启动宿主，等待用户重开窗口验收，未发布新版本。

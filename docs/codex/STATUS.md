@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-02 19:57
+Last updated: 2026-11-02 20:04
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-02 20:04：**已按用户要求将PR13/14/15及两项补修部署到本机3FUI测试。** 安装位置C:/Program portable/3FUI/3FUI，宿主6.2.43，插件仍显示1.3.14（本地候选、非新Release）。复用已验证的产品2edcfb1完整载荷，45文件与ZIP逐项SHA一致、5保护文件hash及157模型清单/大小/时间不变，CLI版本/FFF API11通过。已备份15个CLI管理/兼容脚本后，经安装EXE轻量目录入口同步，仅ONNX预检与TensorRT转换器两脚本更新，其余兼容源码保持；28项ONNX目录/HAT尺寸约束16确认。未启动宿主，由用户重开测试。备份及证据见Artifacts/pr13-pr15-merged/local-install，部署记录收尾提交推送后核对干净及远端同步。
 
 - 2026-11-02 19:57：**PR13/14/15均已远端MERGED，补修及组合测试完成。** 普通push main将a4f4bf0更新至1e9e2ed，GitHub回读三PR merged=true/closed（北京时间19:57:13），两项P2补修7b0ea06/0422327均在主线；产品合并提交2edcfb1。完整publish、打包/安装/回滚/Burn和宿主/预览/转换回归、真实两帧ONNX-TRT-RVE-FFmpeg及缓存复用、手动约束图对齐、VMAF24项恢复均通过，详见[报告](../pr13-pr15-review.md)。收尾仅文档补记后普通提交推送并核对干净工作树。版本仍1.3.14；没有覆盖本机正式安装、发布新版本或全模型/长视频压力验收。
 
@@ -151,6 +153,8 @@ Updated by: Codex
 
 ## Active TODO
 
+- [ ] 用户重开本机3FUI验收PR13默认编码/HDR状态、PR14 VMAF模型列表、PR15 ONNX TensorRT选择/自动与手动转换；候选已部署，文件/脚本/保护项校验通过，尚未实际宿主窗口验收。
+
 - [x] PR13：7b0ea06修正数字第0路编码器识别，真实FFmpeg保持FFV1，音频单独指定/末项覆盖回归通过；已随main推送，远端PR13回读MERGED。
 - [x] PR15：0422327将统一目录能力的inputMultiple传入手动转换，内置/用户/旧协议/真实子进程及1920x1088 GPU构建通过；已随main推送，远端PR15回读MERGED。
 - [x] 审查PR13/14/15固定头，报告docs/pr13-pr15-review.md；PR14实际宿主6.2.43模型补全入口及既有24项HostRuntime通过。旧VMAF待办在合并部署前继续保留。
@@ -255,6 +259,8 @@ Updated by: Codex
 
 ## Environment Notes
 
+- 2026-11-02 20:04当前本机安装：C:/Program portable/3FUI/3FUI，宿主6.2.43、PR13/14/15合并产品2edcfb1本地测试版1.3.14。EXE SHA256=e1f16c16bcd09ac8f670ff30da662679ca3c3606a3bc07c20cf0ba52b8e3c423，插件DLL SHA256=74db883c6080382e07aa0f0f360ce2656d53e46cca41368c7420f269cda44f1f。备份C:/Codex Program/3fui plugin/Artifacts/pr13-pr15-merged/local-install/backup-20261102-200411，含45载荷目标原文件和15个CLI管理/兼容脚本；本条优先于旧正式1.3.14安装hash记录。
+
 - 2026-11-02 19:33现场复查：pwsh7、.NET SDK10.0.403、系统Python3.14.6；当前本机宿主程序集6.2.43，优先于旧6.2.38环境描述。只从本机EXE提取托管程序集到Artifacts/pr-review-20261102/host独立加载，不操作用户宿主实例。GPU小图探针使用已安装便携Python及torch2.9.0+cu130、onnx1.22.0、TensorRT10.12.0.36和RTX3060 Laptop；PYTHONDONTWRITEBYTECODE=1，输出都在项目内，无依赖/正式安装修改。
 
 - 2026-10-20 16:16当前安装：C:/Program portable/3FUI/3FUI，宿主6.2.38，正式插件1.3.14。CLI SHA256=5f236644884228834d51f8f0716db0e055e55b60cbf42e31f26fd7052ea38133，插件DLL SHA256=e369f39f5e36892ccc515a18b1308ee4f6a3967db324948419bb93bac3db6916；备份及45文件部署证据见Artifacts/release-1.3.14/local-install，本条优先于旧版本安装记录。
@@ -320,6 +326,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-11-02 20:04：同工具续接，git pull --ff-only已最新，main/origin/main=94091e1且启动干净；部署使用产品2edcfb1的已验证候选（94091e1之前仅操作文档变化）。本轮不改产品源码/版本，只补STATUS、中文进度和报告部署记录；随后普通commit/push并核对工作树干净、本地远端一致，无需额外源码提交。
 
 - 2026-11-02 19:57：普通git push origin main成功a4f4bf0→1e9e2ed；GitHub连接器回读PR13/14/15均closed、merged=true，mergedAt=2026-11-02T11:57:13Z。HEAD/origin/main/ls-remote三者均1e9e2ed且主工作树干净；两个补修worktree亦干净。自产品2edcfb1之后仅三份操作文档变化，验证产物仍对应产品源码。此条远端确认另作收尾文档提交推送，最终核对本地/远端一致；无需用户重复提交已保存工作。
 
@@ -1042,3 +1050,14 @@ git diff --check
 - GitHub连接器回读PR13、14、15均state=closed且merged=true，合并时间2026-11-02T11:57:13Z（北京时间19:57:13）；不以单纯本地merge替代远端完成判断。HEAD、origin/main和git ls-remote均1e9e2ed；主工作树和两个补修worktree干净。
 - 产品源码自2edcfb1未变化，仅报告/STATUS/中文进度文档收尾；前条完整构建与必要验证继续适用，不重复测试。所有产物与独立测试在项目Artifacts/pr13-pr15-merged，没有覆盖本机正式安装或源模型/后端。
 - 当前快照/TODO/Git及报告、中文进度已补远端成功结果；收尾普通文档commit/push后最后核对干净及远端SHA一致。用户请求的修正、安全合并和测试完成，版本保持1.3.14；全模型和长视频、用户实际宿主可视验收不冒称已完成。工作已提交保存，继续或切换工具/设备前可核对Git，无需重复提交本轮内容。
+
+### 2026-11-02 20:04 Codex：本机部署PR13/14/15候选供用户测试
+
+- 用户明确“部署到我本机测试”。同工具续接，重读AGENTS/INDEX/STATUS、HandShake、组合测试证据及旧部署脚本；git pull --ff-only最新，main/origin/main94091e1干净。当前产品与已完整publish/110打包/安装/回滚/Burn及GPU验证的2edcfb1无代码差异，不做无必要重建和重复测试。
+- 只读核对实际宿主C:/Program portable/3FUI/3FUI存在且6.2.43；初次、正式安装前及部署后均未发现宿主/增强进程，没有强制结束用户程序。候选EXE/DLL与已验证ZIP一致，aria2/7zip已安装与载荷hash相同，独立组件不降级。
+- 部署脚本及日志在Artifacts/pr13-pr15-merged/local-install。先逐项备份45载荷目标既有文件并校验hash，同时备份9个CLI内嵌辅助脚本和6个现有兼容脚本，备份目录C:\Codex Program\3fui plugin\Artifacts\pr13-pr15-merged\local-install\backup-20261102-200411。再使用已通过隔离安装验证的完整PortablePayload --install-folder/--quiet/--skip-legacy-cleanup安装，沿用内置事务回滚、不执行旧版清理。
+- 安装45文件逐项SHA与候选ZIP一致；5个保护文件hash前后相同（Settings、插件配置、用户模型清单及独立组件按存在项核对），157模型相对路径/大小/mtime_ns清单保持。CLI --version=1.3.14，实际FFF3FP_GetApiVersion=11。
+- 为保证手动转换页即刻可用，经安装EXE --list-model-catalog -backend onnx --json同步配套脚本并回读目录：28个ONNX项，RealHatGAN约束inputMultiple=16。9个内嵌脚本逐项hash等于当前源码，15个备份脚本中仅inspect_upscale_models.py和convert_tensorrt.py实际更新，6个兼容加载器及其余脚本保持；初始化后再次核对保护文件及模型清单未变。没有更换Python环境、推理后端包、RTX组件或权重。
+- 部署EXE hash=e1f16c16bcd09ac8f670ff30da662679ca3c3606a3bc07c20cf0ba52b8e3c423；插件DLL hash=74db883c6080382e07aa0f0f360ce2656d53e46cca41368c7420f269cda44f1f。完整证据local-deployment.json，包含所有目标before/after/expected及脚本变化、保护项和备份位置。
+- 没有启动3FUI，由用户重开实际测试HDR/默认编码、VMAF模型和ONNX TensorRT。仍为1.3.14本地候选，不创建或覆盖远端Release/tag，不改版本迭代记录；已有合并测试结论不等同用户宿主可视验收。
+- STATUS当前快照/环境/TODO/Git及本会话、中文工作进度和审核报告已补部署结果。git diff --check、UTF8与历史会话保持校验后普通commit/push，最终确认本地远端SHA一致且工作树干净；工作会保存提交，用户无需重复提交，继续或切换设备前可核对Git状态。

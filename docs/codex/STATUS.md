@@ -1,11 +1,15 @@
 # Project Status
 
-Last updated: 2026-11-02 19:33
+Last updated: 2026-11-02 19:55
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-02 19:55：**PR13/14/15补修、本地安全合并及组合测试已完成。** PR13数字第0路编码保护7b0ea06；PR15目录协议输出inputMultiple并传入手动ONNX转换0422327。三次无冲突merge3c2fb3f/4a50f0b/2edcfb1保留完整PR祖先。完整publish、110打包/API11/隔离安装、22模型/HDR、转换/宿主/图片/预览与安装/自更新/Burn均通过；实际宿主6.2.43恢复24模型项并保留AUTO。实际SPANF3两帧96x64→192x128、二次复用已验证缓存；手动无metadata约束图经真实CLI目录取得16倍数，1920x1080→1920x1088构建序列化成功。原设备安装/后端/模型未改，未发布，版本仍1.3.14；准备普通push并回读三个PR合并状态，见报告及最新会话。
+
+- 2026-11-02 19:52：用户明确授权修正后安全合并并测试。上轮审查记录已保存b625fd8；PR13补修7b0ea06、PR15补修0422327及对应回归已提交，主线三次无冲突合并3c2fb3f/4a50f0b/2edcfb1保留全部PR祖先。本地完整publish、110项打包隔离安装/API11、22模型/HDR、转换入口/宿主/图片/29预览、六FFmpeg转发、数字流真实FFV1、安装/自更新回滚及Burn已通过。两帧真实ONNX-TRT-RVE-FFmpeg成功；缓存复用/手动约束GPU最后验证进行中。暂未推送/部署/发布；版本仍1.3.14。
 
 - 2026-11-02 19:33：新 Codex 会话审查当前三个 OPEN PR，报告 [PR13–15审核](../pr13-pr15-review.md)。固定头 #13 ea56d0b、#14 22f0540、#15 9cefb61；#13 数字输出流编码器被兜底覆盖、#15 手动 ONNX 转换漏传尺寸倍数，各一项 P2，建议修正后合并；#14 本轮未发现阻挡项，实际宿主6.2.43独立进程恢复24模型项并保留AUTO。三插件普通Release构建及必要定向回归通过，两CLI仅托管构建，不等同发行打包。主线产品未改，未远端评论/合并/部署/发布；报告与两份记录未提交，工作树非干净，版本仍1.3.14。
 
@@ -145,8 +149,8 @@ Updated by: Codex
 
 ## Active TODO
 
-- [ ] PR13：识别合法数字输出流编码器选项 `-c:0` / `-codec:0`，避免覆盖用户明确编码；审核已复现，尚未实施修复。
-- [ ] PR15：手动ONNX转换复用能力清单并传入 `--input-multiple`；无metadata约束图GPU失败/对齐成功已复现，尚未实施修复。
+- [x] PR13：7b0ea06修正数字第0路编码器识别，真实FFmpeg保持FFV1，音频单独指定/末项覆盖回归通过；已本地合并。
+- [x] PR15：0422327将统一目录能力的inputMultiple传入手动转换，内置/用户/旧协议/真实子进程及1920x1088 GPU构建通过；已本地合并。
 - [x] 审查PR13/14/15固定头，报告docs/pr13-pr15-review.md；PR14实际宿主6.2.43模型补全入口及既有24项HostRuntime通过。旧VMAF待办在合并部署前继续保留。
 
 - [x] 正式发布1.3.14：源码/标签、五项GitHub资产、运行镜像、远端十项hash、双源故障回退分支隔离检查与本机正式升级完成。
@@ -161,7 +165,7 @@ Updated by: Codex
 
 - [x] 安装/自更新兼容 FFmpegFreeUI.x64.exe；文件选择器、提示/说明和定向安装回滚通过。
 - [x] 原生 FFmpeg 工具命令转发与停用/冷启动插件路径清理；真实滤镜查询、PSNR/SSIM和标准流/退出码验证通过。
-- [ ] 质量评测第三方原反馈缺报错/版本/复现；启用插件时内置 VMAF 模型自动枚举仍扫描中转器，需要宿主独立 FFmpeg 路径或任务级执行程序接口。暂用停用后刷新/重开评测或本地模型，不能关闭整个反馈。
+- [ ] 质量评测第三方原反馈仍缺完整报错/复现；PR14模型补全已合入并通过真实宿主6.2.43独立验证（24项/AUTO），待后续部署及原反馈者实际验收，不再将代码层面的模型发现列为未实施。
 
 - [x] 正式发行1.3.13并剥离四宫格专属代码；全部必要门禁、十项远端下载hash、单GitHub源码与本机完整升级验收通过。
 
@@ -314,6 +318,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-11-02 19:55：上轮审查记录b625fd8已保存；补修7b0ea06/0422327及三个merge本地完成，产品合并HEAD=2edcfb129945b948ddfcd2d5962f4dd2c5533972。推送前fetch确认origin/main仍a4f4bf0、PR13/14/15头仍ea56d0b/22f0540/9cefb61，无新增上游差异。测试均通过，准备保存本条及报告后普通推送主线；无force或fork分支改写。
 
 - 2026-11-02 19:33：启动git pull --ff-only已最新，main=origin/main=a4f4bf0且原工作树干净；fetch三个PR固定头并在Artifacts/pr13-review、pr14-review、pr15-review建立detached工作树。三组两两merge-tree无冲突，未实际合并。收尾只有docs/pr13-pr15-review.md及STATUS/中文进度记录未提交；PR工作树跟踪文件未改且已将临时日志移回主项目忽略目录，建议继续/切换工具前考虑Git提交。
 
@@ -1012,3 +1018,16 @@ git diff --check
 - 构建：三个普通Release插件均0警告0错误，固定FFF缓存2026.8.19经SHA校验；首次错误指定8.19导致下载失败，纠正路径后通过。#13/#15 CLI DesignTimeBuild=true/SelfContained=false托管构建0警告0错误，不称完整发行包；#15能力6项/用户导入9项通过。未执行长视频/GPU吞吐或大型模型压力测试。
 - 报告docs/pr13-pr15-review.md及本文件快照/TODO/环境/Git/本会话、version/工作进度.md已更新；版本仍1.3.14，不改版本迭代记录。证据/独立探针/程序集/Engine在Artifacts/pr-review-20261102；不纳入Git，不覆盖安装/模型/后端。
 - 最后执行git diff --check、UTF8/原字节保留与Git状态检查。主线未提交报告及两份记录，工作树非干净；PR工作树产品文件保持不变。未GitHub评论/审核提交、修复、合并、提交/推送、部署或发布；建议修正#13/#15后复核，继续或切换工具/设备前考虑Git提交保存审查记录。
+
+### 2026-11-02 19:55 Codex：修正并安全合并PR13/14/15、组合测试
+
+- 用户明确授权“修正后安全合并，并测试”；同工具续接，重读AGENTS/INDEX/STATUS、HandShake和审核报告。git pull --ff-only已最新，启动仅保留上轮三份审查文档，先提交b625fd8；没有其他用户改动。GitHub回读三PR保持OPEN及固定审核头，未额外申请确认或调用子代理。
+- 在项目内原审核worktree建立codex/pr13-encoder-fix、codex/pr15-converter-fix。PR13补修7b0ea06：按后端视频固定为输出第0路识别-c:0/-codec:0，避免音频数字流抑制视频兜底；ModelMetadata增加数字视频、仅音频及最后选项覆盖检查，CLI实际debug-split与真实FFmpeg/ffprobe两选项均保持FFV1。
+- PR15补修0422327：CLI目录协议增加inputMultiple，取内置/用户/检查后的统一能力；插件手动ONNX按相对模型ID读取同一协议，将倍数传给子进程，PTH路径保持。ModelMetadataUi新增7项实际协议/旧字段默认/中文含空格参数跨进程回读检查通过；没有另建一套能力清单或硬编码HAT名称。
+- main创建恢复点codex/pre-pr13-pr15-20261102；无冲突合并补修PR13（3c2fb3f）、PR14（4a50f0b）、补修PR15（2edcfb1），保留三个原始PR祖先和独立补修，不改fork分支。最终产品提交2edcfb129945b948ddfcd2d5962f4dd2c5533972。
+- 完整dotnet publish VideoEnhancer.slnx -c Release -p:ArtifactsDirectory=Artifacts/pr13-pr15-merged成功，包含CLI、插件、ZIP、源码包和WiX；生产aria2 URL首次EOF产生MSB3924后自动重试成功，不改下载源或绕过哈希。110打包/实际项目内安装/FFF API11、安装两宿主名/回滚、自更新/保护组件/回滚、Burn实际安装及缓存/登记清理通过。没有发布资产或覆盖正式安装。
+- 组合版：22项模型能力/导入/HDR Python回归、转换7项、宿主24项、图片参数/错误、29项预览、倍率/解析/编码缺省检查及六项真实FFmpeg透传通过。一次用dotnet直接运行测试DLL使Environment.ProcessPath指向dotnet而非测试apphost，改用测试EXE后通过；自更新测试首次漏传-Version，补1.3.14后通过，均为测试调用问题，不计产品缺陷。
+- 实际GPU：项目内runtime复制正式后端源码、Python解释器目录junction仅用于只读依赖，缓存/临时文件都在项目；只复制0.7MB的真实SPANF3 ONNX。合并EXE自动编译/验证Engine→RVE→FFmpeg，两帧96x64输入得到192x128两帧；第二次明确命中已验证缓存，ffprobe计帧/尺寸通过。没有长视频、吞吐基准或大模型压力测试。
+- 手动GPU：用无metadata且要求16倍数的小ONNX图放入隔离目录对应内置能力项，从合并EXE实际JSON目录读取16，经合并DLL真实CreateTensorRtConversionStartInfo启动转换器，默认1080高对齐1088，1920x1088 Engine序列化成功。该夹具验证能力传递，不冒称四个大型HAT逐一GPU验收。
+- PR14组合实测：独立进程加载实际宿主6.2.43及合并DLL、真实FFmpeg，恢复24模型项且AUTO保持；未操作用户运行中的宿主。证据在Artifacts/pr13-pr15-merged/vmaf.log。验证汇总checks-summary.json、构建/门禁/完整GPU日志均留该忽略目录。
+- 本文件快照/TODO/Git和中文进度、审核报告已同步，版本仍1.3.14，不改版本迭代记录。git diff --check及UTF8/历史记录保持检查后保存文档并普通push，再回读三个PR与远端HEAD收尾。没有安装本机3FUI、Release/tag或后端/权重升级；后续部署和用户实际宿主验收不在本轮测试结论内。建议每步继续前核对提交，源码补修和合并均已保存。

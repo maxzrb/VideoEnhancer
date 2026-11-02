@@ -31,4 +31,17 @@ var options = CliArgumentParser.Parse(["-scale", "4", "-output-scale", "3"]);
 Equal("4", options.ScaleOverride);
 Equal("3", options.OutputScale);
 Equal(true, options.HasScaleOverride);
+// 数字第 0 路已明确指定视频编码器时，不能追加 SVT；仅指定音频时仍须兜底视频。
+foreach (var option in new[] { "-c:0", "-codec:0", "-c:v:0", "-codec:v:0", "-vcodec" })
+{
+    Equal(true, VideoEncodingDefaults.HasVideoEncoder([option, "ffv1", "-c:a", "copy"]));
+    Equal(false, VideoEncodingDefaults.RequiresSvtY412([option, "ffv1", "-pix_fmt:v", "yuv444p12le"]));
+    Equal(true, VideoEncodingDefaults.RequiresSvtY412([option, "libsvtav1", "-pix_fmt:v", "yuv444p12le"]));
+}
+Equal(false, VideoEncodingDefaults.HasVideoEncoder(["-c:1", "aac"]));
+Equal(false, VideoEncodingDefaults.HasVideoEncoder(["-codec:1", "copy"]));
+Equal(false, VideoEncodingDefaults.HasVideoEncoder(["-c:a", "copy"]));
+Equal(false, VideoEncodingDefaults.HasVideoEncoder([]));
+Equal(false, VideoEncodingDefaults.RequiresSvtY412(["-c:0", "libsvtav1", "-c:v", "ffv1", "-pix_fmt:v", "yuv444p12le"]));
+Console.WriteLine("VIDEO_ENCODING_DEFAULTS_TESTS_PASS|numeric-video|audio-only|last-option");
 Console.WriteLine("模型分组、输出滤镜与参数解析验证通过");

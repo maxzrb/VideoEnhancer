@@ -220,8 +220,16 @@ Namespace videoenhancer
                 ShowStatus("请先开启「插件总开关」", True)
                 Return
             End If
+            Dim previous = _config.RtxHdrEnabled
             _config.RtxHdrEnabled = _switchRtxHdr.Checked
-            _config.Save()
+            If Not _config.TrySave() Then
+                _config.RtxHdrEnabled = previous
+                _syncingRtxHdrSwitch = True
+                _switchRtxHdr.Checked = previous
+                _syncingRtxHdrSwitch = False
+                ShowStatus("HDR 开关保存失败，已恢复原状态；请检查配置文件是否被占用或不可写。", True)
+                Return
+            End If
             UpdateModeStateLabels()
             UpdateAdvancedControlState()
             UpdateHookState()

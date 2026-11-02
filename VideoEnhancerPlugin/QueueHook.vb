@@ -705,7 +705,8 @@ Namespace videoenhancer
                 Return
             End If
 
-            Dim cfg = PluginConfig.Load()
+            ' 入队使用界面当前配置，避免磁盘旧值或外部写入与开关显示不一致。
+            Dim cfg = If(PluginPanel.Current Is Nothing, PluginConfig.Load(), PluginPanel.Current.Configuration)
             If Not cfg.Enabled Then
                 ShowTip("请先在""视频超分""页面开启插件总开关")
                 Return

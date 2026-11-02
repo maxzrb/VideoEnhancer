@@ -164,13 +164,20 @@ Namespace videoenhancer
         End Function
 
         Public Sub Save()
+            TrySave()
+        End Sub
+
+        ''' <summary>返回配置是否已写入磁盘，供开关在保存失败时恢复真实状态。</summary>
+        Public Function TrySave() As Boolean
             Dim temporary = ConfigPath & ".new"
+            Dim saved As Boolean = False
             Try
                 Directory.CreateDirectory(ApplicationRoot)
                 File.WriteAllText(temporary,
                     JsonSerializer.Serialize(Me, New JsonSerializerOptions With {.WriteIndented = True}),
                     New UTF8Encoding(False))
                 File.Move(temporary, ConfigPath, True)
+                saved = True
                 RaiseEvent Saved(Me, EventArgs.Empty)
             Catch
             Finally
@@ -179,7 +186,8 @@ Namespace videoenhancer
                 Catch
                 End Try
             End Try
-        End Sub
+            Return saved
+        End Function
 
     End Class
 

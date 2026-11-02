@@ -11,6 +11,7 @@ Namespace videoenhancer
             Public Property Architecture As String = ""
             Public Property Purpose As String = ""
             Public Property Scale As Integer
+            Public Property InputMultiple As Integer = 1
             Public Property Source As String = ""
             Public Property Backends As String() = Array.Empty(Of String)()
         End Class

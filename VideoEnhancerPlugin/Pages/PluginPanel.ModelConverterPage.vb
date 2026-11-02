@@ -269,7 +269,9 @@ Namespace videoenhancer
                         If _convertIsInterpolation Then
                             Return RunRifeTensorRtPrepare(pythonExe, rifePrepare, _convertInputPath, 1920, 1080, progress)
                         End If
-                        Return RunTensorRtConversion(pythonExe, converter, _convertInputPath, outputDir, progress)
+                        Dim inputMultiple = If(String.Equals(Path.GetExtension(_convertInputPath), ".onnx", StringComparison.OrdinalIgnoreCase),
+                                               ReadConverterInputMultiple(_config.ExePath, _convertInputPath), 1)
+                        Return RunTensorRtConversion(pythonExe, converter, _convertInputPath, outputDir, progress, inputMultiple)
                     End Function)
                 If result.Item1 = 0 Then
                     Dim enginePath = LastEnginePath(result.Item2)
@@ -292,7 +294,17 @@ Namespace videoenhancer
             End Try
         End Sub
 
-        Private Shared Function RunTensorRtConversion(pythonExe As String, converter As String, inputPath As String, outputDir As String, progress As Action(Of String)) As Tuple(Of Integer, String)
+        Private Shared Function ReadConverterInputMultiple(exePath As String, inputPath As String) As Integer
+            ' 复用 CLI 的内置/用户能力解析，不在插件中另维护一份模型约束。
+            Dim modelsRoot = Path.Combine(Path.GetDirectoryName(exePath), "models")
+            Dim modelId = Path.ChangeExtension(Path.GetRelativePath(modelsRoot, Path.GetFullPath(inputPath)), Nothing).Replace("\"c, "/"c)
+            Dim item = ModelCatalogClient.RunModelCatalog(exePath, "--list-model-catalog", "-backend", "tensorrt").
+                FirstOrDefault(Function(model) String.Equals(model.Id, modelId, StringComparison.OrdinalIgnoreCase))
+            Return If(item Is Nothing, 1, Math.Max(1, item.InputMultiple))
+        End Function
+
+        Private Shared Function CreateTensorRtConversionStartInfo(pythonExe As String, converter As String, inputPath As String,
+                                                                 outputDir As String, inputMultiple As Integer) As ProcessStartInfo
             Dim psi As New ProcessStartInfo With {
                 .FileName = pythonExe,
                 .WorkingDirectory = Path.GetDirectoryName(converter),
@@ -308,6 +320,16 @@ Namespace videoenhancer
             psi.ArgumentList.Add(inputPath)
             psi.ArgumentList.Add("--output-dir")
             psi.ArgumentList.Add(outputDir)
+            If String.Equals(Path.GetExtension(inputPath), ".onnx", StringComparison.OrdinalIgnoreCase) Then
+                psi.ArgumentList.Add("--input-multiple")
+                psi.ArgumentList.Add(Math.Max(1, inputMultiple).ToString(Globalization.CultureInfo.InvariantCulture))
+            End If
+            Return psi
+        End Function
+
+        Private Shared Function RunTensorRtConversion(pythonExe As String, converter As String, inputPath As String, outputDir As String,
+                                                      progress As Action(Of String), inputMultiple As Integer) As Tuple(Of Integer, String)
+            Dim psi = CreateTensorRtConversionStartInfo(pythonExe, converter, inputPath, outputDir, inputMultiple)
             Using child As Diagnostics.Process = Diagnostics.Process.Start(psi)
                 If child Is Nothing Then Return New Tuple(Of Integer, String)(1, "无法启动模型转换进程")
                 Dim output As New StringBuilder()

@@ -25,6 +25,7 @@ partial class Program
             return;
         }
         if (RunPreviewToolFixture(args)) return;
+        if (RunConverterCatalogFixture(args)) return;
         var mode = args.FirstOrDefault(arg => arg.StartsWith("--", StringComparison.Ordinal));
         if (mode == "--dpi" || mode == "--scroll" || mode == "--appearance")
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
@@ -46,6 +47,11 @@ partial class Program
         File.Copy(Environment.GetEnvironmentVariable("VIDEOENHANCER_PREVIEW_PLUGIN") ??
                   Path.Combine(root, "VideoEnhancerPlugin/obj/plugin-artifact/videoenhancer.3fui.dll"), pluginPath, true);
         var assembly = Assembly.LoadFrom(pluginPath);
+        if (mode == "--converter")
+        {
+            RunConverterChecks(assembly);
+            return;
+        }
         if (mode == "--image")
         {
             RunImageChecks(assembly);

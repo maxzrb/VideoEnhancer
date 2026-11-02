@@ -6121,6 +6121,7 @@ internal static class Program
         public int[] InferenceScales { get; init; } = [];
         public string Purpose { get; init; } = "";
         public int Scale { get; init; }
+        public int InputMultiple { get; init; } = 1;
         public string Source { get; init; } = "";
         public string[] Backends { get; init; } = [];
     }
@@ -6169,6 +6170,7 @@ internal static class Program
                 InferenceScales = builtIn?.InferenceScales ?? (backends.Contains("flashvsr") ? [2, 4] : []),
                 Purpose = purpose,
                 Scale = scale,
+                InputMultiple = Math.Max(1, user?.InputMultiple ?? builtIn?.InputMultiple ?? inspected?.InputMultiple ?? 1),
                 Source = user is not null ? "user" : builtIn is not null ? "builtin" : "discovered",
                 Backends = backends,
             });
@@ -6194,6 +6196,7 @@ internal static class Program
             writer.WriteString("architecture", item.Architecture);
             writer.WriteString("purpose", item.Purpose);
             writer.WriteNumber("scale", item.Scale);
+            writer.WriteNumber("inputMultiple", item.InputMultiple);
             writer.WriteString("architectureGroup", item.ArchitectureGroup);
             writer.WriteStartArray("inferenceScales");
             foreach (var value in item.InferenceScales) writer.WriteNumberValue(value);

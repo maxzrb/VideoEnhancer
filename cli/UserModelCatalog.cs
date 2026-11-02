@@ -306,7 +306,7 @@ internal static class UserModelCatalog
     {
         var format = record.Format.ToLowerInvariant();
         var task = record.Task.ToLowerInvariant();
-        if (format == "onnx") return ["onnx"];
+        if (format == "onnx") return ["onnx", "tensorrt"];
         if (format == "ncnn") return ["ncnn"];
         if (format == "directory")
             return architecture.Equals("FlashVSR", StringComparison.OrdinalIgnoreCase)

@@ -660,7 +660,7 @@ Namespace videoenhancer
                 Dim modeText = If(_config.Backend = "basicvsrpp",
                     "（BasicVSR++，官方 .pth 或 config.py/chkpts.pth 优化目录）",
                     If(_config.Backend = "tensorrt",
-                    "（TensorRT，PTH 首次使用自动构建 Engine）",
+                    "（TensorRT，PTH/ONNX 首次使用自动构建 Engine）",
                     If(_config.Backend = "onnx",
                     "（ONNX Runtime，models 下的 .onnx 文件）",
                     If(_config.Backend = "flashvsr",
@@ -676,7 +676,7 @@ Namespace videoenhancer
                     Return
                 End If
                 If (_config.Backend = "cuda" OrElse _config.Backend = "tensorrt" OrElse _config.Backend = "onnx" OrElse _config.Backend = "flashvsr" OrElse _config.Backend = "basicvsrpp") AndAlso _config.UpscaleEnabled Then
-                    Dim missingExt = If(_config.Backend = "basicvsrpp", "BasicVSR++ .pth 或优化目录", If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "tensorrt", "PTH 或 .engine", If(_config.Backend = "onnx", ".onnx", ".pth"))))
+                    Dim missingExt = If(_config.Backend = "basicvsrpp", "BasicVSR++ .pth 或优化目录", If(_config.Backend = "flashvsr", "FlashVSR 完整模型目录", If(_config.Backend = "tensorrt", "PTH/ONNX 源模型", If(_config.Backend = "onnx", ".onnx", ".pth"))))
                     _cmbModel.WaterText = "未找到 " & missingExt & " 放大模型"
                     ShowStatus("未找到 " & missingExt & " 放大模型，请确认 models 目录", True)
                     ' 保留用户选择的 TensorRT，不因一次扫描失败自动改回 NCNN。

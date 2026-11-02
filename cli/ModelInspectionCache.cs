@@ -13,7 +13,8 @@ internal static class ModelInspectionCache
         if (!File.Exists(path) || Path.GetExtension(path).ToLowerInvariant() is not
             (".pth" or ".pt" or ".ckpt" or ".safetensors" or ".onnx")) return null;
         var file = new FileInfo(path);
-        var key = $"v4|{file.FullName}|{file.Length}|{file.LastWriteTimeUtc.Ticks}";
+        var schema = Path.GetExtension(path).Equals(".onnx", StringComparison.OrdinalIgnoreCase) ? "v5" : "v4";
+        var key = $"{schema}|{file.FullName}|{file.Length}|{file.LastWriteTimeUtc.Ticks}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
         var directory = Path.Combine(PortablePaths.CacheRoot, "model-inspections");
         var cache = Path.Combine(directory, hash + ".json");

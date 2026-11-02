@@ -168,7 +168,13 @@ def _inspect_onnx(model_path: str) -> dict:
             minimum_size=max(0, int(custom.get("minimum_size", "0"))),
             square=str(custom.get("square", "false")).lower() == "true",
             tiling="SUPPORTED",
-            backends=["onnx"],
+            backends=["onnx", "tensorrt"] if (
+                len(outputs) == 1 and input_channels == output_channels == 3
+                and input_meta.type in ("tensor(float)", "tensor(float16)")
+                and output_meta.type in ("tensor(float)", "tensor(float16)")
+                and input_meta.shape[1] == output_meta.shape[1] == 3
+                and _shape_dimension(input_meta.shape[0]) in (1, None)
+            ) else ["onnx"],
         )
     except Exception as exc:
         result["error"] = str(exc)

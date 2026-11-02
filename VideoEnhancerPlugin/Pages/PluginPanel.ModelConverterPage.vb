@@ -74,7 +74,7 @@ Namespace videoenhancer
             _btnPickPth.Margin = New Padding(0, 4, 0, 4)
             ConfigureSecondaryButton(_btnPickPth)
             AddHandler _btnPickPth.Click, AddressOf OnPickPthClick
-            _lblConvertInput.Text = "<font color=#888888>支持 .pth / .pt / .pkl</font>"
+            _lblConvertInput.Text = "<font color=#888888>支持 .pth / .pt / .pkl / .onnx</font>"
             _lblConvertInput.AutoSize = False
             _lblConvertInput.TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft
             inputRow.AddAt(_btnPickPth, 0, 0)
@@ -115,8 +115,8 @@ Namespace videoenhancer
                 .AutoSize = False,
                 .LineSpacing = 7,
                 .TextAlign = HtmlColorLabel.TextAlignEnum.TopLeft,
-                .Text = "<font color=#DCDCDC><b>PyTorch 权重 → TensorRT Engine</b></font><br/>" &
-                        "<font color=#888888>超分 .pth 归档到 TensorRT-Personalized；RIFE 按权重结构识别并构建 flow/encode 缓存。</font><br/>" &
+                .Text = "<font color=#DCDCDC><b>PyTorch / ONNX → TensorRT Engine</b></font><br/>" &
+                        "<font color=#888888>超分 .pth/.onnx 归档到 TensorRT-Personalized；RIFE 使用 flow/encode 专用流程。</font><br/>" &
                         "<font color=#888888>转换完全在本机进行，不会上传模型；复杂模型可能需要数分钟。</font><br/>" &
                         "<font color=#888888>Engine 与显卡、TensorRT 和 CUDA 版本绑定，换设备后建议重新转换。</font>"
             }
@@ -154,7 +154,7 @@ Namespace videoenhancer
             If e.Data IsNot Nothing AndAlso e.Data.GetDataPresent(DataFormats.FileDrop) Then
                 Dim paths = TryCast(e.Data.GetData(DataFormats.FileDrop), String())
                 If paths IsNot Nothing AndAlso paths.Length > 0 AndAlso
-                    IsPyTorchWeightExtension(paths(0)) Then
+                    IsTensorRtSourceExtension(paths(0)) Then
                     e.Effect = DragDropEffects.Copy
                     Return
                 End If
@@ -171,8 +171,8 @@ Namespace videoenhancer
 
         Private Sub OnPickPthClick(sender As Object, e As EventArgs)
             Using dialog As New OpenFileDialog With {
-                .Title = "选择超分或补帧 PyTorch 权重",
-                .Filter = "PyTorch 权重 (*.pth;*.pt;*.pkl)|*.pth;*.pt;*.pkl|所有文件 (*.*)|*.*",
+                .Title = "选择超分 ONNX 模型或 PyTorch 权重",
+                .Filter = "模型 (*.pth;*.pt;*.pkl;*.onnx)|*.pth;*.pt;*.pkl;*.onnx|所有文件 (*.*)|*.*",
                 .CheckFileExists = True,
                 .Multiselect = False
             }
@@ -183,8 +183,8 @@ Namespace videoenhancer
         End Sub
 
         Private Async Sub SelectConverterInput(modelPath As String)
-            If Not File.Exists(modelPath) OrElse Not IsPyTorchWeightExtension(modelPath) Then
-                SetConverterStatus("只支持有效的 .pth、.pt 或 .pkl 权重文件。", True)
+            If Not File.Exists(modelPath) OrElse Not IsTensorRtSourceExtension(modelPath) Then
+                SetConverterStatus("只支持有效的 .pth、.pt、.pkl 或 .onnx 模型文件。", True)
                 Return
             End If
             _convertInputPath = Path.GetFullPath(modelPath)
@@ -193,7 +193,9 @@ Namespace videoenhancer
             _btnConvert.Enabled = False
             SetConverterStatus("正在读取权重结构并识别模型架构…", False)
 
-            Dim inspection = Await Task.Run(Function() InspectConverterModel(_convertInputPath))
+            Dim isOnnx = String.Equals(Path.GetExtension(_convertInputPath), ".onnx", StringComparison.OrdinalIgnoreCase)
+            Dim inspection = If(isOnnx, New Tuple(Of Boolean, String, String)(False, "", ""),
+                                Await Task.Run(Function() InspectConverterModel(_convertInputPath)))
             If Not String.Equals(_convertInputPath, Path.GetFullPath(modelPath), StringComparison.OrdinalIgnoreCase) Then Return
             If inspection.Item1 Then
                 _convertIsInterpolation = True
@@ -219,11 +221,12 @@ Namespace videoenhancer
             End If
         End Sub
 
-        Private Shared Function IsPyTorchWeightExtension(filePath As String) As Boolean
+        Private Shared Function IsTensorRtSourceExtension(filePath As String) As Boolean
             Dim extension = Path.GetExtension(filePath)
             Return String.Equals(extension, ".pth", StringComparison.OrdinalIgnoreCase) OrElse
                    String.Equals(extension, ".pt", StringComparison.OrdinalIgnoreCase) OrElse
-                   String.Equals(extension, ".pkl", StringComparison.OrdinalIgnoreCase)
+                   String.Equals(extension, ".pkl", StringComparison.OrdinalIgnoreCase) OrElse
+                   String.Equals(extension, ".onnx", StringComparison.OrdinalIgnoreCase)
         End Function
 
         Private Async Sub OnConvertModelClick(sender As Object, e As EventArgs)
@@ -266,7 +269,9 @@ Namespace videoenhancer
                         If _convertIsInterpolation Then
                             Return RunRifeTensorRtPrepare(pythonExe, rifePrepare, _convertInputPath, 1920, 1080, progress)
                         End If
-                        Return RunTensorRtConversion(pythonExe, converter, _convertInputPath, outputDir, progress)
+                        Dim inputMultiple = If(String.Equals(Path.GetExtension(_convertInputPath), ".onnx", StringComparison.OrdinalIgnoreCase),
+                                               ReadConverterInputMultiple(_config.ExePath, _convertInputPath), 1)
+                        Return RunTensorRtConversion(pythonExe, converter, _convertInputPath, outputDir, progress, inputMultiple)
                     End Function)
                 If result.Item1 = 0 Then
                     Dim enginePath = LastEnginePath(result.Item2)
@@ -289,7 +294,17 @@ Namespace videoenhancer
             End Try
         End Sub
 
-        Private Shared Function RunTensorRtConversion(pythonExe As String, converter As String, inputPath As String, outputDir As String, progress As Action(Of String)) As Tuple(Of Integer, String)
+        Private Shared Function ReadConverterInputMultiple(exePath As String, inputPath As String) As Integer
+            ' 复用 CLI 的内置/用户能力解析，不在插件中另维护一份模型约束。
+            Dim modelsRoot = Path.Combine(Path.GetDirectoryName(exePath), "models")
+            Dim modelId = Path.ChangeExtension(Path.GetRelativePath(modelsRoot, Path.GetFullPath(inputPath)), Nothing).Replace("\"c, "/"c)
+            Dim item = ModelCatalogClient.RunModelCatalog(exePath, "--list-model-catalog", "-backend", "tensorrt").
+                FirstOrDefault(Function(model) String.Equals(model.Id, modelId, StringComparison.OrdinalIgnoreCase))
+            Return If(item Is Nothing, 1, Math.Max(1, item.InputMultiple))
+        End Function
+
+        Private Shared Function CreateTensorRtConversionStartInfo(pythonExe As String, converter As String, inputPath As String,
+                                                                 outputDir As String, inputMultiple As Integer) As ProcessStartInfo
             Dim psi As New ProcessStartInfo With {
                 .FileName = pythonExe,
                 .WorkingDirectory = Path.GetDirectoryName(converter),
@@ -305,6 +320,16 @@ Namespace videoenhancer
             psi.ArgumentList.Add(inputPath)
             psi.ArgumentList.Add("--output-dir")
             psi.ArgumentList.Add(outputDir)
+            If String.Equals(Path.GetExtension(inputPath), ".onnx", StringComparison.OrdinalIgnoreCase) Then
+                psi.ArgumentList.Add("--input-multiple")
+                psi.ArgumentList.Add(Math.Max(1, inputMultiple).ToString(Globalization.CultureInfo.InvariantCulture))
+            End If
+            Return psi
+        End Function
+
+        Private Shared Function RunTensorRtConversion(pythonExe As String, converter As String, inputPath As String, outputDir As String,
+                                                      progress As Action(Of String), inputMultiple As Integer) As Tuple(Of Integer, String)
+            Dim psi = CreateTensorRtConversionStartInfo(pythonExe, converter, inputPath, outputDir, inputMultiple)
             Using child As Diagnostics.Process = Diagnostics.Process.Start(psi)
                 If child Is Nothing Then Return New Tuple(Of Integer, String)(1, "无法启动模型转换进程")
                 Dim output As New StringBuilder()

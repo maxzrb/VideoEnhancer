@@ -30,7 +30,7 @@ class ModelCapabilityManifestTests(unittest.TestCase):
         expected = {
             "ncnn": 21,
             "cuda": 47,
-            "tensorrt": 41,
+            "tensorrt": 69,
             "onnx": 28,
             "flashvsr": 1,
             "basicvsrpp": 1,
@@ -40,6 +40,11 @@ class ModelCapabilityManifestTests(unittest.TestCase):
             for backend in expected
         }
         self.assertEqual(expected, actual)
+
+    def test_onnx_candidates_keep_onnx_runtime_and_allow_tensorrt(self):
+        for item in self.models:
+            if item["model"].startswith("ONNX/"):
+                self.assertEqual({"onnx", "tensorrt"}, set(item["backends"]))
 
     def test_empirical_input_constraints_are_recorded(self):
         constrained = {

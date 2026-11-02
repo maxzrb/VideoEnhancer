@@ -1,11 +1,15 @@
 # Project Status
 
-Last updated: 2026-11-02 20:17
+Last updated: 2026-11-02 20:43
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-02 20:43：**1.3.15正式发布及验收完成。** [GitHub Release](https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.3.15)为Latest，五项冻结资产；ModelScope Releases运行白名单六文件与Models备用EXE同步，源码仅GitHub。发行源码/注释标签21436b7已atomic推送；十项远端实际下载大小/SHA256、正文/双清单/目录白名单、更新回退分支隔离检查均通过。后端逐文件审计UNCHANGED，保持2026.09.30.1，不上传Python/RTX/权重或空channel。本机正式1.3.15已升级，45文件一致、5保护项/157模型保持、API11及ONNX目录/HAT约束通过。未启动宿主，由用户重开；ARM及旧低显存问题保留。收尾文档普通提交推送后核对干净与远端一致。
+
+- 2026-11-02 20:32：1.3.15已公开GitHub Latest，ModelScope本版运行白名单六文件及Models备用EXE同步成功，登录由用户刷新后恢复。五资产已冻结、源码和v1.3.15标签21436b7已atomic推送；必要发行门禁/安装回滚/Burn/预览等均通过，后端逐文件UNCHANGED。九项远端实下载hash通过，GitHub独立源码ZIP下载复验中，尚不作完整远端验收完成声明。本机正式1.3.15已升级，45文件/5保护项/157模型保持、API11与目录约束通过；未启动宿主。
 
 - 2026-11-02 20:17：用户明确授权“发布新release，版本号Z+1”，由1.3.14递增至1.3.15；两项目Version、分类Release Notes及版本历史已准备。启动main/origin/main=12e0997且干净，v1.3.15尚未存在。按既有发布流程执行后端真实目录逐文件审计、完整构建/必要门禁、冻结五资产、源码/标签及双源发布校验。ModelScope新CLI返回401，旧SDK无有效会话，已请用户本机重新登录，构建准备继续；不能提前宣称发布完成。
 
@@ -155,7 +159,7 @@ Updated by: Codex
 
 ## Active TODO
 
-- [ ] 正式发布1.3.15：版本与说明、后端审计、完整构建/必要门禁、GitHub五资产及ModelScope运行镜像、远端实下载hash和本机升级验收；ModelScope凭据待用户刷新。
+- [x] 正式发布1.3.15：源码/标签、五项GitHub资产、运行镜像、十项实下载hash、回退分支隔离验证与本机正式升级完成；ModelScope登录已由用户刷新并验收上传。
 
 - [ ] 用户重开本机3FUI验收PR13默认编码/HDR状态、PR14 VMAF模型列表、PR15 ONNX TensorRT选择/自动与手动转换；候选已部署，文件/脚本/保护项校验通过，尚未实际宿主窗口验收。
 
@@ -263,6 +267,8 @@ Updated by: Codex
 
 ## Environment Notes
 
+- 2026-11-02 20:43当前本机正式安装：C:/Program portable/3FUI/3FUI，宿主6.2.43、插件1.3.15。CLI SHA256=ab22799b2ef371203082934b765c3cedec91abcf40d1315531f5d23541a2bd28；DLL SHA256=efa52f0ccd84ceaf21b6a25b5667e42b177778c085fcb4c5a56adbc4cf16e25e。备份C:\Codex Program\3fui plugin\Artifacts\release-1.3.15\local-install\backup-20261102-203059，45文件与正式ZIP一致、5项保护和157模型保持。当前ModelScope CLI经用户重新login后以AerithDream身份上传成功；旧git凭据不适用于新OpenAPI，未在文件/日志存储令牌。GitHub源码附件单连接和旧缓存下载较慢，使用系统证书校验及新的HTTP范围请求分段实下载完成，不关闭TLS校验；临时回退测试服务已停止。
+
 - 2026-11-02 20:04当前本机安装：C:/Program portable/3FUI/3FUI，宿主6.2.43、PR13/14/15合并产品2edcfb1本地测试版1.3.14。EXE SHA256=e1f16c16bcd09ac8f670ff30da662679ca3c3606a3bc07c20cf0ba52b8e3c423，插件DLL SHA256=74db883c6080382e07aa0f0f360ce2656d53e46cca41368c7420f269cda44f1f。备份C:/Codex Program/3fui plugin/Artifacts/pr13-pr15-merged/local-install/backup-20261102-200411，含45载荷目标原文件和15个CLI管理/兼容脚本；本条优先于旧正式1.3.14安装hash记录。
 
 - 2026-11-02 19:33现场复查：pwsh7、.NET SDK10.0.403、系统Python3.14.6；当前本机宿主程序集6.2.43，优先于旧6.2.38环境描述。只从本机EXE提取托管程序集到Artifacts/pr-review-20261102/host独立加载，不操作用户宿主实例。GPU小图探针使用已安装便携Python及torch2.9.0+cu130、onnx1.22.0、TensorRT10.12.0.36和RTX3060 Laptop；PYTHONDONTWRITEBYTECODE=1，输出都在项目内，无依赖/正式安装修改。
@@ -330,6 +336,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-11-02 20:43：发行源码21436b7、注释标签v1.3.15已atomic普通推送origin/main；GitHub正式Release已公开，ModelScope运行镜像同步。正式资产保持冻结，不移动标签或重打公开包；本条/中文进度/版本记录仅文档收尾，随后普通commit/push并核对本地远端SHA一致和干净工作树。
 
 - 2026-11-02 20:04：同工具续接，git pull --ff-only已最新，main/origin/main=94091e1且启动干净；部署使用产品2edcfb1的已验证候选（94091e1之前仅操作文档变化）。本轮不改产品源码/版本，只补STATUS、中文进度和报告部署记录；随后普通commit/push并核对工作树干净、本地远端一致，无需额外源码提交。
 
@@ -1073,3 +1081,17 @@ git diff --check
 - GitHub凭据可用；当前ModelScope新CLI没读取旧会话，复用已存git凭据仍被OpenAPI返回401，SDK无有效cookie。已异步请用户本机modelscope login，无令牌写入文件/日志，等待期间继续本地准备。
 - 对本机后端创建项目内只读硬链接快照，九个CLI内嵌覆盖脚本逐字节对当前源码确认后在快照解除链接、恢复已发布后端基线；不改真实安装。独立后端逐文件审计进行中，是否重发依据实际结果，不以两个相同目录跳过。
 - 版本/说明与记录将提交保存；尚未上传、打标签或发布，现有本机1.3.14候选保持。后续保存发行验证/双源校验与本机版本状态，结束前必须更新STATUS及中文进度、核对Git同步。
+
+### 2026-11-02 20:43 Codex：1.3.15正式发行、双源验收及本机升级
+
+- 用户授权发布新Release、Z+1及会话内既有本机部署，按1.3.14→1.3.15执行，不覆盖旧版本；HandShake/AGENTS/INDEX/STATUS与发布流程已读取，无子代理或重复发布确认。版本准备21436b7含两项目Version、逐行分类说明和保留完整1.3.14历史的版本记录；main和注释标签v1.3.15以atomic普通推送，标签固定21436b7。
+- 功能：PR13默认SVT y412编码与提前检查、HDR保存/入队状态；PR14 VMAF内置模型恢复；PR15 ONNX TensorRT选择/自动编译/缓存。包含数字第0路编码器保留和手动转换统一尺寸倍数补修，相关产品代码已在前序2edcfb1通过实际GPU小视频、缓存与手动约束图检查；本轮只改版本/说明，不冒称重新完成全模型或长视频性能验收。
+- 后端：对本机真实目录创建项目内只读硬链接快照，9个CLI管理脚本逐字节等于当前资源后解除快照链接、恢复已发布后端基线，原安装未改。prepare-backend-update逐文件SHA审计UNCHANGED；独立Backend仍2026.09.30.1，不上传Python/RTX/模型或新channel。快照、覆盖说明与审计在Artifacts/release-1.3.15。
+- 构建：build-modelscope-release完整solution publish及110项源码/二进制/隔离安装/API11通过；WiX在最终冻结前显式-t:Rebuild并更新本地分发/镜像暂存，Burn真实安装hash/回滚/无缓存登记通过。安装两宿主名、自更新/保护组件/回滚由发布脚本再次通过，资产均来自本版最终载荷。
+- 必要门禁：release-gates、backend-updater、ordered-backend Python、下载队列/组件状态/队列UI、宿主24项、滚动/DPI/倍率UI、图片参数/错误、29预览、双LakeUI5.110/5.112 GPU换图、22模型/导入/HDR Python、转换7项与Python脚本语法均通过；checks-summary.txt及日志留项目内。不运行旧1.1.0的历史大矩阵或新增长视频测速。
+- 认证：新ModelScope CLI开始未读到有效OpenAPI凭据，复用旧git token被401拒绝，SDK无有效会话，已向用户请求本机登录并继续构建。用户回复“已登录”后whoami=AerithDream，上传正常完成；不把令牌写入脚本、日志或仓库。
+- 发布：GitHub Latest=v1.3.15，非草稿/非预发行，正文与stable notes逐字一致，五项正式资产。ModelScope本版运行目录恰3文件，白名单上传恰六文件（运行3+stable/说明/README），模型页Plugin/videoenhancer.exe同步；完整项目/第三方对应源码ZIP仅GitHub，未上传历史资产或删除旧文件。
+- 远端：GitHub5、ModelScope4、Models备用EXE共10项实际下载大小/SHA256与asset-hashes.json完全一致。Github源码ZIP初始aria2/gh单连接下载停滞，已结束本轮自己的停滞进程；使用pip随带truststore调用系统证书，新的HTTP Range请求分段取回后按完整大小/SHA核验成功，不关闭TLS、不以API digest替代实下载。ModelScope README优先级/无源码约定及后端channel仍2026.09.30.1/两条历史补丁通过。
+- 回退：实际插件故障注入时GitHub查询失败读取线上ModelScope 1.3.15清单成功；ModelScope包失败后进入Github下载分支，以本地隔离端点提供已从GitHub实际下载并验SHA的正式EXE，插件最终SHA校验通过。不能将该隔离分支测试称为真实线上Github单流回退端到端通过；临时18877服务已停止。
+- 本机：正式1.3.15已使用最终内部便携载荷备份后安装，45文件逐项SHA对正式ZIP一致、5保护项hash及157模型清单/大小/时间保持，CLI --version/API11/28项ONNX目录/HAT倍数16通过。配套9脚本均匹配资源，15脚本备份及变化记录齐全；没有更换Python包/RTX/权重，没有启动3FUI。备份C:\Codex Program\3fui plugin\Artifacts\release-1.3.15\local-install\backup-20261102-203059，证据local-install/local-deployment.json。
+- 本文件快照/TODO/Git/环境、中文进度和版本记录已更新；仅文档收尾提交推送，最后核对主工作树干净及远端SHA。发行标签不移动，公开资产不再构建覆盖；工作将保存，无需用户额外提交，后续新工作可先考虑Git提交。ARM原生宿主/架构保护、旧6GB/1080p/4x保存OOM及同条件旧新版性能差异仍保留。

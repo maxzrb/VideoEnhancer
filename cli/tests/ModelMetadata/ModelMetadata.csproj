@@ -10,5 +10,6 @@
     <Compile Include="../../ModelArchitectureGroups.cs" Link="ModelArchitectureGroups.cs" />
     <Compile Include="../../CliArgumentParser.cs" Link="CliArgumentParser.cs" />
     <Compile Include="../../CliOptions.cs" Link="CliOptions.cs" />
+    <Compile Include="../../VideoEncodingDefaults.cs" Link="VideoEncodingDefaults.cs" />
   </ItemGroup>
 </Project>

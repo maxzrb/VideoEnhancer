@@ -26,7 +26,9 @@ internal static class VideoEncodingDefaults
         for (var i = 0; i + 1 < tokens.Count; i++)
         {
             var option = tokens[i];
-            if (option is "-c" or "-codec" or "-vcodec" || option.StartsWith("-c:v", StringComparison.Ordinal)
+            // 后端固定将增强视频映射为输出第 0 路；后续数字流是音频/字幕，不能抑制视频兜底。
+            if (option is "-c" or "-codec" or "-vcodec" or "-c:0" or "-codec:0"
+                || option.StartsWith("-c:v", StringComparison.Ordinal)
                 || option.StartsWith("-codec:v", StringComparison.Ordinal))
                 encoder = tokens[++i];
         }

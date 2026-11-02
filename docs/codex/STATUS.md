@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-10-20 16:16
+Last updated: 2026-11-02 19:33
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-02 19:33：新 Codex 会话审查当前三个 OPEN PR，报告 [PR13–15审核](../pr13-pr15-review.md)。固定头 #13 ea56d0b、#14 22f0540、#15 9cefb61；#13 数字输出流编码器被兜底覆盖、#15 手动 ONNX 转换漏传尺寸倍数，各一项 P2，建议修正后合并；#14 本轮未发现阻挡项，实际宿主6.2.43独立进程恢复24模型项并保留AUTO。三插件普通Release构建及必要定向回归通过，两CLI仅托管构建，不等同发行打包。主线产品未改，未远端评论/合并/部署/发布；报告与两份记录未提交，工作树非干净，版本仍1.3.14。
 
 - 2026-10-20 16:16：**1.3.14已正式发行并验收**：[GitHub Release](https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.3.14)，五项资产及ModelScope Releases/Models备用EXE同步；发行源码及注释标签6fe8545。10项远端实下载大小/SHA256、双源故障回退分支隔离检查、完整安装/回滚/Burn及预览门禁通过。本机正式1.3.14完整部署45文件一致，5项保护配置/组件及157模型清单保持、FFF API11通过；未启动宿主，实际图片/预览仍待用户重开验收。独立Backend 2026.09.30.1审计UNCHANGED，未重发Python/RTX/模型。VMAF自动枚举、ARM和旧低显存问题保留。收尾记录普通提交推送后核对干净工作树。
 
@@ -143,6 +145,10 @@ Updated by: Codex
 
 ## Active TODO
 
+- [ ] PR13：识别合法数字输出流编码器选项 `-c:0` / `-codec:0`，避免覆盖用户明确编码；审核已复现，尚未实施修复。
+- [ ] PR15：手动ONNX转换复用能力清单并传入 `--input-multiple`；无metadata约束图GPU失败/对齐成功已复现，尚未实施修复。
+- [x] 审查PR13/14/15固定头，报告docs/pr13-pr15-review.md；PR14实际宿主6.2.43模型补全入口及既有24项HostRuntime通过。旧VMAF待办在合并部署前继续保留。
+
 - [x] 正式发布1.3.14：源码/标签、五项GitHub资产、运行镜像、远端十项hash、双源故障回退分支隔离检查与本机正式升级完成。
 
 - [x] 用户授权提交前述两组修复：d7441ae、99ed3d9，已随main推送并包含于1.3.14。
@@ -243,6 +249,8 @@ Updated by: Codex
 
 ## Environment Notes
 
+- 2026-11-02 19:33现场复查：pwsh7、.NET SDK10.0.403、系统Python3.14.6；当前本机宿主程序集6.2.43，优先于旧6.2.38环境描述。只从本机EXE提取托管程序集到Artifacts/pr-review-20261102/host独立加载，不操作用户宿主实例。GPU小图探针使用已安装便携Python及torch2.9.0+cu130、onnx1.22.0、TensorRT10.12.0.36和RTX3060 Laptop；PYTHONDONTWRITEBYTECODE=1，输出都在项目内，无依赖/正式安装修改。
+
 - 2026-10-20 16:16当前安装：C:/Program portable/3FUI/3FUI，宿主6.2.38，正式插件1.3.14。CLI SHA256=5f236644884228834d51f8f0716db0e055e55b60cbf42e31f26fd7052ea38133，插件DLL SHA256=e369f39f5e36892ccc515a18b1308ee4f6a3967db324948419bb93bac3db6916；备份及45文件部署证据见Artifacts/release-1.3.14/local-install，本条优先于旧版本安装记录。
 
 - 2026-10-20 16:16：本机代理127.0.0.1:7897使GitHub资产TLS报10053，远端验收使用requests.trust_env=False及aria2无代理分段实下载通过，不改系统代理；.NET空代理单流下载仍受限，回退分支用隔离端点验证。aria2构建上游连接不稳定，复用锁定SHA的项目缓存经本地HTTP供MSBuild读取，固定hash仍强制验证，服务已关闭。
@@ -306,6 +314,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-11-02 19:33：启动git pull --ff-only已最新，main=origin/main=a4f4bf0且原工作树干净；fetch三个PR固定头并在Artifacts/pr13-review、pr14-review、pr15-review建立detached工作树。三组两两merge-tree无冲突，未实际合并。收尾只有docs/pr13-pr15-review.md及STATUS/中文进度记录未提交；PR工作树跟踪文件未改且已将临时日志移回主项目忽略目录，建议继续/切换工具前考虑Git提交。
 
 - 2026-10-20 16:16：main和v1.3.14已atomic普通推送origin，发行标签固定6fe8545；五项正式资产已公开。仅文档收尾待普通提交推送；不移动标签、不重打已公开资产，完成后核对远端HEAD及工作树。
 
@@ -991,3 +1001,14 @@ git diff --check
 - 本机：C:\Program portable\3FUI\3FUI正式升级1.3.14，45文件与最终ZIP逐项hash一致，5保护项与157模型清单/大小/时间保持，CLI --version和FFF API11通过。备份C:\Codex Program\3fui plugin\Artifacts\release-1.3.14\local-install\backup-20261020-155804；证据Artifacts/release-1.3.14/local-install/local-deployment.json。未自动启动3FUI，用户实际窗口验收待完成。
 - 边界：VMAF内置模型自动枚举、原生ARM宿主支持/架构保护、6GB/1080p/4x保存OOM及旧版同条件性能差异未解决；不把原生FFmpeg转发等同全部质量评测修复。
 - 收尾：本文件快照/TODO/Git/环境和本条、中文工作进度及版本记录更新，随后普通commit/push记录并核对主工作树干净、远端HEAD一致；无需额外保存本轮改动，后续新工作再考虑Git提交。发行标签保持6fe8545。
+
+### 2026-11-02 19:33 Codex：审查PR13、PR14、PR15
+
+- 按用户“审查一下几个pr”，使用AGENTS、INDEX、STATUS与HandShake定位为新Codex会话。git pull --ff-only已最新，main/origin/main=a4f4bf0、启动干净。GitHub连接器列出三个OPEN PR并取固定SHA；commit statuses为空，不宣称远端CI通过。
+- 审查头：#13 ea56d0b99969dd9bd429afbdc750447a6e123aee；#14 22f05408ac91c03c22b8b58f61f0e43b883d2e14；#15 9cefb618fd5e3ff9842eea452e11974e43ad5bc9。git fetch后在项目Artifacts内detached检出，主线产品未修改；三组git merge-tree --write-tree均无冲突，没有实际合并或组合运行。
+- #13 P2：VideoEncodingDefaults仅识别:v形式，合法-c:0/-codec:0被误判并追加SVT覆盖。PR CLI --debug-split复现，两种数字选项均错误追加、-c:v:0对照正常；真实FFmpeg -c:0 ffv1及ffprobe确认该选项有效。
+- #15 P2：新手动ONNX入口不读能力约束，现有RunTensorRtConversion只传输入/输出目录，不传input-multiple。四个RealHatGAN清单声明16、实际metadata为空且高宽动态；默认1080不满足。无metadata/16倍数动态小图经PR真实转换器GPU在64x56失败，传--input-multiple16后64x64构建序列化成功；未完整编译四个大型模型，不将小图验证扩大为全部模型验收。
+- #14无已发现阻挡项。现场宿主已6.2.43；从正式EXE读取托管程序集至项目忽略目录，用独立进程实例化真实评测控件、新DLL RepairAsync和真实FFmpeg，17原始标识恢复24个可用项且AUTO保持。首次探针传斜杠路径被一致性保护拒绝，改用与生产Resolver同样规范化路径后通过，不计为产品缺陷。既有24项HostRuntime通过，未重复完整评分/全部竞争场景。
+- 构建：三个普通Release插件均0警告0错误，固定FFF缓存2026.8.19经SHA校验；首次错误指定8.19导致下载失败，纠正路径后通过。#13/#15 CLI DesignTimeBuild=true/SelfContained=false托管构建0警告0错误，不称完整发行包；#15能力6项/用户导入9项通过。未执行长视频/GPU吞吐或大型模型压力测试。
+- 报告docs/pr13-pr15-review.md及本文件快照/TODO/环境/Git/本会话、version/工作进度.md已更新；版本仍1.3.14，不改版本迭代记录。证据/独立探针/程序集/Engine在Artifacts/pr-review-20261102；不纳入Git，不覆盖安装/模型/后端。
+- 最后执行git diff --check、UTF8/原字节保留与Git状态检查。主线未提交报告及两份记录，工作树非干净；PR工作树产品文件保持不变。未GitHub评论/审核提交、修复、合并、提交/推送、部署或发布；建议修正#13/#15后复核，继续或切换工具/设备前考虑Git提交保存审查记录。

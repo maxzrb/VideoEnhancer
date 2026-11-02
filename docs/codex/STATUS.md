@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-02 20:04
+Last updated: 2026-11-02 20:17
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-02 20:17：用户明确授权“发布新release，版本号Z+1”，由1.3.14递增至1.3.15；两项目Version、分类Release Notes及版本历史已准备。启动main/origin/main=12e0997且干净，v1.3.15尚未存在。按既有发布流程执行后端真实目录逐文件审计、完整构建/必要门禁、冻结五资产、源码/标签及双源发布校验。ModelScope新CLI返回401，旧SDK无有效会话，已请用户本机重新登录，构建准备继续；不能提前宣称发布完成。
 
 - 2026-11-02 20:04：**已按用户要求将PR13/14/15及两项补修部署到本机3FUI测试。** 安装位置C:/Program portable/3FUI/3FUI，宿主6.2.43，插件仍显示1.3.14（本地候选、非新Release）。复用已验证的产品2edcfb1完整载荷，45文件与ZIP逐项SHA一致、5保护文件hash及157模型清单/大小/时间不变，CLI版本/FFF API11通过。已备份15个CLI管理/兼容脚本后，经安装EXE轻量目录入口同步，仅ONNX预检与TensorRT转换器两脚本更新，其余兼容源码保持；28项ONNX目录/HAT尺寸约束16确认。未启动宿主，由用户重开测试。备份及证据见Artifacts/pr13-pr15-merged/local-install，部署记录收尾提交推送后核对干净及远端同步。
 
@@ -152,6 +154,8 @@ Updated by: Codex
 - 保留现有 WiX Burn 6.0.2 窗口；链仅含 Permanent EXE，Cache=remove，默认 Burn 日志关闭，/log 诊断保留。实测正常成功/正常失败后无本次载荷缓存、Bundle 缓存、临时卸载和依赖登记。不是 MSI；旧缓存及异常强杀/断电、Windows 自身记录不保证清零。
 
 ## Active TODO
+
+- [ ] 正式发布1.3.15：版本与说明、后端审计、完整构建/必要门禁、GitHub五资产及ModelScope运行镜像、远端实下载hash和本机升级验收；ModelScope凭据待用户刷新。
 
 - [ ] 用户重开本机3FUI验收PR13默认编码/HDR状态、PR14 VMAF模型列表、PR15 ONNX TensorRT选择/自动与手动转换；候选已部署，文件/脚本/保护项校验通过，尚未实际宿主窗口验收。
 
@@ -1061,3 +1065,11 @@ git diff --check
 - 部署EXE hash=e1f16c16bcd09ac8f670ff30da662679ca3c3606a3bc07c20cf0ba52b8e3c423；插件DLL hash=74db883c6080382e07aa0f0f360ce2656d53e46cca41368c7420f269cda44f1f。完整证据local-deployment.json，包含所有目标before/after/expected及脚本变化、保护项和备份位置。
 - 没有启动3FUI，由用户重开实际测试HDR/默认编码、VMAF模型和ONNX TensorRT。仍为1.3.14本地候选，不创建或覆盖远端Release/tag，不改版本迭代记录；已有合并测试结论不等同用户宿主可视验收。
 - STATUS当前快照/环境/TODO/Git及本会话、中文工作进度和审核报告已补部署结果。git diff --check、UTF8与历史会话保持校验后普通commit/push，最终确认本地远端SHA一致且工作树干净；工作会保存提交，用户无需重复提交，继续或切换设备前可核对Git状态。
+
+### 2026-11-02 20:17 Codex：准备1.3.15正式发布
+
+- 用户明确发布新Release并要求Z+1，按当前SemVer1.3.14递增补丁号为1.3.15；同工具续接，读取AGENTS/INDEX/STATUS、HandShake和release/发布流程.md，用户实施方向明确不重复确认。git pull --ff-only最新、main12e0997干净，远端最新v1.3.14且v1.3.15不存在。
+- 两项目Version同步1.3.15，分类说明涵盖PR13/14/15及两项补修，原1.3.14当前版本记录完整移入历史。准备先保存版本提交，再完整构建及必要门禁，冻结五资产后发布，不覆盖已公开旧版。
+- GitHub凭据可用；当前ModelScope新CLI没读取旧会话，复用已存git凭据仍被OpenAPI返回401，SDK无有效cookie。已异步请用户本机modelscope login，无令牌写入文件/日志，等待期间继续本地准备。
+- 对本机后端创建项目内只读硬链接快照，九个CLI内嵌覆盖脚本逐字节对当前源码确认后在快照解除链接、恢复已发布后端基线；不改真实安装。独立后端逐文件审计进行中，是否重发依据实际结果，不以两个相同目录跳过。
+- 版本/说明与记录将提交保存；尚未上传、打标签或发布，现有本机1.3.14候选保持。后续保存发行验证/双源校验与本机版本状态，结束前必须更新STATUS及中文进度、核对Git同步。

@@ -472,6 +472,7 @@ Namespace videoenhancer
 
         Private Sub OnQueueMenuTick(sender As Object, e As EventArgs)
             QueueHook.AttachQueueMenu()
+            If _config.Enabled Then QualityAssessmentCompatibility.Poll(_config.ExePath)
         End Sub
 
         Private Async Sub StartAutomaticUpdateCheck()

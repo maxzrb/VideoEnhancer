@@ -53,13 +53,15 @@ def convert_onnx(args, source, device):
         raise ValueError("TensorRT conversion requires a self-contained ONNX file; merge external weights first")
     metadata = {value.key: value.value for value in model.metadata_props}
     multiple = max(1, args.input_multiple, int(metadata.get("input_multiple", "1")))
+    # Windows 原生文件接口可能误读中文路径；自包含模型直接从内存解析。
+    serialized_model = model.SerializeToString()
     del model
     logger = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(logger)
     network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
     parser = trt.OnnxParser(network, logger)
     print("VIDEOENHANCER_TRT_PROGRESS|TensorRT Engine|5|解析 ONNX", flush=True)
-    if not parser.parse_from_file(source):
+    if not parser.parse(serialized_model):
         raise ValueError("TensorRT ONNX parse failed: " + "\n".join(
             str(parser.get_error(index)) for index in range(parser.num_errors)
         ))

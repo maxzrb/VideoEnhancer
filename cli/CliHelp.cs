@@ -50,8 +50,8 @@ internal static class CliHelp
         writer.WriteLine("  -interp-factor <N>  补帧倍率（帧率倍数，默认 2，需大于 1）");
         writer.WriteLine("  -process-order <upscale-first|interp-first>  组合处理顺序；默认 upscale-first");
         writer.WriteLine("        画质优先：先超分，再补帧。速度/算力优先：先补帧，再超分。");
-        writer.WriteLine("  -upscale-precision <auto|float16|float32>  超分精度；默认 auto（FP16 优先，必要时回退）");
-        writer.WriteLine("  -interp-precision <auto|float16|float32>  补帧精度；默认 auto（FP16 优先，必要时回退）");
+        writer.WriteLine("  -upscale-precision <auto|float16|float32>  超分精度；默认 auto（FP32；FlashVSR 优先 FP16）");
+        writer.WriteLine("  -interp-precision <auto|float16|float32>  补帧精度；默认 auto（FP32）");
         writer.WriteLine("        同后端组合也会分别应用两种精度，在内存中转换张量，不产生额外 FFV1 中间视频。");
         writer.WriteLine("  -interp-backend <ncnn|cuda|tensorrt>  可选的独立补帧后端；RIFE 实际支持 NCNN、CUDA/PyTorch、TensorRT");
         writer.WriteLine("  -scene-threshold <N>  转场检测阈值（RVE 官方外部 0-10 标尺；数值越低越敏感，默认 4）");
@@ -63,7 +63,7 @@ internal static class CliHelp
         writer.WriteLine("        cuda 使用 .pth/.pt/.pkl/.ckpt/.safetensors；tensorrt 接受可转换权重，缺少缓存时会自动构建；");
         writer.WriteLine("        TensorRT 缓存名包含 GPU、TensorRT 版本、输入尺寸和源模型摘要；onnx 使用 .onnx；");
         writer.WriteLine("        超分与补帧可同时指定；同一后端逐帧执行，跨后端才使用 FFV1 无损中间视频；");
-        writer.WriteLine("        SDR 内部为 8-bit RGB；PQ/HLG 使用 16-bit RGB，且仅支持 CUDA/PyTorch 或 TensorRT");
+        writer.WriteLine("        前端中间文件使用 16-bit RGB；高位深处理还需配套后端及对应输出编码格式");
         writer.WriteLine("  -rtx-target <规格>  RTX VSR 输出规格：1x/1.5x/2x/3x/4x 或 1080p/1440p/2160p/4320p；最大 4x，输出边长取偶数");
         writer.WriteLine("  -rtx-quality <1-4>  RTX VSR 质量等级，默认 3");
         writer.WriteLine("  -rtx-hdr            启用 RTX Video HDR；输入已是 PQ/HLG 时会拒绝重复映射");

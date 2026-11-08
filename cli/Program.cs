@@ -1782,8 +1782,19 @@ internal static class Program
         }
     }
 
+    private static bool BackendProvidesHighBitDepthScripts() =>
+        File.Exists(Path.Combine(CoreRoot, "python", "backend", "src", "utils", "PixelFormat.py"));
+
     private static string EnsureEmbeddedFile(string resourceName, string fileName)
     {
+        if (BackendProvidesHighBitDepthScripts()
+            && fileName is "rve-ordered-backend.py" or "rve-segmented-backend.py")
+        {
+            var backendPath = Path.Combine(CoreRoot, "python", "backend", fileName);
+            if (!File.Exists(backendPath))
+                throw new FileNotFoundException("高位深后端缺少处理脚本，请完整安装配套后端：" + fileName, backendPath);
+            return backendPath;
+        }
         var directory = PortablePaths.EmbeddedToolsRoot(ToolVersion);
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, fileName);
@@ -1813,6 +1824,8 @@ internal static class Program
     {
         var backendDirectory = Path.Combine(CoreRoot, "python", "backend");
         if (!Directory.Exists(backendDirectory)) return;
+        // 新后端的入口、转换器和兼容修补一起分发，保留其高位深帧协议。
+        if (BackendProvidesHighBitDepthScripts()) return;
         try
         {
             InstallEmbeddedBackendScript(EmbeddedInterpolationInspectorResource, InterpolationInspectorScript);
@@ -2903,7 +2916,7 @@ internal static class Program
     private static string DefaultInterpBackend(string upscaleBackend) =>
         upscaleBackend is "cuda" or "tensorrt" ? upscaleBackend : "ncnn";
 
-    /// <summary>规范化用户请求的推理精度；auto 表示优先半精度并保留后端回退。</summary>
+    /// <summary>规范化用户请求的推理精度；auto 表示优先 FP32；半精度开关通过显式 float16 请求。</summary>
     private static string NormalisePrecisionOption(string value, string optionName)
     {
         var precision = (value ?? "auto").Trim().ToLowerInvariant();
@@ -2916,13 +2929,13 @@ internal static class Program
     {
         "float32" => "FP32（强制）",
         "float16" => "FP16（强制）",
-        _ => "FP16 优先（不兼容时回退 FP32）",
+        _ => "FP32（自动；FlashVSR 优先 FP16）",
     };
 
     /// <summary>超分精度独立决策：用户强制 FP32 优先，已知 FP16 数值不稳定的模型保持 FP32。</summary>
     private static string ResolveUpscalePrecision(string modelPath, string backend, string requested)
     {
-        if (requested == "float32") return "float32";
+        if (requested == "float32" || (requested == "auto" && backend != "flashvsr")) return "float32";
         // DAT2 与 AniToon-RPLKSRL 在当前 PyTorch/CUDA FP16 路径会直接输出 NaN；
         // 后续转字节会把 NaN 隐式变为黑值，因此不能依赖编码阶段发现问题。
         if (backend == "cuda" && Regex.IsMatch(
@@ -2933,10 +2946,10 @@ internal static class Program
         return requested;
     }
 
-    /// <summary>补帧精度独立决策：GIMM 的 CUDA 路径必须使用 FP32，其他模型优先半精度。</summary>
+    /// <summary>补帧精度独立决策：GIMM 的 CUDA 路径必须使用 FP32，自动模式优先 FP32。</summary>
     private static string ResolveInterpPrecision(string? modelPath, string backend, string requested)
     {
-        if (requested == "float32") return "float32";
+        if (requested is "auto" or "float32") return "float32";
         if (backend == "cuda" && Regex.IsMatch(ModelBaseName(modelPath ?? ""), @"GIMM", RegexOptions.IgnoreCase))
             return "float32";
         return requested;
@@ -3998,7 +4011,7 @@ internal static class Program
         }
         else
         {
-            args.AddRange(new[] { "-an", "-sn", "-c:v", "ffv1", "-level", "3", "-pix_fmt", "rgb24" });
+            args.AddRange(new[] { "-an", "-sn", "-c:v", "ffv1", "-level", "3", "-pix_fmt", "gbrp16le" });
         }
         args.Add(output);
 
@@ -4093,7 +4106,7 @@ internal static class Program
         args.Add(expectedFrames.ToString(CultureInfo.InvariantCulture));
         args.AddRange(new[]
         {
-            "-an", "-sn", "-c:v", "ffv1", "-level", "3", "-pix_fmt", "rgb24",
+            "-an", "-sn", "-c:v", "ffv1", "-level", "3", "-pix_fmt", "gbrp16le",
             "-r", video.FrameRate.ToString("0.########", CultureInfo.InvariantCulture),
             output,
         });
@@ -4124,7 +4137,7 @@ internal static class Program
         var segmentPayload = EncodePreparedSegments(rebased);
         var encoderPayload = EncodeStringList(new[]
         {
-            "-c:v", "ffv1", "-level", "3", "-pix_fmt", "rgb24", "-an", "-sn",
+            "-c:v", "ffv1", "-level", "3", "-pix_fmt", "gbrp16le", "-an", "-sn",
         });
         var script = EnsureEmbeddedFile(EmbeddedSegmentedBackendResource, "rve-segmented-backend.py");
         var arguments = new List<string>
@@ -4152,7 +4165,7 @@ internal static class Program
         var model = distinctBackends.Count == 1 ? group[0].Model : "";
         var exit = LaunchBackend(
             arguments, sourceClip, model, outputClip,
-            "-c:v ffv1 -level 3 -pix_fmt rgb24 -an -sn",
+            "-c:v ffv1 -level 3 -pix_fmt gbrp16le -an -sn",
             stopWatcher, null, null, backend, pauseShm,
             "分段模型组", isFinalStage: false, upscalePrecision: segmentedPrecision);
         if (exit != 0) return exit;
@@ -4235,7 +4248,7 @@ internal static class Program
                 }
                 graph.Append(",setpts=PTS-STARTPTS,")
                     .Append(BuildDirectCustomFilter(segment))
-                    .Append(",setsar=1,format=rgb24[")
+                    .Append(",setsar=1,format=gbrp16le[")
                     .Append(outputLabel)
                     .Append("];");
                 customFrames += segment.End - segment.Start + 1;
@@ -4244,7 +4257,7 @@ internal static class Program
             {
                 var inputIndex = modelInputIndex[part.ModelChunkPath];
                 graph.Append('[').Append(inputIndex).Append(":v]")
-                    .Append("setpts=PTS-STARTPTS,setsar=1,format=rgb24[")
+                    .Append("setpts=PTS-STARTPTS,setsar=1,format=gbrp16le[")
                     .Append(outputLabel)
                     .Append("];");
             }
@@ -4677,7 +4690,7 @@ internal static class Program
         }
 
         var intermediate = PortablePaths.CreateWorkFilePath("pipeline", ".mkv");
-        var intermediatePixelFormat = hdrMode ? "gbrp16le" : "gbrp10le";
+        const string intermediatePixelFormat = "gbrp16le";
         var losslessEncoder = "-c:v ffv1 -level 3 -coder 1 -context 1 -g 1 -pix_fmt " +
             intermediatePixelFormat + " -c:a copy -c:s copy";
         Console.WriteLine("[管线] 两种后端格式不兼容，必须跨进程传递中间视频；使用 " +
@@ -5509,7 +5522,7 @@ internal static class Program
 
     /// <summary>GRL 的相对位置编码在 FP16 转换时混用 Float/Half，必须构建 FP32 Engine。</summary>
     private static string TensorRtPrecisionForModel(string sourcePath, string requestedPrecision = "auto") =>
-        requestedPrecision == "float32" || Regex.IsMatch(ModelBaseName(sourcePath), @"GRL", RegexOptions.IgnoreCase)
+        requestedPrecision is "auto" or "float32" || Regex.IsMatch(ModelBaseName(sourcePath), @"GRL", RegexOptions.IgnoreCase)
             ? "fp32"
             : "fp16";
 

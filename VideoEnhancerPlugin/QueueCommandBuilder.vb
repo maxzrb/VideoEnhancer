@@ -73,7 +73,7 @@ Namespace videoenhancer
                 sb.Append(" -output-scale ").Append(options.outputScale.ToString(System.Globalization.CultureInfo.InvariantCulture))
             End If
             If upscaleOn Then
-                sb.Append(" -upscale-precision ").Append(If(upscaleHalfPrecision, "auto", "float32"))
+                sb.Append(" -upscale-precision ").Append(If(upscaleHalfPrecision, "float16", "float32"))
             End If
             If String.Equals(backend, "rtxvsr", StringComparison.OrdinalIgnoreCase) AndAlso upscaleOn Then
                 sb.Append(" -rtx-target ").Append(Arg(If(String.IsNullOrWhiteSpace(rtxTarget), "2x", rtxTarget)))
@@ -91,7 +91,7 @@ Namespace videoenhancer
                 If allowMixedSegmentBackends Then sb.Append(" --allow-mixed-segment-backends")
             End If
             If interpOn Then
-                sb.Append(" -interp-precision ").Append(If(interpHalfPrecision, "auto", "float32"))
+                sb.Append(" -interp-precision ").Append(If(interpHalfPrecision, "float16", "float32"))
             End If
             Dim tileBackend = String.Equals(backend, "ncnn", StringComparison.OrdinalIgnoreCase) OrElse
                 String.Equals(backend, "cuda", StringComparison.OrdinalIgnoreCase) OrElse

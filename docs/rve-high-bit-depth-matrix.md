@@ -4,7 +4,7 @@
 
 首轮结果为614 `PASS`、11 `RESOURCE_OOM`、3 `FAIL_CONTENT`、1 `PASS_GATE`。11个OOM全部是RTX3060 Laptop 6GB运行FlashVSR时的显存边界；3个内容失败均来自TensorRT FP16 Engine输出NaN，对应FP32 Engine输出全部有限。CLI与RVE后端现已对AniToon-RPLKSRL、DAT2、GRL回退FP32，并拒绝已知模型的旧FP16 Engine。
 
-修复候选在独立目录`Artifacts/hbd-matrix-20261109-fp16fix`复验：3个原失败ID全部`PASS`，输出`gbrp16le`且逐帧约1.93万级色阶、范围约5.3万码、裁剪比例0；Ani4K-Compact与AniScale2-Refiner两个正常FP16对照仍加载FP16 Engine并通过。受管内嵌后端源码与安装副本SHA256一致，外部后端保护分支未关闭。合并本机结论为617个`PASS`/`PASS_GATE`、11个显存边界、0个已知内容失败。
+修复候选在独立目录`Artifacts/hbd-matrix-20261109-fp16fix`复验：3个原失败ID全部`PASS`，输出`gbrp16le`且逐帧约1.93万级色阶、范围约5.3万码、裁剪比例0；Ani4K-Compact与AniScale2-Refiner两个正常FP16对照仍加载FP16 Engine并通过。受管内嵌后端源码与安装副本SHA256一致，外部后端保护分支未关闭。合并本机结论为617个`PASS`、1个`PASS_GATE`、11个显存边界、0个已知内容失败。
 
 候选来自后端 `RVE-high-bit-depth-20261109-r1.zip` 和前端 `VideoEnhancer-1.3.15-rgb48-pr17-candidate-20261109.zip`，沿用 1.3.15 版本号。测试入口为 [high_bit_depth_matrix.py](../cli/tests/high_bit_depth_matrix.py)。原安装、配置、模型权重不覆盖；隔离目录为本机 `Artifacts/hbd-matrix-20261109`。
 

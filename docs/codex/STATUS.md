@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-09 20:57
+Last updated: 2026-11-09 21:19
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-09 21:19：**模型下载页重复显示两条“Backend 后端”的问题已修复并提交。** 原因不是双源发布，而是远端仍保留 `Backend/python_20261109.7z` 和 `Backend/python_20261109_2.7z` 两个完整包；CLI普通模型列表把它们都返回，下载页又按后端状态改写成相同名称。现已让CLI从普通模型列表排除全部 `Backend/*`，页面固定从 `--backend-status` 合成唯一一条 `Backend/update` 更新项，并继续兼容旧CLI错误返回的后端文件。CLI与插件均0警告0错误，定向下载目录契约通过；重建CLI真实远端列表的 `BACKEND_ROWS=0`。修复提交d4f4593，尚未提升版本或发布；保留给下个版本统一合入发行，公开v1.3.17资产不改写。
 
 - 2026-11-09 20:57：**1.3.17正式发布与双源远端验收完成。** GitHub v1.3.17为Latest、非草稿/非预发行，5项资产冻结且实际下载大小/SHA256通过；发行提交41f7a92，注释标签v1.3.17解引用同一提交，v1.3.16仍保持c7f46be。ModelScope 1.3.17运行目录、stable清单及Models备用EXE实际下载通过，源码仅GitHub。独立后端2026.11.09.2的channel、完整包与补丁链远端元数据一致；27356字节增量包实际下载SHA256 `48c106318677af5ebc3ee0dce202afde15d9ff6a8924c2e87e694692f0cbc7a3`通过，并从真实2026.11.09.1基线成功应用、4个目标文件哈希匹配、Python 3.12.9健康检查通过。首次补丁应用失败为验收树CoreRoot层级放错，修正后通过，不构成产品缺陷，v1.3.17无需替换。接下来仅提交发布记录并核对main=origin/main。
 
@@ -191,6 +193,7 @@ Updated by: Codex
 
 ## Active TODO
 
+- [x] 模型下载页重复后端修复：已提交d4f4593并通过CLI/插件编译、定向契约和真实远端列表检查；待下个版本统一合入发行，公开v1.3.17不改写。
 - [x] 正式发布1.3.17：版本提交41f7a92、注释标签v1.3.17、GitHub五项冻结资产、ModelScope运行附件和Models备用EXE同步；双源实际下载与本独立后端2026.11.09.2增量升级通过。
 - [x] RVE全链路16bit源码与配套前端：包内问题、主线中文ONNX路径、PR17提示和脚本所有权、16bit中间文件/分段、NCNN输入生命周期均已修正；CPU/GPU短样本与UI/DPI通过，已随1.3.16正式发布。
 - [x] 后端/前端配套发布：ModelScope独立后端升级至2026.11.09.1，完整包、增量包和channel远端通过；补丁从既有cli受管标记和标准旧后端两种起点实测成功。
@@ -351,6 +354,8 @@ Updated by: Codex
 
 ## Verification And Commands
 
+- 2026-11-09 21:19：复现确认v1.3.17重建前 `--list-download-models --json` 返回两条Backend完整包；`dotnet build cli/VideoEnhancer.csproj -c Release --no-restore`与`dotnet build VideoEnhancerPlugin/VideoEnhancerPlugin.vbproj -c Release --no-restore`均0警告0错误；目标下载目录契约1项通过。重建后同一真实ModelScope远端列表的Backend普通文件行数为0，页面源码确认只新增一条合成后端更新项。完整`test_user_model_import.py`另有既有LakeUI 5.110旧断言失败，与本修复无关。
+
 - 2026-11-09 20:57：GitHub v1.3.17 API为Latest、非草稿/非预发行，5资产大小/digest与冻结记录一致；运行EXE、安装器、手动ZIP、源码ZIP与stable.json均经完整下载校验。GitHub浏览器下载跳转仍可能空闲，验收改用认证API资产端点的并行Range请求，未降低SHA核验。ModelScope本版4项运行文件、Models备用EXE和公开说明通过实下载；后端channel/tree与2026.11.09.2完整包及4段补丁链一致，最新补丁实际下载、从2026.11.09.1应用、目标哈希和Python健康检查通过。
 
 - 2026-11-09 16:54：后端2026.11.09.1差异34项（11新增/23替换/0删除）；完整包3041286511字节/SHA256 4e287f23213665480deba33b6c3d3be5834c97114841655844c0ac55377e8665，与目标目录逐项一致。增量包94003字节/SHA256 ca02985f3a4672a7d81106a0925a538a277f2f0cb762da38949cc79081174462；标准旧后端及已有cli标记均实际应用并识别current。ModelScope完整包/补丁线通道大小/SHA、最新补丁实下载，GitHub五资产实下载、正文和Latest状态通过。证据见Artifacts/rve-high-bit-depth-fix-20261108/backend-release-20261109与Artifacts/release-1.3.16。
@@ -389,6 +394,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-11-09 21:19：启动main=origin/main=6631bfa且工作树干净；修复已提交d4f4593，当前仅记录提交待推送。本轮不改版本、标签或公开发行，修复保留下个版本统一发布。
 
 - 2026-11-09 20:57：发布提交41f7a92已推送origin/main，本地注释标签v1.3.17解引用41f7a92，Main与本轮启动时HEAD一致；v1.3.16仍解引用c7f46be且公开标签/资产未移动。当前仅待提交STATUS、中文工作进度和版本迭代记录的正式发布收尾，随后普通推送并复核工作树干净和main=origin/main。
 
@@ -1288,3 +1295,11 @@ git diff --check
 - 后端channel已回读latestVersion=2026.11.09.2，完整包远端Range总长2645835588与channel一致，tree中的4段补丁大小/SHA一致；最新27356字节补丁实际下载SHA256 `48c106318677af5ebc3ee0dce202afde15d9ff6a8924c2e87e694692f0cbc7a3`通过。
 - 首次从旧完整包抽取2026.11.09.1真实基线做补丁应用时，验收命令把coreRoot误设为`python`目录，更新器因此找不到业务文件并提示改用完整包。核对BackendUpdateManager.PythonRoot=coreRoot/python后修正测试树层级，同一远端补丁成功输出`BACKEND_PATCH_COMPLETE|2026.11.09.2`；4个替换文件目标SHA、版本标记previousVersion=2026.11.09.1及Python 3.12.9健康检查全部通过。该失败属于验收脚本构造错误，不构成产品缺陷，故不替换v1.3.17。
 - 本轮只更新STATUS、中文工作进度和版本迭代记录的正式发布状态；已公开资产、标签、运行源码和本机正式安装均不重建/覆盖。收尾提交推送后核对工作树干净、main=origin/main及两个发行标签解引用不变。
+
+
+### 2026-11-09 21:19 Codex：修复模型下载页重复后端
+
+- 用户报告模型下载页出现两个完全相同的“Backend 后端”。复现确认远端普通模型列表同时返回`Backend/python_20261109.7z`与`Backend/python_20261109_2.7z`；下载页对每条Backend文件都应用相同更新状态，因而生成两个同名行。这与GitHub/ModelScope双源本身无关。
+- `ModelRepositoryClient.FetchRemoteModels`不再把任何`Backend/*`文件混入普通模型目录，后端版本、增量路由和完整包仍由独立channel与状态接口管理。`ModelDownloadPage`固定从`--backend-status`创建一条`Backend/update`行，同时忽略旧CLI可能返回的Backend普通文件，避免版本命名变化再次产生重复。
+- CLI与插件Release构建均0警告0错误，目标下载目录契约通过；重建后真实ModelScope列表的Backend普通文件行为0，页面源码确认合成项只追加一次。完整测试文件的既有LakeUI5.110断言已过期且与本修复无关，不使用它作为本轮失败结论。
+- 修复提交为d4f4593，本轮不提升版本或发布；按用户要求保留到下一个版本统一合入发行。已公开v1.3.17标签和资产保持冻结。

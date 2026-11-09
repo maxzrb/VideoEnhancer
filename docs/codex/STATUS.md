@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-09 16:58
+Last updated: 2026-11-09 19:44
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-09 19:44：**RGB48完整矩阵完成，TensorRT FP16黑帧问题已修复并完成定向复验。** 629例首轮为614 PASS、11 RESOURCE_OOM、3 FAIL_CONTENT、1 PASS_GATE；11个OOM全部是RTX3060 Laptop 6GB上的FlashVSR硬件边界。3个内容失败均由TensorRT FP16 Engine输出NaN造成，诊断确认FP16 Engine为0/73728有限值、对应FP32 Engine为73728/73728有限值。CLI与RVE后端已对AniToon-RPLKSRL、DAT2、GRL回退FP32，后端同时拒绝已知模型的旧FP16 Engine；3个失败案例与2个正常FP16对照的端到端复验全部通过。受管内嵌路径的UpscaleTorch.py源码/安装哈希一致，构建0警告0错误，6项能力测试与12项RGB48回归通过。合并矩阵结论为617个PASS/PASS_GATE、11个显存边界、0个已知内容失败。v1.3.16标签和资产保持冻结，本轮修复尚未发布新版本；工作树有4个源码/测试文件和本记录待提交。
 
 - 2026-11-09 16:54：**1.3.16正式发布，独立后端补全为2026.11.09.1。** GitHub v1.3.16为Latest、非草稿/非预发行，五资产冻结且标签仍c7f46be；ModelScope运行附件、stable清单和Models备用EXE同步。后端完成3.04GB完整包、94,003字节增量包和channel上传，远端大小/SHA及最新补丁实际下载通过；标准旧后端与已有cli所有权标记的受管后端均实际升级通过。发布正文已补入后端版本。629例矩阵仍暂停在298/629，本机正式安装未改；发布记录已普通提交59b649a并推送，main=origin/main，工作树干净。
 
@@ -1252,3 +1254,15 @@ git diff --check
 - 复核1.3.16内嵌核心：顶层rve-backend.py与src下15个Python文件共16个，嵌入EXE约18MB运行ZIP中的配套源码，不包含3.04GB完整后端和模型。后端未声明external时由CLI按哈希同步；独立后端先验证rgb48-v1和必要入口，避免帧协议错配。
 - 内嵌方案保留为协议同步保障，同时独立后端通道已完成2026.11.09.1发布，避免只更新内嵌副本而用户看不到后端版本变化。后端补丁排除运行期所有权标记，标准旧后端及已有cli标记均通过升级验证。
 - 发布工具、流程和记录已提交59b649a并推送origin/main；v1.3.16仍解引用c7f46be，未移动公开标签或冻结资产。629例矩阵保持298/629暂停，本机正式安装未改。
+
+
+### 2026-11-09 19:44 Codex：完成RGB48矩阵并修复TensorRT FP16黑帧
+
+- 同工具续接；按HandShake要求重新核对AGENTS、INDEX、STATUS、Git与现有隔离证据。原629例完整矩阵最终为614 PASS、11 RESOURCE_OOM、3 FAIL_CONTENT、1 PASS_GATE。11个OOM全部是FlashVSR在RTX3060 Laptop 6GB上的资源边界，没有CPU退化、超时或其他内容失败。
+- 3个稳定失败为PTH/AniToon-RPLKSRL、PTH/AniSD-DC-DAT2和ONNX/AniSD-DC-DAT2的TensorRT FP16案例，均正常退出但输出全黑。隔离Engine探针绕过FFmpeg和16bit帧转换后确认，3个FP16 Engine对有限输入均输出0/73728个有限值，对应FP32 Engine均为73728/73728有限值，根因是FP16 Engine数值不稳定而非RGB48链路。
+- cli/Program.cs在TensorRT精度解析、Engine缓存键和转换入口对GRL|DAT2|AniToon-RPLKSRL强制FP32；UpscaleTorch.py增加同规则的后端兜底，并拒绝已知模型的旧FP16 Engine，避免直接调用后端时再次静默写黑帧。CUDA路径原有SwinIR|GRL|DAT2|AniToon-RPLKSRL回退保持不变。
+- 新建Artifacts/hbd-matrix-20261109-fp16fix隔离候选，EXE SHA256 606218a02d68130ee3cb63d0e2521140c412744d694250d4e2faf1fb9257befb；模型缓存使用硬链接、解释器和运行时组件使用目录联接，后端代码完整复制。原矩阵目录与证据未覆盖。
+- 3个原失败ID端到端重跑全部PASS，输出gbrp16le，每帧约1.93万级色阶、范围约5.3万码、裁剪比例0；日志确认请求FP16时加载FP32 Engine。PTH/Ani4K-Compact与PTH/AniScale2-Refiner两个正常对照仍加载FP16 Engine并PASS，回退名单未扩大。
+- 受管后端路径实际安装内嵌UpscaleTorch.py，仓库源与安装副本SHA256均为9a94d4840b1c91b6d1f444797b9b6f88f1d74dfb49bf91e42dffee693f0fdc94，运行输出PASS；外部后端仍走ValidateExternal不覆盖，独立后端发布升级与CLI内嵌同步职责保持分离。
+- 证据位于Artifacts/hbd-matrix-20261109/results.*与Artifacts/hbd-matrix-20261109-fp16fix/fp16-fix-verification.json。dotnet build cli/VideoEnhancer.csproj -c Release --no-restore为0警告0错误；test_model_capabilities 6项、test_high_bit_depth_regressions 12项、Python语法和git diff --check通过。
+- 合并结论为629例中617例通过或按预期拒绝、11例6GB显存OOM、0例已知内容失败；剩余11例不宣称可在该显卡运行。v1.3.16标签/资产和本机正式安装未改，本次作为发布后修复留待后续版本。提交前工作树包含4个源码/测试文件及STATUS、中文进度和矩阵说明；随后应普通提交并核对main/origin/main。

@@ -1,6 +1,10 @@
 # RGB48 / PR17 扩大可用性矩阵
 
-2026-11-09，按用户选择执行完整扩大矩阵。当前为本机运行记录，结果未齐前不能视为发行通过。
+2026-11-09，按用户选择执行完整扩大矩阵。首轮629例已完成，随后对3个TensorRT FP16内容失败完成根因诊断、源码修复和隔离定向复验。
+
+首轮结果为614 `PASS`、11 `RESOURCE_OOM`、3 `FAIL_CONTENT`、1 `PASS_GATE`。11个OOM全部是RTX3060 Laptop 6GB运行FlashVSR时的显存边界；3个内容失败均来自TensorRT FP16 Engine输出NaN，对应FP32 Engine输出全部有限。CLI与RVE后端现已对AniToon-RPLKSRL、DAT2、GRL回退FP32，并拒绝已知模型的旧FP16 Engine。
+
+修复候选在独立目录`Artifacts/hbd-matrix-20261109-fp16fix`复验：3个原失败ID全部`PASS`，输出`gbrp16le`且逐帧约1.93万级色阶、范围约5.3万码、裁剪比例0；Ani4K-Compact与AniScale2-Refiner两个正常FP16对照仍加载FP16 Engine并通过。受管内嵌后端源码与安装副本SHA256一致，外部后端保护分支未关闭。合并本机结论为617个`PASS`/`PASS_GATE`、11个显存边界、0个已知内容失败。
 
 候选来自后端 `RVE-high-bit-depth-20261109-r1.zip` 和前端 `VideoEnhancer-1.3.15-rgb48-pr17-candidate-20261109.zip`，沿用 1.3.15 版本号。测试入口为 [high_bit_depth_matrix.py](../cli/tests/high_bit_depth_matrix.py)。原安装、配置、模型权重不覆盖；隔离目录为本机 `Artifacts/hbd-matrix-20261109`。
 
@@ -28,7 +32,9 @@ FP32/FP16 字段表示请求值。GIMM 的兼容策略会强制 FP32，GMFSS 已
 
 资源不足记为 `RESOURCE_OOM`，CPU provider 回退记为 `DEGRADED_CPU`，另外单列超时、退出失败、尺寸/帧数/位深/内容错误与非有限值警告；这些均不计入通过。`PASS_GATE` 只表示预期拒绝成立。
 
-本机结果文件：`Artifacts/hbd-matrix-20261109/manifest.json`、`results.jsonl`、`results.csv`、`results.md`、`summary.json` 和 `logs/`。JSONL 追加保留历史，CSV/Markdown 取每例最后一次结果。`candidate.json`、`run-context.json` 和 `original-models.json` 保存候选哈希、脚本/后端/GPU信息与原权重元数据，结束时核对隔离性。
+本机首轮结果文件：`Artifacts/hbd-matrix-20261109/manifest.json`、`results.jsonl`、`results.csv`、`results.md`、`summary.json` 和 `logs/`。JSONL 追加保留历史，CSV/Markdown 取每例最后一次结果。`candidate.json`、`run-context.json` 和 `original-models.json` 保存候选哈希、脚本/后端/GPU信息与原权重元数据，结束时核对隔离性。
+
+修复定向证据：`Artifacts/hbd-matrix-20261109-fp16fix/results.jsonl`、`logs/`、`outputs/`、`candidate.json` 和汇总文件`fp16-fix-verification.json`。该目录使用新EXE独立指纹；模型缓存硬链接、Python/运行时目录联接只用于本机复验，不能直接迁移到其他设备。
 
 使用匹配便携环境的 Python 执行：
 
@@ -40,4 +46,4 @@ python cli/tests/high_bit_depth_matrix.py --root Artifacts/hbd-matrix-20261109 -
 
 这些命令使用已准备好的本机候选目录。换设备需要重新准备运行环境、模型目录和目录清单，不能直接复用本机 Python/FFmpeg junction。
 
-本轮重点为短片可用性；长片稳定性、1080p/4K 显存、画质、吞吐和 RTX/HDR 扩展矩阵不在这 629 例中，不能据此宣称通过。
+本轮重点为短片可用性；长片稳定性、1080p/4K 显存、画质、吞吐和 RTX/HDR 扩展矩阵不在这 629 例中，不能据此宣称通过。剩余11个FlashVSR OOM也不能据此宣称可在RTX3060 Laptop 6GB上默认运行。

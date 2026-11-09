@@ -117,6 +117,20 @@ class HighBitDepthRegressions(unittest.TestCase):
         self.assertEqual(tuple(tensor.shape), (1, 3, 4, 8))
         self.assertEqual(float(tensor.min()), 1.0)
 
+    def test_known_tensorrt_fp16_models_fall_back_to_fp32(self):
+        from src.pytorch.UpscaleTorch import _resolve_upscale_precision
+        for name in (
+            "PTH/AniSD-DC-DAT2-97500-2x.pth",
+            "ONNX/AniSD-DC-DAT2-97500-fp32FO-2x.onnx",
+            "PTH/AniToon-RPLKSRL-280K-2x.pth",
+            "PTH/APISR-GRL-GAN-generator-4x.pth",
+        ):
+            self.assertEqual(_resolve_upscale_precision(name, "tensorrt", "float16"), "float32")
+        self.assertEqual(
+            _resolve_upscale_precision("PTH/Ani4K-Compact-35000-2x.pth", "tensorrt", "float16"),
+            "float16",
+        )
+
     def test_fp32_frame_roundtrip_preserves_all_65536_codes(self):
         from src.utils.Frame import Frame
         np = self.np

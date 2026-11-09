@@ -84,9 +84,10 @@ class ModelCapabilityManifestTests(unittest.TestCase):
         self.assertIn('String.Equals(backend, "onnx", StringComparison.OrdinalIgnoreCase)', queue_hook)
         self.assertIn('sb.Append(" -tile-size ")', queue_hook)
 
-    def test_known_cuda_fp16_unstable_models_force_fp32(self):
+    def test_known_fp16_unstable_models_force_fp32(self):
         program = PROGRAM_SOURCE.read_text(encoding="utf-8-sig")
         self.assertIn('@"SwinIR|GRL|DAT2|AniToon-RPLKSRL"', program)
+        self.assertIn('@"GRL|DAT2|AniToon-RPLKSRL"', program)
 
 
 if __name__ == "__main__":

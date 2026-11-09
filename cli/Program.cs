@@ -2945,12 +2945,12 @@ internal static class Program
     private static string ResolveUpscalePrecision(string modelPath, string backend, string requested)
     {
         if (requested is "auto" or "float32") return "float32";
-        // DAT2 与 AniToon-RPLKSRL 在当前 PyTorch/CUDA FP16 路径会直接输出 NaN；
-        // 后续转字节会把 NaN 隐式变为黑值，因此不能依赖编码阶段发现问题。
+        // 这些模型在对应后端的 FP16 路径会输出 NaN；后续转字节会把它变为黑值。
         if (backend == "cuda" && Regex.IsMatch(
                 ModelBaseName(modelPath), @"SwinIR|GRL|DAT2|AniToon-RPLKSRL", RegexOptions.IgnoreCase))
             return "float32";
-        if (backend == "tensorrt" && Regex.IsMatch(ModelBaseName(modelPath), @"GRL", RegexOptions.IgnoreCase))
+        if (backend == "tensorrt" && Regex.IsMatch(
+                ModelBaseName(modelPath), @"GRL|DAT2|AniToon-RPLKSRL", RegexOptions.IgnoreCase))
             return "float32";
         return requested;
     }
@@ -5538,9 +5538,10 @@ internal static class Program
     private const int TensorRtOptimizationLevel = 3;
     private const int TensorRtTilePad = 10;
 
-    /// <summary>GRL 的相对位置编码在 FP16 转换时混用 Float/Half，必须构建 FP32 Engine。</summary>
+    /// <summary>已知 FP16 TensorRT 转换会产生 NaN 的模型必须构建 FP32 Engine。</summary>
     private static string TensorRtPrecisionForModel(string sourcePath, string requestedPrecision = "auto") =>
-        requestedPrecision != "float16" || Regex.IsMatch(ModelBaseName(sourcePath), @"GRL", RegexOptions.IgnoreCase)
+        requestedPrecision != "float16" || Regex.IsMatch(
+            ModelBaseName(sourcePath), @"GRL|DAT2|AniToon-RPLKSRL", RegexOptions.IgnoreCase)
             ? "fp32"
             : "fp16";
 

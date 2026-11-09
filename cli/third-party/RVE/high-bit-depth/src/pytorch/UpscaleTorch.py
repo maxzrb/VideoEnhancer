@@ -16,6 +16,20 @@ from ..utils.Frame import Frame
 HAS_PYTORCH_CUDA = CudaChecker().HAS_PYTORCH_CUDA
 import numpy as np
 
+_FP32_ONLY_FOR_FP16 = {
+    "pytorch": re.compile(r"SwinIR|GRL|DAT2|AniToon-RPLKSRL", re.IGNORECASE),
+    "tensorrt": re.compile(r"GRL|DAT2|AniToon-RPLKSRL", re.IGNORECASE),
+}
+
+
+def _resolve_upscale_precision(model_path, backend, precision):
+    """对已知会在 FP16 产生 NaN 的模型回退 FP32。"""
+    pattern = _FP32_ONLY_FOR_FP16.get(backend)
+    if precision == "float16" and pattern and pattern.search(os.path.basename(model_path or "")):
+        log(f"{os.path.basename(model_path)} 的 FP16 数值不稳定，自动改用 FP32")
+        return "float32"
+    return precision
+
 
 class _PrebuiltTensorRTEngine:
     """Adapter for a prebuilt Torch-TensorRT TorchScript ``.engine`` file."""
@@ -49,6 +63,13 @@ class _PrebuiltTensorRTEngine:
         self.__input_opt_shape = metadata["input_opt_shape"]
         self.__input_max_shape = metadata["input_max_shape"]
         self.__precision = metadata["input_dtype"]
+
+        if self.__precision == torch.float16 and _resolve_upscale_precision(
+            path, "tensorrt", "float16"
+        ) == "float32":
+            raise ValueError(
+                "已知该模型的 FP16 TensorRT Engine 会输出 NaN，请删除该 Engine 并以 FP32 重新构建"
+            )
 
         if precision in (torch.float16, torch.float32) and precision != self.__precision:
             log(
@@ -307,6 +328,8 @@ class UpscalePytorch:
     ):
         self.torchUtils = TorchUtils(width=width, height=height,hdr_mode=hdr_mode,device_type=device)  
         device = self.torchUtils.handle_device(device, gpu_id=gpu_id)
+        self.backend = backend
+        precision = _resolve_upscale_precision(modelPath, backend, precision)
         self.dtype = self.torchUtils.handle_precision(precision)
         self.tile_pad = tile_pad
         self.device = device
@@ -318,7 +341,6 @@ class UpscalePytorch:
         self.tile = [self.tilesize, self.tilesize]
         self.use_tiling = self.tilesize > 0
         self.modelPath = modelPath
-        self.backend = backend
       
         self.trt_workspace_size = trt_workspace_size
         self.trt_optimization_level = trt_optimization_level

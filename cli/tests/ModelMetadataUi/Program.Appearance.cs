@@ -13,6 +13,19 @@ partial class Program
         var source = (Control)Field(panel, "ModernPanel1");
         var workbench = (Control)Field(panel, "_pageUpscale");
         var tutorial = (Control)Field(panel, "_pageTutorial");
+        var layouts = Descendants(panel).OfType<LakeUI.ModernPanel>()
+            .Where(control => control.GetType().Name is "ModernGridPanel" or "ModernHorizontalPanel").ToArray();
+        Check(layouts.Length > 0 && layouts.All(control => control.TransparentRenderMode ==
+            LakeUI.ModernPanel.TransparentRenderModeEnum.SkipWhenFullyTransparent), "纯布局容器启用原生透明免绘制模式");
+        var transparentLayout = layouts.First(control => control.IsTransparentNoRenderActive);
+        var layoutBackground = transparentLayout.BackColor1;
+        transparentLayout.BackColor1 = Color.FromArgb(32, 48, 64);
+        Check(!transparentLayout.IsTransparentNoRenderActive, "布局容器增加底色时自动恢复绘制");
+        transparentLayout.BackColor1 = layoutBackground;
+        Check(transparentLayout.IsTransparentNoRenderActive, "布局容器恢复透明后重新免绘制");
+        Check(((LakeUI.ModernPanel)source).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal &&
+            ((LakeUI.ModernPanel)workbench).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal,
+            "宿主背景根节点和滚动面板保留自身呈现");
         var surface = Color.FromArgb(40, 220, 220, 220);
         var darkSurface = Color.FromArgb(40, 0, 0, 0);
         var separator = Color.FromArgb(80, 220, 220, 220);

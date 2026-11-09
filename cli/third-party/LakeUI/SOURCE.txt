@@ -1,8 +1,8 @@
-LakeUI 5.110.0 授权与使用边界
+LakeUI 5.201.0 授权与使用边界
 ==========================
 
 项目：https://github.com/Lake1059/LakeUI
-编译引用：https://www.nuget.org/packages/LakeUI/5.110.0
+编译引用：https://www.nuget.org/packages/LakeUI/5.201.0
 许可说明：https://github.com/Lake1059/LakeUI#收费标准
 购买入口：https://ifdian.net/item/15f0758814a911f1979752540025c377
 
@@ -11,7 +11,7 @@ VideoEnhancer 的 LakeUI 使用选择上游赞助许可证。项目维护者于 
 赞助许可允许自愿赞助/广告收益以及闭源或部分开源项目，不允许付费解锁功能。
 准确权利、被许可人及覆盖项目以上游实际授予的条款为准。
 
-插件只使用固定的 LakeUI 5.110.0 NuGet 包编译，运行库由 3FUI 宿主提供，
+插件只使用固定的 LakeUI 5.201.0 NuGet 包编译，运行库由 3FUI 宿主提供，
 VideoEnhancer ZIP/安装器不分发 LakeUI.dll。赞助许可不是 LakeUI 的 MIT 许可，
 也不自动转授其他维护者：独立发布者须取得自己的适用授权或遵守 GPL-3.0。
 VideoEnhancer 自有代码仍按 MIT 提供；上游 LakeUI 的版权/许可证保持原样。

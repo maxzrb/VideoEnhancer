@@ -44,7 +44,7 @@ Portions of this software are copyright © 2026 The FreeType Project
 使用独立 DLL，用户可以修改/替换 LGPL 库以及为调试修改进行逆向工程。
 不提取或分发官方播放器的 LakeUI/FFmpeg；FFmpeg 共享库由用户独立取得。
 
-LakeUI 5.110.0（宿主提供）
+LakeUI 5.201.0（宿主提供）
 -------------------------
 
 项目：https://github.com/Lake1059/LakeUI

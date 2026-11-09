@@ -5,7 +5,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace />
     <OptionStrict>On</OptionStrict>
-    <LakeUIVersion Condition="'$(LakeUIVersion)' == ''">5.110.0</LakeUIVersion>
+    <LakeUIVersion Condition="'$(LakeUIVersion)' == ''">5.201.0</LakeUIVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="LakeUI" Version="$(LakeUIVersion)" />

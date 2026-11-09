@@ -236,10 +236,10 @@ BasicVSR++ 不支持与补帧组合。切换到 TensorRT、CUDA、NCNN 或其他
 ## 从源码构建
 
 要求安装 .NET 10 SDK 和 PowerShell 7。构建不需要宿主 DLL 或相邻的 3FUI 源码仓库，
-LakeUI 编译依赖通过 NuGet 固定为 5.110.0。
+LakeUI 编译依赖通过 NuGet 固定为 5.201.0。
 插件运行时通过 `HostRuntime.vb` 访问进程中已加载的宿主任务、预设和设置。
 插件目标平台与 LakeUI 一致，为 Windows 10 1809 或更新版本。
-运行插件的宿主必须提供 LakeUI 5.110+（仅支持 5.x），工作台滚动直接使用公开渲染事务接口。
+运行插件的宿主必须提供 LakeUI 5.201+（仅支持 5.x），工作台滚动直接使用公开渲染事务接口。
 插件不附带另一份 LakeUI。
 
 仓库根目录的 `VideoEnhancer.slnx` 包含插件与 CLI；CLI 对插件声明了构建依赖，

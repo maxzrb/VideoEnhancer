@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="LakeUI" Version="5.110.0" />
+    <PackageReference Include="LakeUI" Version="5.201.0" />
     <Compile Include="../../../release/tests/RepositoryPaths.cs" Link="RepositoryPaths.cs" />
   </ItemGroup>
 </Project>

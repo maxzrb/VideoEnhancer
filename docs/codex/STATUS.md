@@ -1,11 +1,15 @@
 # Project Status
 
-Last updated: 2026-11-09 15:05
+Last updated: 2026-11-09 15:33
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-09 15:33：**LakeUI5.201适配及定向核验完成，重建1.3.16草稿附件中。** 固定编译/测试基线5.201.0、纯布局Grid/Horizontal启用SkipWhenFullyTransparent；根背景/滚动面板保留自身呈现，增加底色会恢复绘制。预览改公开强类型PixelPictureCallbackSource并声明SDR色域/传递函数，去除反射表达式工厂。0警告0错误、四档DPI/滚动/图片/透明外观与5.201实际GPU红蓝换帧/清空/所有权均通过。旧发行附件已备份before-lakeui，GitHub仍草稿、ModelScope未上传，后续冻结新包并对齐未公开候选标签再完成双源发布。
+
+- 2026-11-09 15:23：**用户追加发布前适配最新LakeUI，发行已停在草稿，开始5.201.0适配。** main/tag v1.3.16已推送098db9e（修复提交2d247cc、PR17祖先合并098db9e），gh上传器25872已停止；GitHub草稿有4资产、publishedAt=null，未公开，ModelScope未同步。本机宿主已升级6.3.0，旧记录6.2.43不再适用。NuGet查询最新5.201.0；上游d844f8d源码已取到Artifacts/lakeui-adaptation/upstream，当前5.110插件在5.201原有预览兼容探针通过。计划升级固定编译/测试依赖到5.201、纯布局面板启用原生透明免绘制、预览改强类型Source，重新打包后完成此前已授权发布。矩阵保持298/629暂停。
 
 - 2026-11-09 15:05：**用户要求先发布Z+1，当前准备1.3.16，扩大矩阵暂停。** 旧调度器12336已停止派发，298/629（297PASS/1独占FlashVSR FP32资源OOM）断点保存，在途自然完成后保留日志。发行说明按用户要求只列功能/修复，不加入测试或显存防御性条目。两项目版本与版本历史已准备，git pull最新、PR17仍固定6b8d700开放可合并；按授权保存修复并合入PR17祖先，构建/必要发行门禁后发布双源。
 
@@ -1206,3 +1210,20 @@ git diff --check
 - 用户明确先发布Z+1 release、后续再矩阵，追加发行说明不用防御性内容。按1.3.15→1.3.16推进，不重复确认；停止五路调度器，不强杀在途构建，298例断点保存。没有将未捕获退出码的在途案例计入通过。
 - git pull --ff-only最新，PR17连接器回读仍6b8d700、open/mergeable；GitHub v1.3.16不存在，gh和ModelScope账号有效。版本元数据同步、逐行功能说明与版本历史准备。受管RGB48核心包含新VideoInfo，共16文件；完整矩阵仍待后续，不在公开说明加入测试/显存限制。
 - 接下来保存修复、接入PR17祖先、完整构建和必要门禁、冻结资产，普通推送新标签与双源发布/回读。用户此次授权发布，不据此改动正式安装或自动恢复矩阵。
+
+### 2026-11-09 15:23 Codex：暂停草稿发行，适配LakeUI5.201
+
+- 用户在发布执行期间新增“发布前适配最新LakeUI特性”，原发行意图保持，新增适配优先。立即定位并停止gh release create上传器25872；读取GitHub发行isDraft=true、publishedAt=null，已有EXE/安装器/手动ZIP/stable四附件，源码附件未完成，不宣称已发布。main/tag已atomic推送098db9e，正式安装未变，ModelScope上传尚未开始。
+- 前一阶段正式构建0警告0错误，后端29,709文件审计UNCHANGED、110包/API11、安装/自更新/回滚/Burn、release5/backend-updater6/Python24及宿主/图片/DPI通过。UI初次用dotnet DLL启动导致参数回读ProcessPath指向dotnet，改apphost EXE后通过，是调用方式问题。原始权重156文件大小/mtime和隔离后端335Python哈希均保持，5个未入账在途日志归档，不计额外通过。
+- 当前同工具续接，重读HandShake/AGENTS/INDEX/STATUS，git pull最新、工作树起始干净。GitHub连接器确认上游Lake1059/LakeUI及README，NuGet官方dotnet package search确定最新5.201.0；网页搜索索引陈旧、NuGet直接HTTP EOF，未据过期GitHub Releases页面认定最新。上游clone固定d844f8d（2026-11-07），源码Version5.201；本机FFmpegFreeUI.exe6.3.0。
+- 适配方向：固定编译与测试引用5.201；仅纯布局Grid/Horizontal面板启用SkipWhenFullyTransparent，保留带背景/滚动内容的绘制职责；PixelPreviewImage使用公开强类型PixelPictureCallbackSource及SDR像素语义，替换动态反射工厂。保留宿主提供LakeUI、不在插件包分发DLL的约定。已有插件在5.201下真实预览assign/replace/clear/ownership探针通过，为适配前基线。
+- 后续：实现与少量针对渲染/预览/布局的核验，更新功能式发行说明，重建并冻结新附件；草稿和未公开标签的源指向需在最终发行时核对，不能误用旧附件。完整矩阵按用户要求继续暂停，不自动恢复；建议阶段性git提交保存适配。
+
+
+### 2026-11-09 15:33 Codex：完成LakeUI5.201原生特性适配
+
+- 升级插件vbproj、ModelMetadataUi和PixelPreview探针至固定5.201.0，保留PrivateAssets/all、ExcludeAssets/runtime与宿主提供LakeUI；更新最低编译/运行提示、README、当前第三方说明和发布流程，不改历史记录。
+- ModernGridPanel/ModernHorizontalPanel纯布局节点启用SkipWhenFullyTransparent，背景根和SmoothScrollPanel不启用，避免丢失宿主背景或滚动条。外观探针验证透明免绘制、着色后恢复绘制、透明后重新免绘制以及根/滚动呈现职责。
+- PixelPreviewImage移除反射/Expression动态工厂，直接使用公开PixelPictureCallbackSource/Source和DrawImage，明确SRgb/传递函数/Bgra32，预览图像仍由页面负责释放。未将8bit预览旁路冒称为16bit主帧；主处理链不变。
+- 构建0警告0错误；appearance、dpi、scroll、image通过，覆盖96/120/144/192及往返；新版实际GPU readback红→蓝像素准确，assign/replace/clear/ownership通过。只运行适配相关检查，矩阵未恢复。
+- 改动涉及上述插件/测试、SOURCE/NOTICES/README/发布流程、功能式Release Notes与版本记录；之前5资产备份至Artifacts/release-1.3.16/before-lakeui。即将提交适配、完整重建、最终包/安装检查并更新草稿，确保源标签/资产一致。当前用户已授权完成发布，无需再次发布确认；建议继续前保存Git提交，下面会执行提交。

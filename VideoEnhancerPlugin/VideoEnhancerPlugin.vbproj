@@ -34,7 +34,7 @@
 
   <ItemGroup Label="Compile dependencies">
     <!-- 固定编译基线；运行时由宿主提供 LakeUI，不随插件复制另一份渲染框架。 -->
-    <PackageReference Include="LakeUI" Version="5.110.0" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="LakeUI" Version="5.201.0" PrivateAssets="all" ExcludeAssets="runtime" />
   </ItemGroup>
 
   <Target Name="ValidateLakeUiCompileAssembly"
@@ -48,8 +48,8 @@
     <GetAssemblyIdentity AssemblyFiles="@(_LakeUiCompileAssembly)">
       <Output TaskParameter="Assemblies" ItemName="_LakeUIIdentity" />
     </GetAssemblyIdentity>
-    <Error Condition="'@(_LakeUIIdentity)' != '' And ($([MSBuild]::VersionLessThan('%(_LakeUIIdentity.Version)', '5.110.0.0')) Or $([MSBuild]::VersionGreaterThanOrEquals('%(_LakeUIIdentity.Version)', '6.0.0.0')))"
-           Text="编译需要 LakeUI 5.110 或更新的 5.x 版本；当前为 %(_LakeUIIdentity.Version)：@(_LakeUiCompileAssembly)" />
+    <Error Condition="'@(_LakeUIIdentity)' != '' And ($([MSBuild]::VersionLessThan('%(_LakeUIIdentity.Version)', '5.201.0.0')) Or $([MSBuild]::VersionGreaterThanOrEquals('%(_LakeUIIdentity.Version)', '6.0.0.0')))"
+           Text="编译需要 LakeUI 5.201 或更新的 5.x 版本；当前为 %(_LakeUIIdentity.Version)：@(_LakeUiCompileAssembly)" />
     <Message Importance="high"
              Text="LakeUI 编译引用: %(_LakeUIIdentity.Version)；@(_LakeUiCompileAssembly)；运行时由宿主提供" />
   </Target>

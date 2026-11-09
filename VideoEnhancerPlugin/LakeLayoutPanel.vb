@@ -144,6 +144,8 @@ Namespace videoenhancer
             BackColor = Color.Transparent
             BackColor1 = Color.Transparent
             BorderSize = 0
+            ' 纯布局容器不建立自己的GPU表面，子控件继续使用宿主背景源。
+            TransparentRenderMode = ModernPanel.TransparentRenderModeEnum.SkipWhenFullyTransparent
             Margin = Padding.Empty
             Padding = Padding.Empty
         End Sub
@@ -313,6 +315,8 @@ Namespace videoenhancer
             BackColor = Color.Transparent
             BackColor1 = Color.Transparent
             BorderSize = 0
+            ' 纯布局容器不建立自己的GPU表面，子控件继续使用宿主背景源。
+            TransparentRenderMode = ModernPanel.TransparentRenderModeEnum.SkipWhenFullyTransparent
             Margin = Padding.Empty
             Padding = Padding.Empty
         End Sub

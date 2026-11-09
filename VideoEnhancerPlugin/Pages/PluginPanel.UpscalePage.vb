@@ -480,11 +480,11 @@ Namespace videoenhancer
             End If
         End Sub
 
-        ''' <summary>工作台滚动依赖 LakeUI 5.110 的公开渲染事务。</summary>
+        ''' <summary>工作台使用 LakeUI 5.201 的渲染事务和透明布局呈现。</summary>
         Private Shared Function LakeUiScrollTransactionsAvailable() As Boolean
             Try
                 Dim version = GetType(ModernPanel).Assembly.GetName().Version
-                Return version IsNot Nothing AndAlso version.Major = 5 AndAlso version.Minor >= 110
+                Return version IsNot Nothing AndAlso version.Major = 5 AndAlso version.Minor >= 201
             Catch
                 Return False
             End Try
@@ -509,7 +509,7 @@ Namespace videoenhancer
                 .ForeColor = UiDanger,
                 .TextAlign = HtmlColorLabel.TextAlignEnum.MiddleLeft,
                 .Text = "<font color=#EB5D5D><b>无法加载视频超分插件</b></font><br/>" &
-                        "<font color=#C0C0C0>需要升级 3FUI/LakeUI 5.110 或更新的 5.x 版本后才能继续使用。</font>"
+                        "<font color=#C0C0C0>需要升级 3FUI/LakeUI 5.201 或更新的 5.x 版本后才能继续使用。</font>"
             }
             ModernPanel1.Controls.Add(message)
             Controls.Add(ModernPanel1)

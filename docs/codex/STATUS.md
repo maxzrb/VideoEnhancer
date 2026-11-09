@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-09 20:08
+Last updated: 2026-11-09 20:57
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-09 20:57：**1.3.17正式发布与双源远端验收完成。** GitHub v1.3.17为Latest、非草稿/非预发行，5项资产冻结且实际下载大小/SHA256通过；发行提交41f7a92，注释标签v1.3.17解引用同一提交，v1.3.16仍保持c7f46be。ModelScope 1.3.17运行目录、stable清单及Models备用EXE实际下载通过，源码仅GitHub。独立后端2026.11.09.2的channel、完整包与补丁链远端元数据一致；27356字节增量包实际下载SHA256 `48c106318677af5ebc3ee0dce202afde15d9ff6a8924c2e87e694692f0cbc7a3`通过，并从真实2026.11.09.1基线成功应用、4个目标文件哈希匹配、Python 3.12.9健康检查通过。首次补丁应用失败为验收树CoreRoot层级放错，修正后通过，不构成产品缺陷，v1.3.17无需替换。接下来仅提交发布记录并核对main=origin/main。
 
 - 2026-11-09 20:16：**1.3.17发布候选已通过本地发行构建，前端与独立后端等待提交、打标签和上传。** 版本元数据及功能式Release Notes已切到1.3.17，并明确独立后端同步至2026.11.09.2；Release Notes不包含矩阵资源和防御性测试内容。完整构建为0警告0错误，110项包/源码/隔离安装/API11、安装与自更新回滚、后端升级器6项均通过；后端增量审计仍为0新增/4替换/0删除。冻结前端资产为运行EXE 12831808字节/`db93847910add1a78dc0fba0d5730c688e2e638f3225f2ca29ee9bb9fb3d726c`、安装器16401198字节/`ea0657b6056dae2b79a20946152b5bd5c7380a28dd57f33610dbf879cd2014b9`、手动ZIP 18080981字节/`25460dd50a39fc8438089ff1c5dba4a0fa7bbf9d9059d20ad8690ed4bb567f45`、源码ZIP 62967474字节/`2a720c8c296836c67545e802388d320257403437b699cf484d2f9d6d189b235c`、stable.json 712字节/`8e1f6db1388e865fedd10ea72e9ddc80394567cfe8ae12c04ed5a7d3aea44461`。后端完整包2645835588字节/SHA256 `0aa52bbc03bd3d68e2f1dd1ce140b3573e321c98eaf421e0f210da655fe18537`，最终增量包27356字节/SHA256 `48c106318677af5ebc3ee0dce202afde15d9ff6a8924c2e87e694692f0cbc7a3`，channel.json 2304字节/SHA256 `dfa997d8bdd41fd3d9424a9478c6634f6f1fb6aa0199a553d6e803861410cd49`。接下来提交候选、原子推送main与v1.3.17并完成双源发布。
 
@@ -189,6 +191,7 @@ Updated by: Codex
 
 ## Active TODO
 
+- [x] 正式发布1.3.17：版本提交41f7a92、注释标签v1.3.17、GitHub五项冻结资产、ModelScope运行附件和Models备用EXE同步；双源实际下载与本独立后端2026.11.09.2增量升级通过。
 - [x] RVE全链路16bit源码与配套前端：包内问题、主线中文ONNX路径、PR17提示和脚本所有权、16bit中间文件/分段、NCNN输入生命周期均已修正；CPU/GPU短样本与UI/DPI通过，已随1.3.16正式发布。
 - [x] 后端/前端配套发布：ModelScope独立后端升级至2026.11.09.1，完整包、增量包和channel远端通过；补丁从既有cli受管标记和标准旧后端两种起点实测成功。
 - [x] RGB48完整扩大矩阵：629例中617 PASS、1 PASS_GATE、11个RTX3060 Laptop 6GB资源OOM、0个已知内容失败；3个TensorRT FP16黑帧已修复并由原失败案例端到端复验。
@@ -251,6 +254,8 @@ Updated by: Codex
 旧预览目录、已发布 1.1.0、已合并 PR 和已被新后端取代的验证任务已退出当前 TODO，原始上下文保留在归档；不得按旧记录恢复到预览主线或旧后端。
 
 ## Recently Completed
+
+- 2026-11-09 20:57：1.3.17正式发布，TensorRT FP16黑帧修复进入前端与独立后端2026.11.09.2；GitHub/ModelScope双源实际下载、Latest状态、标签提交关系和最新后端增量应用均通过。
 
 - 2026-10-06 20:36：1.3.13正式发行、四宫格清理、单GitHub源码附件、运行镜像及本机完整升级全部完成，详见最新会话。
 
@@ -346,6 +351,8 @@ Updated by: Codex
 
 ## Verification And Commands
 
+- 2026-11-09 20:57：GitHub v1.3.17 API为Latest、非草稿/非预发行，5资产大小/digest与冻结记录一致；运行EXE、安装器、手动ZIP、源码ZIP与stable.json均经完整下载校验。GitHub浏览器下载跳转仍可能空闲，验收改用认证API资产端点的并行Range请求，未降低SHA核验。ModelScope本版4项运行文件、Models备用EXE和公开说明通过实下载；后端channel/tree与2026.11.09.2完整包及4段补丁链一致，最新补丁实际下载、从2026.11.09.1应用、目标哈希和Python健康检查通过。
+
 - 2026-11-09 16:54：后端2026.11.09.1差异34项（11新增/23替换/0删除）；完整包3041286511字节/SHA256 4e287f23213665480deba33b6c3d3be5834c97114841655844c0ac55377e8665，与目标目录逐项一致。增量包94003字节/SHA256 ca02985f3a4672a7d81106a0925a538a277f2f0cb762da38949cc79081174462；标准旧后端及已有cli标记均实际应用并识别current。ModelScope完整包/补丁线通道大小/SHA、最新补丁实下载，GitHub五资产实下载、正文和Latest状态通过。证据见Artifacts/rve-high-bit-depth-fix-20261108/backend-release-20261109与Artifacts/release-1.3.16。
 
 - 2026-11-09 13:24：完整dotnet publish成功；release/test-third-party-package.ps1为110/API11通过；后端395项manifest+335 AST和15核心/辅助资源匹配，前端EXE/DLL与ZIP、当前源码与Source.zip核对通过。GPU含PTH与ONNX→TRT FP32真实构建运行（参考最大差1码）、NCNN生命周期修正及正式入口、两个真实Compact/RIFE顺序；PR17所有权三场景、两图标精度参数、DPI通过。具体证据见Artifacts/rve-high-bit-depth-fix-20261108/package-checks.json、gpu/checks.json、gpu/ncnn-fixed.json、combined/checks.json与报告。
@@ -382,6 +389,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-11-09 20:57：发布提交41f7a92已推送origin/main，本地注释标签v1.3.17解引用41f7a92，Main与本轮启动时HEAD一致；v1.3.16仍解引用c7f46be且公开标签/资产未移动。当前仅待提交STATUS、中文工作进度和版本迭代记录的正式发布收尾，随后普通推送并复核工作树干净和main=origin/main。
 
 - 2026-11-09 16:54：启动main/origin/main=c7f46be、v1.3.16解引用c7f46be；公开Release和标签均未移动。收尾仅修改后端补丁工具、发布流程和后端版本说明，另更新STATUS/中文进度/版本迭代记录；已普通提交59b649a并推送，main=origin/main，工作树干净。本机正式安装、模型和配置未改。
 
@@ -1269,3 +1278,13 @@ git diff --check
 - 受管后端路径实际安装内嵌UpscaleTorch.py，仓库源与安装副本SHA256均为9a94d4840b1c91b6d1f444797b9b6f88f1d74dfb49bf91e42dffee693f0fdc94，运行输出PASS；外部后端仍走ValidateExternal不覆盖，独立后端发布升级与CLI内嵌同步职责保持分离。
 - 证据位于Artifacts/hbd-matrix-20261109/results.*与Artifacts/hbd-matrix-20261109-fp16fix/fp16-fix-verification.json。dotnet build cli/VideoEnhancer.csproj -c Release --no-restore为0警告0错误；test_model_capabilities 6项、test_high_bit_depth_regressions 12项、Python语法和git diff --check通过。
 - 合并结论为629例中617 PASS、1 PASS_GATE、11例6GB显存OOM、0例已知内容失败；剩余11例不宣称可在该显卡运行。v1.3.16标签/资产和本机正式安装未改，本次作为发布后修复留待后续版本。源码、测试、STATUS、中文进度和矩阵说明已普通提交2e5cad7并推送；main=origin/main，v1.3.16仍解引用c7f46be，工作树在收尾记录提交前仅有本轮文档状态更新。
+
+
+### 2026-11-09 20:57 Codex：1.3.17正式发布与远端验收
+
+- 按用户“发布新release修复”与“若属产品缺陷则替换17”的明确授权承接已完成发布；重新读取AGENTS、INDEX、STATUS、HandShake并执行git pull --ff-only，启动时main=origin/main=41f7a92且工作树干净。GitHub v1.3.17为Latest、非草稿/非预发行，5项资产；注释标签v1.3.17解引用41f7a92，v1.3.16继续解引用c7f46be。
+- GitHub安装器/手动ZIP/源码ZIP的浏览器下载跳转曾长时间收到0字节；认证API资产端点的小Range返回206和正确总长度，随后以8路4MiB Range完整下载。运行EXE 12831808/`db93847910add1a78dc0fba0d5730c688e2e638f3225f2ca29ee9bb9fb3d726c`、安装器16401198/`ea0657b6056dae2b79a20946152b5bd5c7380a28dd57f33610dbf879cd2014b9`、手动ZIP 18080981/`25460dd50a39fc8438089ff1c5dba4a0fa7bbf9d9059d20ad8690ed4bb567f45`、源码ZIP 62967474/`2a720c8c296836c67545e802388d320257403437b699cf484d2f9d6d189b235c`、stable 712/`8e1f6db1388e865fedd10ea72e9ddc80394567cfe8ae12c04ed5a7d3aea44461`均实际下载通过。
+- verify-remote.py最终输出`REMOTE_RELEASE_VERIFY_PASS|github-source-only|modelscope-runtime-only|backend-2026.11.09.2`；ModelScope本版运行目录4项及Models备用EXE均实际下载大小/SHA一致，源码未上传ModelScope。Release正文与功能式notes一致，未加入矩阵资源限制或防御性验证内容。
+- 后端channel已回读latestVersion=2026.11.09.2，完整包远端Range总长2645835588与channel一致，tree中的4段补丁大小/SHA一致；最新27356字节补丁实际下载SHA256 `48c106318677af5ebc3ee0dce202afde15d9ff6a8924c2e87e694692f0cbc7a3`通过。
+- 首次从旧完整包抽取2026.11.09.1真实基线做补丁应用时，验收命令把coreRoot误设为`python`目录，更新器因此找不到业务文件并提示改用完整包。核对BackendUpdateManager.PythonRoot=coreRoot/python后修正测试树层级，同一远端补丁成功输出`BACKEND_PATCH_COMPLETE|2026.11.09.2`；4个替换文件目标SHA、版本标记previousVersion=2026.11.09.1及Python 3.12.9健康检查全部通过。该失败属于验收脚本构造错误，不构成产品缺陷，故不替换v1.3.17。
+- 本轮只更新STATUS、中文工作进度和版本迭代记录的正式发布状态；已公开资产、标签、运行源码和本机正式安装均不重建/覆盖。收尾提交推送后核对工作树干净、main=origin/main及两个发行标签解引用不变。

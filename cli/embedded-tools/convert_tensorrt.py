@@ -80,6 +80,7 @@ def convert_onnx(args, source, device):
                    shape[3] if shape[3] > 0 else (args.width + multiple - 1) // multiple * multiple)
     config = builder.create_builder_config()
     config.builder_optimization_level = args.optimization_level
+    config.clear_flag(trt.BuilderFlag.TF32)
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30)
     if not args.fp32:
         config.set_flag(trt.BuilderFlag.FP16)

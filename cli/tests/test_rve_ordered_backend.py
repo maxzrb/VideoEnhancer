@@ -38,7 +38,7 @@ class DummyFrame:
         return DummyFrame(self.width, self.height, self._bytes, self.hdr_mode)
 
     def resize_frame(self, width, height):
-        bytes_per_pixel = 6 if self.hdr_mode else 3
+        bytes_per_pixel = 6
         self.width = width
         self.height = height
         self._bytes = bytes(width * height * bytes_per_pixel)
@@ -106,7 +106,7 @@ def patched_render_class():
 def make_render(interpolate_result="frame", upscale_error=None):
     render_type = patched_render_class()
     render = render_type()
-    source = DummyFrame(2, 1, bytes(6))
+    source = DummyFrame(2, 1, bytes(12))
     render.width = 2
     render.height = 1
     render.modelScale = 2
@@ -133,14 +133,14 @@ def make_render(interpolate_result="frame", upscale_error=None):
         if upscale_error is not None:
             raise upscale_error
         # 模拟 NCNN：字节已放大，但 Frame 元数据仍是源尺寸。
-        return DummyFrame(frame.width, frame.height, bytes(24))
+        return DummyFrame(frame.width, frame.height, bytes(48))
 
     def interpolate(img1, transition):
         calls["interp_size"] = (img1.width, img1.height)
         calls["transition"] = transition
         if interpolate_result is None:
             return None
-        return [DummyFrame(4, 2, b"i" * 24)]
+        return [DummyFrame(4, 2, b"i" * 48)]
 
     render.upscaleOption = upscale
     render.interpolateOption = interpolate
@@ -158,7 +158,7 @@ class OrderedBackendTests(unittest.TestCase):
             def upscale(frame):
                 seen.append((frame.width, frame.height))
                 frame.width, frame.height = 4, 2
-                return frame.set_frame_bytes(bytes(24))
+                return frame.set_frame_bytes(bytes(48))
 
             render.upscaleOption = upscale
             render.render()
@@ -284,22 +284,22 @@ class OrderedBackendTests(unittest.TestCase):
         self.assertTrue(calls["transition"])
         self.assertTrue(render.informationHandler.stopped)
         self.assertIsNone(render._videoenhancer_render_error)
-        self.assertEqual([b"i" * 24, bytes(24), None], self._drain(render.writeBuffer.writeQueue))
+        self.assertEqual([b"i" * 48, bytes(48), None], self._drain(render.writeBuffer.writeQueue))
 
     def test_raw_bytes_are_wrapped_in_frame(self):
         render, _, source = make_render()
-        frame = ORDERED._normalise_upscaled_frame(render, source, bytes(24))
+        frame = ORDERED._normalise_upscaled_frame(render, source, bytes(48))
 
         self.assertIsInstance(frame, DummyFrame)
         self.assertEqual((4, 2), (frame.width, frame.height))
-        self.assertEqual(bytes(24), frame.get_frame_bytes())
+        self.assertEqual(bytes(48), frame.get_frame_bytes())
 
     def test_missing_interpolated_first_frame_does_not_end_render(self):
         render, _, _ = make_render(interpolate_result=None)
         render.render()
 
         self.assertIsNone(render._videoenhancer_render_error)
-        self.assertEqual([bytes(24), None], self._drain(render.writeBuffer.writeQueue))
+        self.assertEqual([bytes(48), None], self._drain(render.writeBuffer.writeQueue))
 
     def test_render_error_is_recorded_and_unblocks_pipeline(self):
         render, _, _ = make_render(upscale_error=RuntimeError("upscale failed"))

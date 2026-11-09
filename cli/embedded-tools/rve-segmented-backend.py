@@ -18,6 +18,7 @@ import time
 from fractions import Fraction
 from pathlib import Path
 
+
 def decode_json(value: str):
     return json.loads(base64.b64decode(value.encode("ascii")).decode("utf-8"))
 
@@ -151,8 +152,10 @@ def main() -> int:
     ffmpeg = Path(args.ffmpeg_path).resolve()
     ffprobe = ffmpeg.with_name("ffprobe.exe")
     backend_root = Path(os.environ.get("VIDEOENHANCER_BACKEND_DIR", Path(__file__).resolve().parent)).resolve()
+    sys.path.insert(0, str(backend_root))
+    from src.utils.PixelFormat import high_depth_encoder_args
     segments = decode_json(args.segments_base64)
-    encoder_args = [str(value) for value in decode_json(args.encoder_args_base64)]
+    encoder_args = high_depth_encoder_args([str(value) for value in decode_json(args.encoder_args_base64)], str(ffmpeg))
     width, height, total_frames, frame_rate = probe_video(ffprobe, source)
     output_width, output_height = validate_segments(segments, total_frames)
     ImageUpscaler = None
@@ -160,11 +163,11 @@ def main() -> int:
 
     reader_command = [
         str(ffmpeg), "-hide_banner", "-loglevel", "error", "-i", str(source),
-        "-map", "0:v:0", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
+        "-map", "0:v:0", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb48le", "pipe:1",
     ]
     writer_command = [
         str(ffmpeg), "-hide_banner", "-loglevel", "error", "-y" if args.overwrite else "-n",
-        "-f", "rawvideo", "-pix_fmt", "rgb24", "-s:v", f"{output_width}x{output_height}",
+        "-f", "rawvideo", "-pix_fmt", "rgb48le", "-s:v", f"{output_width}x{output_height}",
         "-r", frame_rate, "-i", "pipe:0", "-i", str(source),
         "-map", "0:v:0", "-map", "1:a?", "-map", "1:s?",
         *encoder_args, str(output),
@@ -185,7 +188,7 @@ def main() -> int:
     current_processor_start_frame = 0
     current_processor_backend = ""
     segment_index = 0
-    input_size = width * height * 3
+    input_size = width * height * 6
 
     def report_processor_done(last_frame: int) -> None:
         nonlocal current_processor_started_at
@@ -244,14 +247,14 @@ def main() -> int:
                 raise RuntimeError(f"第 {frame_number} 帧没有可用的模型处理器")
             if backend == "ncnn" and getattr(current_model, "use_rve_ncnn", False):
                 output_payload = current_model.process_bytes(payload)
-                expected_size = output_width * output_height * 3
+                expected_size = output_width * output_height * 6
                 if len(output_payload) != expected_size:
                     raise RuntimeError(
                         f"第 {frame_number} 帧 NCNN 输出字节数异常："
                         f"{len(output_payload)}，预期 {expected_size}"
                     )
             else:
-                frame = np.frombuffer(payload, dtype=np.uint8).reshape(height, width, 3)
+                frame = np.frombuffer(payload, dtype=np.uint16).reshape(height, width, 3)
                 result = current_model(frame)
                 expected_shape = (output_height, output_width, 3)
                 if result.shape != expected_shape:

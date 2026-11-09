@@ -12,13 +12,13 @@ Namespace videoenhancer
         Friend backend As String = "ncnn"
         Friend interpFactor As Double = 2.0
         Friend processOrder As String = "upscale-first"
-        Friend interpBackend As String = "ncnn"
+        Friend interpBackend As String = "cuda"
         Friend dynamicOpticalFlow As Boolean = False
         Friend sceneThreshold As Double = 4.0
         Friend tileSize As Integer = 0
         Friend outputScale As Integer = 0
-        Friend upscaleHalfPrecision As Boolean = True
-        Friend interpHalfPrecision As Boolean = True
+        Friend upscaleHalfPrecision As Boolean = False
+        Friend interpHalfPrecision As Boolean = False
         Friend rtxHdr As Boolean = False
         Friend rtxTarget As String = "2x"
         Friend rtxQuality As Integer = 3

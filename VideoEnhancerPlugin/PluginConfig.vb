@@ -46,13 +46,13 @@ Namespace videoenhancer
             End Set
         End Property
         ''' <summary>超分优先使用半精度；关闭时对支持精度控制的后端强制 FP32。</summary>
-        Public Property UpscaleHalfPrecision As Boolean = True
+        Public Property UpscaleHalfPrecision As Boolean = False
         ''' <summary>超分推理后端：ncnn、cuda、tensorrt、onnx 或 flashvsr。</summary>
         Public Property Backend As String = "ncnn"
         ''' <summary>补帧后端：ncnn、cuda（PyTorch 权重）或 tensorrt（RIFE 权重自动构建 Engine）。</summary>
-        Public Property InterpBackend As String = "ncnn"
+        Public Property InterpBackend As String = "cuda"
         ''' <summary>补帧优先使用半精度；关闭时对 CUDA/TensorRT 强制 FP32。</summary>
-        Public Property InterpHalfPrecision As Boolean = True
+        Public Property InterpHalfPrecision As Boolean = False
         ''' <summary>组合处理顺序：upscale-first（画质优先，默认）或 interp-first（速度/算力优先）。</summary>
         Public Property ProcessOrder As String = "upscale-first"
         ''' <summary>对视频启用 NVIDIA RTX Video HDR 映射。</summary>
@@ -121,6 +121,11 @@ Namespace videoenhancer
             End Try
             If cfg Is Nothing Then cfg = New PluginConfig()
             Dim configChanged = cfg.NormalizeRtxHdrParameters()
+            If cfg.InterpBackend = "ncnn" AndAlso cfg.InterpEnabled Then
+                ' 旧 NCNN 字节接口只有8bit；保留原模型，等待用户选择高精度后端。
+                cfg.InterpEnabled = False
+                configChanged = True
+            End If
             If configChanged OrElse loadedLegacyConfig Then cfg.Save()
             Return cfg
         End Function

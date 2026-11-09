@@ -39,6 +39,7 @@ internal static class CliHelp
         writer.WriteLine("  -ffmpeg-settings, --ffmpeg-settings <字符串>");
         writer.WriteLine("        FFmpeg 输出编码参数，最后一个参数必须是输出文件路径");
         writer.WriteLine("        （因此不需要 -o，输出路径内置于该参数中）");
+        writer.WriteLine("        未指定视频编码器时使用 SVT-AV1 / p6 / CRF12 / 10bit 4:2:0；显式视频编码器优先。");
         writer.WriteLine();
         writer.WriteLine("可选参数");
         writer.WriteLine("  -h, --help          显示本帮助并退出");
@@ -46,14 +47,14 @@ internal static class CliHelp
         writer.WriteLine("  -output-scale <N>   目标输出倍率（1–8）；超分结果先调整尺寸（TRT 图内缩小 / 其余 Lanczos），默认原生");
         writer.WriteLine("  -interp-model <路径>  补帧模型：完整路径、models\\Frame-Interpolation 下的相对路径或模型名");
         writer.WriteLine("        （如 RIFE/rife-v4.25、GIMM-VFI/gimm-vfi）；旧 models\\RIFE 目录仍可读取；");
-        writer.WriteLine("        CUDA 使用 .pth/.pt/.pkl；TensorRT 使用 RIFE 权重自动构建 Engine；NCNN 使用 .param/.bin 文件夹");
+        writer.WriteLine("        CUDA 使用 .pth/.pt/.pkl；TensorRT 使用 RIFE 权重自动构建 Engine；NCNN RIFE 字节接口不支持16bit");
         writer.WriteLine("  -interp-factor <N>  补帧倍率（帧率倍数，默认 2，需大于 1）");
         writer.WriteLine("  -process-order <upscale-first|interp-first>  组合处理顺序；默认 upscale-first");
         writer.WriteLine("        画质优先：先超分，再补帧。速度/算力优先：先补帧，再超分。");
-        writer.WriteLine("  -upscale-precision <auto|float16|float32>  超分精度；默认 auto（FP16 优先，必要时回退）");
-        writer.WriteLine("  -interp-precision <auto|float16|float32>  补帧精度；默认 auto（FP16 优先，必要时回退）");
+        writer.WriteLine("  -upscale-precision <auto|float16|float32>  超分精度；默认 auto（FP32 高精度）；float16 显式启用半精度");
+        writer.WriteLine("  -interp-precision <auto|float16|float32>  补帧精度；默认 auto（FP32 高精度）；float16 显式启用半精度");
         writer.WriteLine("        同后端组合也会分别应用两种精度，在内存中转换张量，不产生额外 FFV1 中间视频。");
-        writer.WriteLine("  -interp-backend <ncnn|cuda|tensorrt>  可选的独立补帧后端；RIFE 实际支持 NCNN、CUDA/PyTorch、TensorRT");
+        writer.WriteLine("  -interp-backend <cuda|tensorrt>  可选的独立补帧后端；16bit 链路支持 CUDA/PyTorch、TensorRT（NCNN RIFE 不支持）");
         writer.WriteLine("  -scene-threshold <N>  转场检测阈值（RVE 官方外部 0-10 标尺；数值越低越敏感，默认 4）");
         writer.WriteLine("  -dynamic-optical-flow  开启 RIFE 动态光流尺度（仅 CUDA/PyTorch 补帧有效）");
         writer.WriteLine("  -tile-size <N>  超分分块边长（0 为 RVE 默认；至少 32；支持 NCNN/CUDA/TensorRT/ONNX）");
@@ -63,7 +64,7 @@ internal static class CliHelp
         writer.WriteLine("        cuda 使用 .pth/.pt/.pkl/.ckpt/.safetensors；tensorrt 接受可转换权重，缺少缓存时会自动构建；");
         writer.WriteLine("        TensorRT 缓存名包含 GPU、TensorRT 版本、输入尺寸和源模型摘要；onnx 使用 .onnx；");
         writer.WriteLine("        超分与补帧可同时指定；同一后端逐帧执行，跨后端才使用 FFV1 无损中间视频；");
-        writer.WriteLine("        SDR 内部为 8-bit RGB；PQ/HLG 使用 16-bit RGB，且仅支持 CUDA/PyTorch 或 TensorRT");
+        writer.WriteLine("        前端中间文件使用16bit RGB；高位深处理还需配套后端及对应输出编码格式");
         writer.WriteLine("  -rtx-target <规格>  RTX VSR 输出规格：1x/1.5x/2x/3x/4x 或 1080p/1440p/2160p/4320p；最大 4x，输出边长取偶数");
         writer.WriteLine("  -rtx-quality <1-4>  RTX VSR 质量等级，默认 3");
         writer.WriteLine("  -rtx-hdr            启用 RTX Video HDR；输入已是 PQ/HLG 时会拒绝重复映射");
@@ -116,7 +117,7 @@ internal static class CliHelp
         writer.WriteLine("  --image-folder <目录>  递归添加目录及其子目录图片（可重复）");
         writer.WriteLine("  --image-output <目录>  指定图片输出目录；或用 --image-output-original 输出到原目录");
         writer.WriteLine("  --image-suffix <timestamp|model>  文件名附加处理时间戳或模型名称");
-        writer.WriteLine("  --image-png / --image-source-format  输出无损 PNG（默认）或保持源扩展格式");
+        writer.WriteLine("  --image-png / --image-source-format  输出16bit PNG（默认）或保留PNG/TIFF格式，其他源格式转PNG");
         writer.WriteLine();
         writer.WriteLine("说明");
         writer.WriteLine("  · 便携目录：CoreRoot 永远是 videoenhancer.exe 所在目录；");

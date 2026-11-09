@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--clip-length", type=int, default=4)
     parser.add_argument("--clip-context", type=int, default=1)
-    parser.add_argument("--precision", choices=("float16", "float32"), default="float16")
+    parser.add_argument("--precision", choices=("float16", "float32"), default="float32")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--probe", action="store_true")
     return parser.parse_args()
@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
 def run_clip(model: torch.nn.Module, frames: np.ndarray, args: argparse.Namespace) -> torch.Tensor:
     device = torch.device(f"cuda:{args.gpu}")
     dtype = torch.float16 if args.precision == "float16" else torch.float32
-    clip = torch.from_numpy(frames).permute(0, 3, 1, 2).float().div_(255).unsqueeze(0).to(device)
+    clip = torch.from_numpy(frames).permute(0, 3, 1, 2).float().div_(65535).unsqueeze(0).to(device)
     if clip.shape[1] == 1:
         clip = torch.cat((clip, clip), dim=1)
     with torch.inference_mode(), torch.autocast("cuda", dtype=dtype, enabled=dtype == torch.float16):
@@ -70,7 +70,7 @@ def main() -> int:
         print("BASICVSRPP_MODEL_VALID", flush=True)
         return 0
 
-    fps, windows = iter_video_windows(args.input, max(2, args.clip_length), args.clip_context)
+    fps, windows = iter_video_windows(args.input, max(2, args.clip_length), args.clip_context, args.ffmpeg_path)
     writer = None
     encoded = 0
     try:
@@ -81,7 +81,7 @@ def main() -> int:
             if target is not None:
                 output = resize_tensor(output, *target)
             output = output.clamp(0, 1).permute(0, 2, 3, 1).cpu().numpy()
-            output = (output * 255.0 + 0.5).astype(np.uint8)
+            output = (output * 65535.0 + 0.5).astype(np.uint16)
             if writer is None:
                 writer = RawVideoWriter(args.ffmpeg_path, args.input, args.output,
                                         args.custom_encoder, fps, output.shape[2], output.shape[1],

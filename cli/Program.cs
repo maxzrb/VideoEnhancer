@@ -1210,6 +1210,9 @@ internal static class Program
         var stopWatcher = o.HasStopShm ? new StopWatcher(o.StopShm) : null;
         var segmentedUpscale = !string.IsNullOrWhiteSpace(o.SegmentsBase64);
 
+        if (o.HasInterpModel && o.InterpBackend == "ncnn")
+            return Fail("NCNN RIFE 只有8bit字节接口；请在补帧后端选择 CUDA/PyTorch 或 TensorRT");
+
         // 1. 环境检测（ffmpeg / python 库 / 模型库）
         if (!segmentedUpscale && !RunCheck(verbose: false, backend: o.Backend))
         {
@@ -1398,12 +1401,12 @@ internal static class Program
             if (useUpscale && unsupportedHdrBackends.Contains(o.Backend))
             {
                 return Fail("检测到 PQ/HLG HDR 视频，但超分后端 " + o.Backend +
-                    " 不支持 RVE 的 16-bit RGB 帧管线；请改用 CUDA/PyTorch 或 TensorRT，不能静默降为 SDR。");
+                    " 尚未通过 HDR 色彩链路验证；请改用 CUDA/PyTorch 或 TensorRT，不能静默降为 SDR。");
             }
             if (interpModel is not null && unsupportedHdrBackends.Contains(o.InterpBackend))
             {
                 return Fail("检测到 PQ/HLG HDR 视频，但补帧后端 " + o.InterpBackend +
-                    " 不支持 RVE 的 16-bit RGB 帧管线；请改用 CUDA/PyTorch 或 TensorRT，不能静默降为 SDR。");
+                    " 尚未通过 HDR 色彩链路验证；请改用 CUDA/PyTorch 或 TensorRT，不能静默降为 SDR。");
             }
             Console.WriteLine("[HDR] 检测到 PQ/HLG 视频；组合中间帧将使用 16-bit RGB FFV1，并向 RVE 后端启用 HDR 模式。");
         }
@@ -1411,7 +1414,7 @@ internal static class Program
         {
             if (hdrMode)
             {
-                return Fail("分段超分使用 RGB24 逐帧管线，当前不支持 PQ/HLG HDR 输入");
+                return Fail("分段超分已使用 RGB48，但尚未完成 PQ/HLG 色彩元数据链路验证");
             }
             return RunSegmentedVideo(o, input, outputFile, customEncoder, overwrite, o.PauseShm,
                 stopWatcher, tileSize);
@@ -1782,8 +1785,19 @@ internal static class Program
         }
     }
 
+    private static bool BackendProvidesHighBitDepthScripts() =>
+        File.Exists(Path.Combine(CoreRoot, "python", "backend", "src", "utils", "PixelFormat.py"));
+
     private static string EnsureEmbeddedFile(string resourceName, string fileName)
     {
+        if (BackendProvidesHighBitDepthScripts()
+            && fileName is "rve-ordered-backend.py" or "rve-segmented-backend.py")
+        {
+            var backendPath = Path.Combine(CoreRoot, "python", "backend", fileName);
+            if (!File.Exists(backendPath))
+                throw new FileNotFoundException("高位深后端缺少配套脚本，请完整安装修订后端：" + fileName, backendPath);
+            return backendPath;
+        }
         var directory = PortablePaths.EmbeddedToolsRoot(ToolVersion);
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, fileName);
@@ -1813,8 +1827,15 @@ internal static class Program
     {
         var backendDirectory = Path.Combine(CoreRoot, "python", "backend");
         if (!Directory.Exists(backendDirectory)) return;
+        // 沿用 PR17 的脚本所有权约定；CLI 只更新自己管理的核心和入口。
+        if (BackendProvidesHighBitDepthScripts() && !RveHighBitDepthSupport.IsManaged(backendDirectory))
+        {
+            RveHighBitDepthSupport.ValidateExternal(backendDirectory);
+            return;
+        }
         try
         {
+            RveHighBitDepthSupport.Install(backendDirectory);
             InstallEmbeddedBackendScript(EmbeddedInterpolationInspectorResource, InterpolationInspectorScript);
             InstallEmbeddedBackendScript(EmbeddedUpscaleInspectorResource, UpscaleInspectorScript);
             InstallEmbeddedBackendScript(EmbeddedRifeTensorRTPrepareResource, RifeTensorRTPrepareScript);
@@ -1824,6 +1845,7 @@ internal static class Program
             InstallEmbeddedBackendScript(EmbeddedFlashVsrResource, Path.Combine(backendDirectory, "rve-flashvsr-backend.py"));
             InstallEmbeddedBackendScript(EmbeddedBasicVsrResource, Path.Combine(backendDirectory, "rve-basicvsrpp-backend.py"));
             InstallEmbeddedBackendScript(EmbeddedSegmentedBackendResource, SegmentedBackendScript);
+            InstallEmbeddedBackendScript(EmbeddedOrderedBackendResource, Path.Combine(backendDirectory, "rve-ordered-backend.py"));
             EnsureGmfssModelTypeCompatibility();
             EnsureGimmModelCompatibility();
             EnsurePytorchUpscaleCompatibility();
@@ -1832,7 +1854,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("[警告] 无法同步补帧辅助脚本：" + ex.Message);
+            throw new InvalidOperationException("无法同步配套的16bit后端脚本，任务未开始：" + ex.Message, ex);
         }
     }
 
@@ -2739,7 +2761,7 @@ internal static class Program
         if (!VideoEncodingDefaults.HasVideoEncoder(cleaned))
         {
             cleaned.AddRange(Tokenize(VideoEncodingDefaults.Arguments));
-            Console.Error.WriteLine("[编码兜底] 未指定视频编码器，使用 SVT y412 超分预设（p6 / CRF12 / yuv444p12le）；不支持的 FFmpeg 将直接报错。");
+            Console.Error.WriteLine("[编码兜底] 未指定视频编码器，使用 SVT-AV1 10bit 4:2:0 超分预设（p6 / CRF12 / yuv420p10le）；不支持的 FFmpeg 将直接报错。");
         }
         var custom = string.Join(" ", cleaned);
 
@@ -2901,9 +2923,9 @@ internal static class Program
 
     /// <summary>未显式指定时，为补帧选择与现有模型格式匹配的后端。</summary>
     private static string DefaultInterpBackend(string upscaleBackend) =>
-        upscaleBackend is "cuda" or "tensorrt" ? upscaleBackend : "ncnn";
+        upscaleBackend is "cuda" or "tensorrt" ? upscaleBackend : "cuda";
 
-    /// <summary>规范化用户请求的推理精度；auto 表示优先半精度并保留后端回退。</summary>
+    /// <summary>规范化用户请求的推理精度；auto 表示采用 FP32 高精度，半精度由 float16 显式选择。</summary>
     private static string NormalisePrecisionOption(string value, string optionName)
     {
         var precision = (value ?? "auto").Trim().ToLowerInvariant();
@@ -2916,13 +2938,13 @@ internal static class Program
     {
         "float32" => "FP32（强制）",
         "float16" => "FP16（强制）",
-        _ => "FP16 优先（不兼容时回退 FP32）",
+        _ => "FP32（自动高精度）",
     };
 
     /// <summary>超分精度独立决策：用户强制 FP32 优先，已知 FP16 数值不稳定的模型保持 FP32。</summary>
     private static string ResolveUpscalePrecision(string modelPath, string backend, string requested)
     {
-        if (requested == "float32") return "float32";
+        if (requested is "auto" or "float32") return "float32";
         // DAT2 与 AniToon-RPLKSRL 在当前 PyTorch/CUDA FP16 路径会直接输出 NaN；
         // 后续转字节会把 NaN 隐式变为黑值，因此不能依赖编码阶段发现问题。
         if (backend == "cuda" && Regex.IsMatch(
@@ -2936,7 +2958,7 @@ internal static class Program
     /// <summary>补帧精度独立决策：GIMM 的 CUDA 路径必须使用 FP32，其他模型优先半精度。</summary>
     private static string ResolveInterpPrecision(string? modelPath, string backend, string requested)
     {
-        if (requested == "float32") return "float32";
+        if (requested is "auto" or "float32") return "float32";
         if (backend == "cuda" && Regex.IsMatch(ModelBaseName(modelPath ?? ""), @"GIMM", RegexOptions.IgnoreCase))
             return "float32";
         return requested;
@@ -3788,6 +3810,8 @@ internal static class Program
             }
             cleaned.Add(token);
         }
+        if (!VideoEncodingDefaults.HasVideoEncoder(cleaned))
+            cleaned.AddRange(Tokenize(VideoEncodingDefaults.Arguments));
         return cleaned;
     }
 
@@ -3914,7 +3938,12 @@ internal static class Program
     private static string BuildDirectCustomFilter(PreparedSegment segment)
     {
         if (segment.Backend == "ffmpeg")
+        {
+            // swscale 的 RGB16 最近邻仍会改变低位；zscale point 保留原始采样码值。
+            if (segment.Model == "neighbor")
+                return $"zscale=w={segment.OutputWidth}:h={segment.OutputHeight}:filter=point";
             return $"scale={segment.OutputWidth}:{segment.OutputHeight}:flags={segment.Model}";
+        }
         var shader = ResolveAnime4kShaderForFfmpeg(segment.Model);
         if (shader.Length == 0)
             throw new FileNotFoundException("找不到 Anime4K 着色器：" + segment.Model);
@@ -3998,7 +4027,7 @@ internal static class Program
         }
         else
         {
-            args.AddRange(new[] { "-an", "-sn", "-c:v", "ffv1", "-level", "3", "-pix_fmt", "rgb24" });
+            args.AddRange(new[] { "-an", "-sn", "-c:v", "ffv1", "-level", "3", "-pix_fmt", "gbrp16le" });
         }
         args.Add(output);
 
@@ -4093,7 +4122,7 @@ internal static class Program
         args.Add(expectedFrames.ToString(CultureInfo.InvariantCulture));
         args.AddRange(new[]
         {
-            "-an", "-sn", "-c:v", "ffv1", "-level", "3", "-pix_fmt", "rgb24",
+            "-an", "-sn", "-c:v", "ffv1", "-level", "3", "-pix_fmt", "gbrp16le",
             "-r", video.FrameRate.ToString("0.########", CultureInfo.InvariantCulture),
             output,
         });
@@ -4124,7 +4153,7 @@ internal static class Program
         var segmentPayload = EncodePreparedSegments(rebased);
         var encoderPayload = EncodeStringList(new[]
         {
-            "-c:v", "ffv1", "-level", "3", "-pix_fmt", "rgb24", "-an", "-sn",
+            "-c:v", "ffv1", "-level", "3", "-pix_fmt", "gbrp16le", "-an", "-sn",
         });
         var script = EnsureEmbeddedFile(EmbeddedSegmentedBackendResource, "rve-segmented-backend.py");
         var arguments = new List<string>
@@ -4152,7 +4181,7 @@ internal static class Program
         var model = distinctBackends.Count == 1 ? group[0].Model : "";
         var exit = LaunchBackend(
             arguments, sourceClip, model, outputClip,
-            "-c:v ffv1 -level 3 -pix_fmt rgb24 -an -sn",
+            "-c:v ffv1 -level 3 -pix_fmt gbrp16le -an -sn",
             stopWatcher, null, null, backend, pauseShm,
             "分段模型组", isFinalStage: false, upscalePrecision: segmentedPrecision);
         if (exit != 0) return exit;
@@ -4235,7 +4264,7 @@ internal static class Program
                 }
                 graph.Append(",setpts=PTS-STARTPTS,")
                     .Append(BuildDirectCustomFilter(segment))
-                    .Append(",setsar=1,format=rgb24[")
+                    .Append(",setsar=1,format=gbrp16le[")
                     .Append(outputLabel)
                     .Append("];");
                 customFrames += segment.End - segment.Start + 1;
@@ -4244,7 +4273,7 @@ internal static class Program
             {
                 var inputIndex = modelInputIndex[part.ModelChunkPath];
                 graph.Append('[').Append(inputIndex).Append(":v]")
-                    .Append("setpts=PTS-STARTPTS,setsar=1,format=rgb24[")
+                    .Append("setpts=PTS-STARTPTS,setsar=1,format=gbrp16le[")
                     .Append(outputLabel)
                     .Append("];");
             }
@@ -4639,6 +4668,8 @@ internal static class Program
     {
         var useUpscale = !string.IsNullOrEmpty(model);
         var useInterp = interpModel is not null;
+        if (useInterp && interpBackend == "ncnn")
+            return Fail("NCNN RIFE 仅支持8bit帧，16bit链路请改用 CUDA/PyTorch 或 TensorRT 补帧");
         var upscalePrecision = ResolveUpscalePrecision(model, upscaleBackend, requestedUpscalePrecision);
         var interpPrecision = ResolveInterpPrecision(interpModel, interpBackend, requestedInterpPrecision);
         if (!useUpscale || !useInterp)
@@ -4677,7 +4708,7 @@ internal static class Program
         }
 
         var intermediate = PortablePaths.CreateWorkFilePath("pipeline", ".mkv");
-        var intermediatePixelFormat = hdrMode ? "gbrp16le" : "gbrp10le";
+        var intermediatePixelFormat = "gbrp16le";
         var losslessEncoder = "-c:v ffv1 -level 3 -coder 1 -context 1 -g 1 -pix_fmt " +
             intermediatePixelFormat + " -c:a copy -c:s copy";
         Console.WriteLine("[管线] 两种后端格式不兼容，必须跨进程传递中间视频；使用 " +
@@ -5503,13 +5534,13 @@ internal static class Program
         return true;
     }
 
-    private const string TensorRtCacheSchema = "3";
+    private const string TensorRtCacheSchema = "4-rgb48-tf32off";
     private const int TensorRtOptimizationLevel = 3;
     private const int TensorRtTilePad = 10;
 
     /// <summary>GRL 的相对位置编码在 FP16 转换时混用 Float/Half，必须构建 FP32 Engine。</summary>
     private static string TensorRtPrecisionForModel(string sourcePath, string requestedPrecision = "auto") =>
-        requestedPrecision == "float32" || Regex.IsMatch(ModelBaseName(sourcePath), @"GRL", RegexOptions.IgnoreCase)
+        requestedPrecision != "float16" || Regex.IsMatch(ModelBaseName(sourcePath), @"GRL", RegexOptions.IgnoreCase)
             ? "fp32"
             : "fp16";
 

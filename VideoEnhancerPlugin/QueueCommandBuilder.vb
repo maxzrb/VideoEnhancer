@@ -48,14 +48,14 @@ Namespace videoenhancer
             If Not upscaleOn Then
                 sb.Append(" -no-upscale")
             End If
-            ' 这里传入超分后端；CLI 会为补帧安全推导 CUDA 或 NCNN，避免模型格式错配。
+            ' 这里传入超分后端；CLI 会为补帧安全推导 CUDA 或 TensorRT，避免模型格式错配。
             If interpOn OrElse upscaleOn Then
                 Dim b = If(String.IsNullOrWhiteSpace(backend), "ncnn", backend.Trim().ToLowerInvariant())
                 sb.Append(" -backend ").Append(Arg(b))
             End If
             If interpOn Then
-                Dim ib = If(String.IsNullOrWhiteSpace(interpBackend), "ncnn", interpBackend.Trim().ToLowerInvariant())
-                If ib <> "ncnn" AndAlso ib <> "cuda" AndAlso ib <> "tensorrt" Then ib = "ncnn"
+                Dim ib = If(String.IsNullOrWhiteSpace(interpBackend), "cuda", interpBackend.Trim().ToLowerInvariant())
+                If ib <> "ncnn" AndAlso ib <> "cuda" AndAlso ib <> "tensorrt" Then ib = "cuda"
                 sb.Append(" -interp-backend ").Append(Arg(ib))
                 Dim f = If(interpFactor <= 1, 2.0, interpFactor)
                 sb.Append(" -interp-factor ").Append(f.ToString("0", System.Globalization.CultureInfo.InvariantCulture))
@@ -73,7 +73,7 @@ Namespace videoenhancer
                 sb.Append(" -output-scale ").Append(options.outputScale.ToString(System.Globalization.CultureInfo.InvariantCulture))
             End If
             If upscaleOn Then
-                sb.Append(" -upscale-precision ").Append(If(upscaleHalfPrecision, "auto", "float32"))
+                sb.Append(" -upscale-precision ").Append(If(upscaleHalfPrecision, "float16", "float32"))
             End If
             If String.Equals(backend, "rtxvsr", StringComparison.OrdinalIgnoreCase) AndAlso upscaleOn Then
                 sb.Append(" -rtx-target ").Append(Arg(If(String.IsNullOrWhiteSpace(rtxTarget), "2x", rtxTarget)))
@@ -91,7 +91,7 @@ Namespace videoenhancer
                 If allowMixedSegmentBackends Then sb.Append(" --allow-mixed-segment-backends")
             End If
             If interpOn Then
-                sb.Append(" -interp-precision ").Append(If(interpHalfPrecision, "auto", "float32"))
+                sb.Append(" -interp-precision ").Append(If(interpHalfPrecision, "float16", "float32"))
             End If
             Dim tileBackend = String.Equals(backend, "ncnn", StringComparison.OrdinalIgnoreCase) OrElse
                 String.Equals(backend, "cuda", StringComparison.OrdinalIgnoreCase) OrElse

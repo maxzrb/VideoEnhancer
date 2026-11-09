@@ -131,7 +131,7 @@ Namespace videoenhancer
             Dim formatLabel = CreateOfficialCaption("输出格式")
             formatLabel.TextAlign = ContentAlignment.MiddleLeft
             _cmbImageFormat.Items.Add("无损 PNG")
-            _cmbImageFormat.Items.Add("保留源格式")
+            _cmbImageFormat.Items.Add("保留 PNG / TIFF")
             _cmbImageFormat.SelectedIndex = If(_config.ImagePng, 0, 1)
             _cmbImageFormat.WaterText = "选择输出格式…"
             ConfigureCombo(_cmbImageFormat)
@@ -384,7 +384,7 @@ Namespace videoenhancer
             If _config.OutputScale > 0 Then
                 args.Add("-output-scale") : args.Add(_config.OutputScale.ToString())
             End If
-            args.Add("-upscale-precision") : args.Add(If(_config.UpscaleHalfPrecision, "auto", "float32"))
+            args.Add("-upscale-precision") : args.Add(If(_config.UpscaleHalfPrecision, "float16", "float32"))
 
             Dim psi As New ProcessStartInfo With {
                 .FileName = _config.ExePath, .WorkingDirectory = Path.GetDirectoryName(_config.ExePath),

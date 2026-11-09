@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--custom-encoder", default="-c:v libx264 -crf 18")
     parser.add_argument("--scale", type=int, choices=(2, 4), default=4)
     parser.add_argument("--mode", choices=("tiny", "tiny-long", "full"), default="tiny-long")
-    parser.add_argument("--precision", choices=("fp16", "bf16"), default="bf16")
+    parser.add_argument("--precision", choices=("fp16", "fp32"), default="fp32")
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--window-length", type=int, default=29)
     parser.add_argument("--window-context", type=int, default=4)
@@ -74,7 +74,7 @@ def main() -> int:
 
     print(f"FLASHVSR_READY|{torch.cuda.get_device_name(args.gpu)}|{model_dir}", flush=True)
     if args.probe:
-        dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
+        dtype = torch.float32 if args.precision == "fp32" else torch.float16
         pipeline = init_pipeline(args.mode, f"cuda:{args.gpu}", dtype)
         del pipeline
         torch.cuda.empty_cache()
@@ -83,8 +83,8 @@ def main() -> int:
 
     if args.window_length < 21:
         raise ValueError("FlashVSR 时间窗口不能小于 21 帧")
-    fps, windows = iter_video_windows(args.input, args.window_length, args.window_context)
-    dtype = torch.bfloat16 if args.precision == "bf16" else torch.float16
+    fps, windows = iter_video_windows(args.input, args.window_length, args.window_context, args.ffmpeg_path)
+    dtype = torch.float32 if args.precision == "fp32" else torch.float16
     pipeline = init_pipeline(args.mode, f"cuda:{args.gpu}", dtype)
     node = FlashVSRNode()
     writer = None
@@ -92,7 +92,7 @@ def main() -> int:
     try:
         for window in windows:
             print(f"FLASHVSR_DECODE|{window.decoded}|{window.expected}", flush=True)
-            frames = torch.from_numpy(window.frames).float().div_(255)
+            frames = torch.from_numpy(window.frames).float().div_(65535)
             output = node.main(
                 frames=frames, mode=args.mode, scale=args.scale, color_fix=True,
                 tiled_vae=True, tiled_dit=True, tile_size=256, tile_overlap=24,
@@ -103,7 +103,7 @@ def main() -> int:
             target = temporal_target(window.frames)
             if target is not None:
                 output = resize_tensor(output.permute(0, 3, 1, 2), *target).permute(0, 2, 3, 1)
-            output = (output.clamp(0, 1).numpy() * 255.0 + 0.5).astype(np.uint8)
+            output = (output.clamp(0, 1).numpy() * 65535.0 + 0.5).astype(np.uint16)
             if writer is None:
                 writer = RawVideoWriter(args.ffmpeg_path, args.input, args.output,
                                         args.custom_encoder, fps, output.shape[2], output.shape[1],

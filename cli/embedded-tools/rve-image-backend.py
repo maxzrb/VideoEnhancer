@@ -15,10 +15,19 @@ import time
 from pathlib import Path
 
 import numpy as np
+import cv2
 from PIL import Image
 
 BACKEND_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(BACKEND_ROOT))
+from src.utils.PixelFormat import to_uint16
+
+
+def read_image(path: Path) -> np.ndarray:
+    # 由 Python 处理 Unicode 文件名，OpenCV 只解码内存中的图像。
+    return cv2.imdecode(np.frombuffer(path.read_bytes(), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+
+
 SUPPORTED_IMAGES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".avif"}
 
 
@@ -59,95 +68,13 @@ def collect_inputs(files: list[str], folders: list[str]) -> list[Path]:
     return sorted(found.values(), key=lambda path: str(path).lower())
 
 
-def reflect_pad(image: np.ndarray, tile: int, pad: int) -> tuple[np.ndarray, int, int]:
-    height, width = image.shape[:2]
-    extra_h = (tile - height % tile) % tile
-    extra_w = (tile - width % tile) % tile
-    mode = "reflect" if height > 1 and width > 1 else "edge"
-    return np.pad(image, ((pad, extra_h + pad), (pad, extra_w + pad), (0, 0)), mode=mode), extra_h, extra_w
-
-
-def tiled_rgb(run_block, image: np.ndarray, scale: int, tile: int, pad: int) -> np.ndarray:
-    padded, extra_h, extra_w = reflect_pad(image, tile, pad)
-    height, width = padded.shape[:2]
-    output = np.zeros((height * scale, width * scale, 3), dtype=np.uint8)
-    tiles_x = (width - 2 * pad + tile - 1) // tile
-    tiles_y = (height - 2 * pad + tile - 1) // tile
-    for y in range(tiles_y):
-        for x in range(tiles_x):
-            x0, y0 = x * tile + pad, y * tile + pad
-            x1, y1 = min(x0 + tile, width - pad), min(y0 + tile, height - pad)
-            px0, py0, px1, py1 = x0 - pad, y0 - pad, x1 + pad, y1 + pad
-            block = padded[py0:py1, px0:px1]
-            block_out = run_block(block)
-            loss_x = block.shape[1] * scale - block_out.shape[1]
-            loss_y = block.shape[0] * scale - block_out.shape[0]
-            crop_x = (x0 - px0) * scale - max(0, loss_x // 2)
-            crop_y = (y0 - py0) * scale - max(0, loss_y // 2)
-            output[y0*scale:y1*scale, x0*scale:x1*scale] = block_out[
-                crop_y:crop_y+(y1-y0)*scale, crop_x:crop_x+(x1-x0)*scale
-            ]
-    top = left = pad * scale
-    return output[top:output.shape[0]-(extra_h+pad)*scale,
-                  left:output.shape[1]-(extra_w+pad)*scale]
+from src.ncnn.UpscaleFloat import NCNNImageUpscaler, tiled_rgb
 
 
 def onnx_tiled(upscaler, image: np.ndarray, tile: int = 256, pad: int = 8) -> np.ndarray:
     return tiled_rgb(upscaler._run, image, int(upscaler.scale), tile, pad)
 
 
-class NCNNImageUpscaler:
-    def __init__(self, model_base: Path, scale: int):
-        import ncnn
-        self.ncnn = ncnn
-        self.scale = scale
-        self.input_name, self.output_name = self._blob_names(model_base.with_suffix(".param"))
-        self.net = ncnn.Net()
-        self.net.opt.use_vulkan_compute = True
-        self.net.opt.use_fp16_packed = True
-        self.net.opt.use_fp16_storage = True
-        self.net.opt.use_fp16_arithmetic = False
-        self.net.set_vulkan_device(0)
-        self.net.load_param(str(model_base.with_suffix(".param")))
-        self.net.load_model(str(model_base.with_suffix(".bin")))
-        print(f"Using GPU: {ncnn.get_gpu_device(0).info().device_name()}; NCNN blobs {self.input_name} -> {self.output_name}", flush=True)
-
-    @staticmethod
-    def _blob_names(param_path: Path) -> tuple[str, str]:
-        input_name, output_name = "data", "output"
-        for raw in param_path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            parts = raw.split()
-            if len(parts) < 5 or parts[0].startswith("#"):
-                continue
-            try:
-                input_count, output_count = int(parts[2]), int(parts[3])
-            except ValueError:
-                continue
-            outputs = parts[4 + input_count:4 + input_count + output_count]
-            if parts[0] == "Input" and outputs:
-                input_name = outputs[0]
-            if outputs:
-                output_name = outputs[-1]
-        return input_name, output_name
-
-    def _run(self, rgb: np.ndarray) -> np.ndarray:
-        height, width = rgb.shape[:2]
-        mat = self.ncnn.Mat.from_pixels(np.ascontiguousarray(rgb), self.ncnn.Mat.PixelType.PIXEL_RGB, width, height)
-        mat.substract_mean_normalize([], [1 / 255.0] * 3)
-        extractor = self.net.create_extractor()
-        input_result = extractor.input(self.input_name, mat)
-        if input_result != 0:
-            raise RuntimeError(f"NCNN 输入节点 {self.input_name} 返回错误码 {input_result}")
-        result, output = extractor.extract(self.output_name)
-        if result != 0:
-            raise RuntimeError(f"NCNN 输出节点 {self.output_name} 返回错误码 {result}")
-        value = np.asarray(output)
-        if value.ndim != 3:
-            raise RuntimeError(f"NCNN 输出形状异常：{value.shape}")
-        return np.ascontiguousarray(np.clip(value.transpose(1, 2, 0) * 255.0, 0, 255).round().astype(np.uint8))
-
-    def __call__(self, rgb: np.ndarray) -> np.ndarray:
-        return tiled_rgb(self._run, rgb, self.scale, tile=256, pad=10)
 
 
 from rve_output_scale import resize_frame
@@ -218,21 +145,22 @@ class ImageUpscaler:
         raise ValueError(f"不支持的图片推理后端：{self.backend}")
 
     def __call__(self, rgb: np.ndarray) -> np.ndarray:
+        rgb = to_uint16(rgb)
         if self.backend == "onnx":
             return onnx_tiled(self.model, rgb)
         if self.backend == "ncnn":
             if not self.use_rve_ncnn:
                 return self.model(rgb)
-            return np.frombuffer(self.process_bytes(rgb.tobytes()), dtype=np.uint8).reshape(
+            return np.frombuffer(self.process_bytes(rgb.tobytes()), dtype=np.uint16).reshape(
                 self.height * self.scale, self.width * self.scale, 3
             )
         from src.utils.Frame import Frame
         internal = "pytorch" if self.backend == "cuda" else self.backend
-        frame = Frame(internal, self.width, self.height, "cuda", 0, False, self.frame_precision).set_frame_bytes(rgb.tobytes())
+        frame = Frame(internal, self.width, self.height, "cuda", 0, False, self.frame_precision).set_frame_bytes(to_uint16(rgb).tobytes())
         result = self.model(frame)
         if self.output_scale:
             result = resize_frame(result, self.width * self.output_scale, self.height * self.output_scale)
-        return np.frombuffer(result.get_frame_bytes(), dtype=np.uint8).reshape(
+        return np.frombuffer(result.get_frame_bytes(), dtype=np.uint16).reshape(
             result.height, result.width, 3)
 
     def process_bytes(self, payload: bytes) -> bytes:
@@ -265,8 +193,8 @@ def temporal_upscale(source: Path, backend: str, model: Path, ffmpeg: Path, work
     print(f"IMAGE_STAGE|{source}|构造 {frames} 帧无损输入", flush=True)
     run_checked([str(ffmpeg), "-y", "-hide_banner", "-loglevel", "error", "-loop", "1", "-framerate", "1",
                  "-i", str(source), "-vf", "pad=max(iw\\,64):max(ih\\,64):0:0", "-frames:v", str(frames), "-c:v", "ffv1", "-level", "3",
-                 "-pix_fmt", "rgb24", str(input_video)], "图片转单帧视频")
-    encoder = "-c:v ffv1 -level 3 -pix_fmt rgb24"
+                 "-pix_fmt", "gbrp16le", str(input_video)], "图片转单帧视频")
+    encoder = "-c:v ffv1 -level 3 -pix_fmt gbrp16le"
     if backend == "flashvsr":
         command = [sys.executable, str(BACKEND_ROOT / "rve-flashvsr-backend.py"),
                    "--input", str(input_video), "--output", str(output_video), "--model-dir", str(model),
@@ -282,9 +210,9 @@ def temporal_upscale(source: Path, backend: str, model: Path, ffmpeg: Path, work
     print(f"IMAGE_STAGE|{source}|提取目标第一帧", flush=True)
     run_checked([str(ffmpeg), "-y", "-hide_banner", "-loglevel", "error", "-i", str(output_video),
                  "-vf", f"crop={source_width * target_scale}:{source_height * target_scale}:0:0",
-                 "-frames:v", "1", str(output_png)], "提取超分结果")
-    with Image.open(output_png) as opened:
-        return np.asarray(opened.convert("RGB"))
+                 "-frames:v", "1", "-pix_fmt", "rgb48be", str(output_png)], "提取超分结果")
+    value = read_image(output_png)
+    return to_uint16(cv2.cvtColor(value, cv2.COLOR_BGR2RGB))
 
 
 def unique_path(path: Path) -> Path:
@@ -301,19 +229,22 @@ def unique_path(path: Path) -> Path:
 def output_path(source: Path, args, suffix_text: str) -> Path:
     directory = source.parent if args.output_original else Path(args.output).resolve()
     directory.mkdir(parents=True, exist_ok=True)
-    extension = ".png" if args.png else source.suffix.lower()
+    extension = source.suffix.lower() if not args.png and source.suffix.lower() in (".png", ".tif", ".tiff") else ".png"
     return unique_path(directory / f"{source.stem}-{suffix_text}{extension}")
 
 
 def save_image(value: np.ndarray, alpha: np.ndarray | None, target: Path) -> None:
-    image = Image.fromarray(value, "RGB")
+    if target.suffix.lower() not in (".png", ".tif", ".tiff"):
+        raise ValueError("High precision image output requires PNG or TIFF")
+    value = to_uint16(value)
+    image = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
     if alpha is not None:
-        image.putalpha(Image.fromarray(alpha, "L").resize(image.size, Image.Resampling.BILINEAR))
-    params = {"compress_level": 4} if target.suffix.lower() == ".png" else {}
-    if target.suffix.lower() in (".jpg", ".jpeg"):
-        image = image.convert("RGB")
-        params = {"quality": 95, "subsampling": 0}
-    image.save(target, **params)
+        alpha = cv2.resize(to_uint16(alpha), (value.shape[1], value.shape[0]), interpolation=cv2.INTER_LINEAR)
+        image = np.dstack((image, alpha))
+    ok, encoded = cv2.imencode(target.suffix.lower(), image)
+    if not ok:
+        raise RuntimeError(f"高位深图片编码失败：{target}")
+    target.write_bytes(encoded.tobytes())
 
 
 def main() -> int:
@@ -346,9 +277,15 @@ def main() -> int:
     total = len(sources)
     for index, source in enumerate(sources, 1):
         try:
-            with Image.open(source) as opened:
-                alpha = np.asarray(opened.getchannel("A")) if "A" in opened.getbands() else None
-                rgb = np.asarray(opened.convert("RGB"))
+            decoded = read_image(source)
+            if decoded is None:
+                raise RuntimeError(f"Failed to decode image without reducing precision: {source}")
+            alpha = decoded[:, :, 3] if decoded.ndim == 3 and decoded.shape[2] == 4 else None
+            if decoded.ndim == 2:
+                rgb = cv2.cvtColor(decoded, cv2.COLOR_GRAY2RGB)
+            else:
+                rgb = cv2.cvtColor(decoded[:, :, :3], cv2.COLOR_BGR2RGB)
+            rgb = to_uint16(rgb)
             height, width = rgb.shape[:2]
             if args.backend in ("flashvsr", "basicvsrpp"):
                 work_root = os.environ.get("VIDEOENHANCER_WORK_DIR") or None
@@ -362,14 +299,13 @@ def main() -> int:
                     cache[key] = ImageUpscaler(args.backend, model_path, width, height, native_scale=args.native_scale, output_scale=args.output_scale)
                 upscaler = cache[key]
                 value = upscaler(rgb)
-                if args.backend in ("cuda", "tensorrt") and float(rgb.std()) > 5.0:
+                if args.backend in ("cuda", "tensorrt") and float(rgb.std()) > 5.0 * 257:
                     output_mean = float(value.mean())
-                    if float(value.std()) < 1.0 or output_mean < 0.5 or output_mean > 254.5:
+                    if float(value.std()) < 257.0 or output_mean < 128.5 or output_mean > 65406.5:
                         raise RuntimeError("该模型对图片不兼容，请选择 NCNN/ONNX 模型")
             if args.output_scale and value.shape[:2] != (height * args.output_scale, width * args.output_scale):
                 print(f"IMAGE_STAGE|{source}|原生推理后缩放至 {args.output_scale}x", flush=True)
-                value = np.asarray(Image.fromarray(value).resize(
-                    (width * args.output_scale, height * args.output_scale), Image.Resampling.LANCZOS))
+                value = cv2.resize(value, (width * args.output_scale, height * args.output_scale), interpolation=cv2.INTER_LANCZOS4)
             target = output_path(source, args, timestamp if args.suffix == "timestamp" else model_suffix)
             save_image(value, alpha, target)
         except Exception as exc:

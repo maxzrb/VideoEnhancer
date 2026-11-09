@@ -1,11 +1,31 @@
 # Project Status
 
-Last updated: 2026-11-02 20:43
+Last updated: 2026-11-09 15:05
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-09 15:05：**用户要求先发布Z+1，当前准备1.3.16，扩大矩阵暂停。** 旧调度器12336已停止派发，298/629（297PASS/1独占FlashVSR FP32资源OOM）断点保存，在途自然完成后保留日志。发行说明按用户要求只列功能/修复，不加入测试或显存防御性条目。两项目版本与版本历史已准备，git pull最新、PR17仍固定6b8d700开放可合并；按授权保存修复并合入PR17祖先，构建/必要发行门禁后发布双源。
+
+- 2026-11-09 14:48：**五路轻量并发已实机生效，矩阵271/629（270PASS/1独占FlashVSR FP32资源OOM）。** 同时5个CLI进程，采样3112MiB/6144MiB、GPU57%；首个五路案例通过。按层先轻量后大型，重型独占；共享TensorRT缓存键互斥，避免同一Engine并发写入。DAT2 FP32在途自然完成，before-five日志留存，未入账案例后续用缓存复验。调度器当前--jobs 5，正式候选/安装均不改。
+
+- 2026-11-09 14:42：**用户追加轻量5路并发，已修改调度，270例断点切换中。** 三路已实际通过23例无争用OOM；当前269PASS/1RESOURCE_OOM。只结束旧调度器8636，DAT2 FP32在途CLI13728自然完成后启动--jobs 5，重型独占与并发OOM独占重试保持。5并发调度契约探针通过：真实达到5个轻量任务，重型/重试时active=1，两次日志保留，结果取最终8PASS。
+
+- 2026-11-09 14:33：**用户要求轻量模型3路并发、OOM独占处理，矩阵已按247例断点切换续跑。** high_bit_depth_matrix.py增加--jobs 3、轻量线程池、大型/大尺寸独占屏障、并发OOM独占重试并保留两次日志，JSONL记录execution_mode/configured_jobs。切换仅结束旧调度器，当前CLI自然完成后重跑未入账一例，候选与缓存不更换；已有246通过/1资源OOM保持。大型FlashVSR/BasicVSR++、HAT/DAT/GRL/SwinIR/GIMM和大尺寸独占。没有修改安装、提交或发布。
+
+- 2026-11-09 14:12：**629例扩大矩阵运行中，已完成198例，状态{'PASS': 197, 'RESOURCE_OOM': 1}。** CUDA目录及全部NCNN正式入口、CUDA补帧、10例TRT RIFE已通过；FlashVSR FP32在RTX3060 6GB OOM，FP16短片通过（日志峰值4362197504字节），不可把默认FP32宣传为本卡可用。GIMM请求FP16会强制FP32，GMFSS实际float16已通过，softsplat回退是实现回退而非精度回退。ONNX目录继续验收，完整结果未齐。发现的输入位深摘要误报已修正源VideoInfo.py（核心变16文件），7格式单项检查通过；运行中基线保持r1不变，修正版候选待矩阵归类后打包。
+
+- 2026-11-09 13:41：**按用户选择启动629例RGB48完整扩大矩阵，运行中。** 新脚本cli/tests/high_bit_depth_matrix.py，清单/断点结果位于Artifacts/hbd-matrix-20261109；冻结r1+PR17候选、隔离缓存/模型，串行RTX3060 6GB。覆盖全部目录双精度、auto架构、双顺序、全部后端配对、图片/分块/分段/默认编码，资源不足和退化单列。当前只是早期通过，尚未完整验收；源码仍未提交，无部署发布。
+
+- 2026-11-09 13:24：**RVE高位深修订、PR17源码组合、GPU短样本及候选打包完成。** [报告](../rve-high-bit-depth-review.md)。最终后端RVE-high-bit-depth-20261109-r1.zip（395哈希/335语法/15核心与资源一致），前端VideoEnhancer-1.3.15-rgb48-pr17-candidate-20261109.zip，位于Artifacts/rve-high-bit-depth-fix-20261108；完整publish及110项打包/隔离安装/API11通过。CUDA65536精确、ONNX/PyTorch/NCNN正式入口、中文ONNX TRT、PTH/ONNX两条TRT FP32和两种Compact/RIFE顺序通过；TRT对ORT参考最大差1码。NCNN借用内存修复+10例回归，独立后端保留/托管升级/所有权转交、PR17图标/参数/DPI均通过。默认SVT-AV1 Main10仅缺视频编码器时补入。完整FlashVSR/BasicVSR++、长片/全模型及RIFE端点时长仍有边界。main3902108与origin一致，无提交/推送/远端合并/部署/发布，工作树非干净；建议继续或换工具前提交源码和记录。
+
+- 2026-11-09 13:13：**高位深修正、PR17源码整合及定向GPU核验完成，最终候选重打包中。** 报告见 [RVE/PR17](../rve-high-bit-depth-review.md)。主线PR16中文路径保留；PR17固定6b8d700已组合两处原生精度提示、明确FP16/FP32及独立后端脚本所有权；本轮保留全自动FP32策略。额外修复NCNN Mat临时输入提前释放（NaN/异常像素）、Frame缩放尺寸及旧Engine精度缓存。RTX3060：CUDA65536码值精确，ONNX/PyTorch/真实Compact TRT14879级、TRT对ORT最大差1码，中文ONNX真实Engine通过；NCNN数值修正+正式16bit图片成功、两种Compact/RIFE顺序通过。默认输出已实测AV1/10bit420，仅缺视频编码器时补入。独立/托管/转交所有权及UI/DPI通过，10例新回归通过。原安装未改，无远端PR合并/提交/推送/发布，工作树非干净；最终publish/清单与候选ZIP待本次收尾记录确认。
+
+- 2026-11-09 12:58：用户授权前后端一起修正、默认编码改10bit420，并允许GPU核验；续接追加结合PR17。当前已实现包内五项修复、RGB48核心15文件内嵌、前端中间文件/混合分段16bit、默认AV1 Main10兼容参数、FP32默认和显式半精度、旧缓存隔离/NCNN补帧提示。CLI/插件完整publish候选已通过；CPU定向回归、普通及混合短片4096级逐字节一致、新默认AV1/yuv420p10le实测通过。GPU已通过CUDA65536码值、ONNX CUDA、PyTorch真实Compact、中文ONNX路径TRT Engine及真实Compact TRT（与ONNX CUDA最大差1码值）。额外发现NCNN Mat临时NumPy输入提前释放，已修正待GPU重验；PR17正在读取和组合。候选构建在Artifacts/rve-high-bit-depth-fix-20261108，原安装/ZIP未动，无发布/部署/提交推送；main3902108仍同步，工作树非干净。
+
+- 2026-11-08 14:19：审查用户提供的 RVE-high-bit-depth-20261108.zip，目标为 SDR/HDR 主处理链统一16bit。报告 [RVE高位深审查](../rve-high-bit-depth-review.md)。包内五项问题：流标识像素格式被覆盖（当前12bit444默认会追加10bit420）、中文图片路径读失败/写乱码、三个均值转场算法量纲未同步、数字编码器误判、包内转换器回退主线PR16中文路径修复；另有当前前端覆盖旧脚本和混合分段rgb24两项整合阻挡。清单393/语法334/时序3例与真实FFmpeg65536级无损往返通过；完整高位深测试停在原生依赖初始化，未算通过。仅审查和记录，未改产品/安装/版本，未提交推送；main已pull到3902108，报告和两份记录待提交。
 
 - 2026-11-02 20:43：**1.3.15正式发布及验收完成。** [GitHub Release](https://github.com/maxzrb/VideoEnhancer/releases/tag/v1.3.15)为Latest，五项冻结资产；ModelScope Releases运行白名单六文件与Models备用EXE同步，源码仅GitHub。发行源码/注释标签21436b7已atomic推送；十项远端实际下载大小/SHA256、正文/双清单/目录白名单、更新回退分支隔离检查均通过。后端逐文件审计UNCHANGED，保持2026.09.30.1，不上传Python/RTX/权重或空channel。本机正式1.3.15已升级，45文件一致、5保护项/157模型保持、API11及ONNX目录/HAT约束通过。未启动宿主，由用户重开；ARM及旧低显存问题保留。收尾文档普通提交推送后核对干净与远端一致。
 
@@ -159,6 +179,9 @@ Updated by: Codex
 
 ## Active TODO
 
+- [x] RVE全链路16bit源码与配套前端：包内问题、主线中文ONNX路径、PR17提示和脚本所有权、16bit中间文件/分段、NCNN输入生命周期均已修正；CPU/GPU短样本与UI/DPI通过。当前只生成本地候选，不自动部署或远端合并/发布。
+- [ ] 后续若正式分发：核对最终候选清单并明确后端/前端配套发布；FlashVSR/BasicVSR++全模型、长片吞吐、RTX/HDR边界未扩大验收，RIFE端点与时长行为另行检查。
+
 - [x] 正式发布1.3.15：源码/标签、五项GitHub资产、运行镜像、十项实下载hash、回退分支隔离验证与本机正式升级完成；ModelScope登录已由用户刷新并验收上传。
 
 - [ ] 用户重开本机3FUI验收PR13默认编码/HDR状态、PR14 VMAF模型列表、PR15 ONNX TensorRT选择/自动与手动转换；候选已部署，文件/脚本/保护项校验通过，尚未实际宿主窗口验收。
@@ -228,6 +251,8 @@ Updated by: Codex
 
 ## Decisions
 
+- 2026-11-09：高位深主帧RGB48/uint16，自动FP32、显式FP16；最终默认AV1 p6/CRF12/Main/yuv420p10le（仅缺视频编码器兜底）。沿PR17尊重独立后端脚本，.videoenhancer-rgb48-owner为external时保留、为cli时由CLI按哈希维护；完整独立包可转交所有权。NCNN RIFE不再提供8bit降级，旧启用配置暂停且保留原模型。RTX/HDR/固定精度模型等限制不扩大承诺。
+
 - 2026-10-06用户覆盖此前双源源码镜像约定：完整对应源码统一合并为一个独立 VideoEnhancer-<version>-source.zip，仅上传GitHub Release；ModelScope只上传运行文件、清单和说明，来源说明指向GitHub同版源码附件。旧发行资产不删除。
 
 - 后续正式发行保留独立 VideoEnhancer-<version>-source.zip，供受GPL/LGPL/MS-RL约束的随包组件对应源码与构建材料获取；ZIP本身不是许可强制格式，若改用其他等效完整源码渠道，必须同步所有来源说明和发布检查。普通用户无需下载，运行EXE/ZIP/安装器不含第三方源码归档。本轮不补发旧发行、不上传附件，不改正式版本。
@@ -266,6 +291,8 @@ Updated by: Codex
 - 旧清理拒绝和 GitHub CDN 验证限制见 Active TODO；不将历史注册残留推测当实测事实。
 
 ## Environment Notes
+
+- 2026-11-09本机GPU恢复可用：RTX3060Laptop/6GiB/621.14；Python3.12.9、PyTorch/TorchTRT2.9.0+cu130、TensorRT10.12.0.36。所有执行在项目隔离目录，读原安装运行库/复制小模型；不改依赖/正式安装。初期CUDA不可用及TorchTRT加载停滞不再作为当前GPU不可测结论，后续真实构建运行已通过；NCNN独立探针原生清理退出1仍记录，正式图片入口退出0。
 
 - 2026-11-02 20:43当前本机正式安装：C:/Program portable/3FUI/3FUI，宿主6.2.43、插件1.3.15。CLI SHA256=ab22799b2ef371203082934b765c3cedec91abcf40d1315531f5d23541a2bd28；DLL SHA256=efa52f0ccd84ceaf21b6a25b5667e42b177778c085fcb4c5a56adbc4cf16e25e。备份C:\Codex Program\3fui plugin\Artifacts\release-1.3.15\local-install\backup-20261102-203059，45文件与正式ZIP一致、5项保护和157模型保持。当前ModelScope CLI经用户重新login后以AerithDream身份上传成功；旧git凭据不适用于新OpenAPI，未在文件/日志存储令牌。GitHub源码附件单连接和旧缓存下载较慢，使用系统证书校验及新的HTTP范围请求分段实下载完成，不关闭TLS校验；临时回退测试服务已停止。
 
@@ -306,6 +333,10 @@ Updated by: Codex
 
 ## Verification And Commands
 
+- 2026-11-09 13:24：完整dotnet publish成功；release/test-third-party-package.ps1为110/API11通过；后端395项manifest+335 AST和15核心/辅助资源匹配，前端EXE/DLL与ZIP、当前源码与Source.zip核对通过。GPU含PTH与ONNX→TRT FP32真实构建运行（参考最大差1码）、NCNN生命周期修正及正式入口、两个真实Compact/RIFE顺序；PR17所有权三场景、两图标精度参数、DPI通过。具体证据见Artifacts/rve-high-bit-depth-fix-20261108/package-checks.json、gpu/checks.json、gpu/ncnn-fixed.json、combined/checks.json与报告。
+
+- 2026-11-08 14:19：RVE候选审查：git pull --ff-only/status；393项MANIFEST SHA256、334个Python AST语法、test_temporal_low_memory三例通过；真实FFmpeg RGB48/FFV1往返65536码值逐字节一致。定向CPU探针复现输出格式覆盖/数字编码器/中文图片/转场量纲；主线ONNX路径解析三例定向候选后1过2失败。test_high_bit_depth未完成原生依赖初始化，已停止本轮自有进程，不计通过。证据Artifacts/rve-high-bit-depth-review-20261108。
+
 - 2026-10-06 20:36：1.3.13必要本地门禁、110包检查、10远端实下载与本机45文件hash通过；Artifacts/release-1.3.13/checks-summary.txt、frozen-package.log、remote-verification.json、local-deployment.json。首次build日志中的安装hash拒绝为旧目录误读，已修正并由installer.log/updater.log/burn-installer.log验证通过。
 
 本轮最终验证：
@@ -336,6 +367,10 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-11-09 13:24：HEAD/main/origin/main仍3902108；只fetch PR17到origin/pr17=6b8d700并组合代码，未远端合并/评论。工作树源码、15核心、新测试和记录均未提交，无部署/发布；候选与探针在忽略Artifacts内。建议保存提交后再切换工具/设备。
+
+- 2026-11-08 14:19：新Codex会话，启动main=0034eea且干净，git pull --ff-only快进到3902108（包含PR16中文ONNX路径补修），与origin/main一致。审查收尾仅新增docs/rve-high-bit-depth-review.md并更新STATUS/中文工作进度，工作树非干净；没有产品修改、提交/推送、发布或部署，建议继续/换工具前提交审查记录。
 
 - 2026-11-02 20:43：发行源码21436b7、注释标签v1.3.15已atomic普通推送origin/main；GitHub正式Release已公开，ModelScope运行镜像同步。正式资产保持冻结，不移动标签或重打公开包；本条/中文进度/版本记录仅文档收尾，随后普通commit/push并核对本地远端SHA一致和干净工作树。
 
@@ -1095,3 +1130,79 @@ git diff --check
 - 回退：实际插件故障注入时GitHub查询失败读取线上ModelScope 1.3.15清单成功；ModelScope包失败后进入Github下载分支，以本地隔离端点提供已从GitHub实际下载并验SHA的正式EXE，插件最终SHA校验通过。不能将该隔离分支测试称为真实线上Github单流回退端到端通过；临时18877服务已停止。
 - 本机：正式1.3.15已使用最终内部便携载荷备份后安装，45文件逐项SHA对正式ZIP一致、5保护项hash及157模型清单/大小/时间保持，CLI --version/API11/28项ONNX目录/HAT倍数16通过。配套9脚本均匹配资源，15脚本备份及变化记录齐全；没有更换Python包/RTX/权重，没有启动3FUI。备份C:\Codex Program\3fui plugin\Artifacts\release-1.3.15\local-install\backup-20261102-203059，证据local-install/local-deployment.json。
 - 本文件快照/TODO/Git/环境、中文进度和版本记录已更新；仅文档收尾提交推送，最后核对主工作树干净及远端SHA。发行标签不移动，公开资产不再构建覆盖；工作将保存，无需用户额外提交，后续新工作可先考虑Git提交。ARM原生宿主/架构保护、旧6GB/1080p/4x保存OOM及同条件旧新版性能差异仍保留。
+
+### 2026-11-08 14:19 Codex：审查RVE高位深候选，确认16bit主链路目标
+
+- 用户提供下载目录RVE-high-bit-depth-20261108.zip要求检查，并补充“抛弃8bit精度，拥抱16bit高精度链路”；按明确方向执行只读审查，没有将其扩大为自动实施、部署或发布授权。使用HandShake2.1.0-beta、AGENTS/INDEX/STATUS，识别新Codex会话；git pull --ff-only将0034eea快进3902108，启动干净。
+- ZIP SHA256=e72eb55982e764865986121f3438aae0e26cde89e34a11d3e4a4e02a4c18fdd2。仅解到项目Artifacts/rve-high-bit-depth-review-20261108/candidate，对照实际安装python/backend与当前嵌入资源；393项清单hash一致、334个Python AST通过。Python3.14提示第三方旧转义SyntaxWarning，无语法失败；没有重装依赖。
+- 包内确认：PixelFormat仅认-pix_fmt，当前默认-pix_fmt:v yuv444p12le被追加yuv420p10le；中文PNG输入imread=None、输出imwrite=True却写乱码文件名；mean/mean_diff/mean_segmented阈值4时灰阶100→101误判，pyscenedetect对照False；-c:0/-codec:0 ffv1被误认libx264，-c:v:0对照正常；convert_tensorrt回退parse_from_file，主线现有解析回归定向候选后1过2失败（mock/AST，不冒称GPU复现）。
+- 整合阻挡：Program.cs内嵌资源仍按hash覆盖旧图片/分段/时序脚本，ordered入口仍来自旧资源；混合分段源切片/拼接仍rgb24。报告单列主帧16bit/模型FP16或FP32/最终10或12或16bit区别、NCNN RIFE明确拒绝、RTX10bit桥接和旧Engine缓存边界，不将预览8bit视为主处理精度下降。
+- 验证：使用现有Python3.12运行库只读依赖，时序低内存三例通过；真实FFmpeg RGB48→FFV1/gbrp16le→RGB48保留65536码值，字节完全一致。完整test_high_bit_depth和含Torch的附加探针在原生依赖初始化期间长时间无结束，已核对命令行后停止本轮自有PID29136/5304，未停止用户进程；不能声称高位深测试套件或真实模型推理通过。不新增全模型/长片/吞吐测试。
+- 运行环境仅为核对本机Python和FFmpeg能力，不改现有安装、模型/配置/Engine/依赖。初次默认PowerShell配置启动未及时返回，改用pwsh7 -NoProfile对应login=false完成所有后续命令；Python输出显式UTF8，保留中文源文件。审查/夹具/输出均在项目目录，原ZIP未改；无需computer use或子代理。
+- 改动仅docs/rve-high-bit-depth-review.md、docs/codex/STATUS.md、version/工作进度.md。保留原历史并更新快照/TODO/验证/Git，本轮版本仍1.3.15，不改版本迭代记录。最后git diff --check和UTF8/原记录保留检查，工作树非干净，未提交/推送；建议继续或切换工具/设备前git提交保存审查记录。
+
+### 2026-11-09 12:58 Codex：高位深实施与GPU核验中途记录、续接PR17
+
+- 延续用户明确实施方向；同意前端与后端一起修改，默认输出由12bit444改SVT-AV1 p6/CRF12/Main/10bit420，仅缺视频编码器时补入。旧fork专用SVT参数实测拒绝scd-min-keyint，已改为通用tune=1:lp=4并实际编码通过；中间链路保持RGB48/FFV1 gbrp16le。
+- 主线PR16内存解析保留；包内编码流标识/中文图片/转场量纲已修复，增加当前尺寸Frame工具缓存、TF32关闭/旧Engine缓存指纹、TensorRT能力元数据查询。15个RVE核心源码入cli/third-party/RVE/high-bit-depth并内嵌，前端同步失败即停止而不混用协议；正常入口和现有CLI兼容补修同步。
+- CLI与插件0警告0错误；完整solution publish含EXE/ZIP/安装器/源码ZIP已完成，仍为1.3.15本地候选。原高位深5+窗口3通过、新回归9通过、ordered9/segment4/路径解析3（GPU用例在这轮CPU命令跳过）/导入9及默认编码、图片与队列精度参数、15核心释放与重复同步通过；若干首次探针参数/测试夹具调用错误已纠正，不计产品缺陷。
+- 普通ONNX与含FFmpeg最近邻段混合短片4096级逐字节一致；混合先发现swscale neighbor误差4码，改zscale point后精确。CPU阶段ONNX曾回退CPU；用户允许GPU后，RTX3060Laptop/6GiB/驱动621.14可用，CUDA与原生TorchTRT加载成功。GPU证据gpu/checks.json：CUDA65536精确、ONNX CUDA4096精确、真实Compact ONNX/PyTorch均14879级，中文ONNX TRT构建和4096精确、真实Compact TRT同14879级且对ONNX CUDA差<=1码。
+- GPU额外发现NCNN临时输入被Mat借用，未保留数组会出现NaN或1e14异常值；临时数组/保留数组对照已复现。已在包与内嵌UpscaleFloat保留planar，追加弱引用生命周期回归，尚待稳定GPU重验；不得沿用初版脚本仅检查层级数的NCNN通过标记。
+- 用户2026-11-09续接要求结合PR17，已重读AGENTS/INDEX/STATUS并git pull --ff-only最新，正在读取PR和固定SHA。现有工作树均本轮/上轮未提交改动，禁止覆盖。未remote评论/审核/合并、提交/推送、部署/发布；原安装和模型保持。完成后需更新报告/STATUS/中文工作进度，重打包含最终NCNN/PR17的前端候选和后端ZIP，验证清单再收尾。
+
+### 2026-11-09 13:24 Codex：完成RGB48修订、PR17组合与GPU/打包验收
+
+- 用户授权：修正包内问题并保留主线中文ONNX路径、前后端一起修改、默认改10bit420、允许GPU核验；11-09追加结合PR17。重读AGENTS/INDEX/STATUS与HandShake规则，git pull --ff-only最新，保留上轮报告/记录及本轮未提交源码，没有stash或覆盖用户改动。GitHub连接器读取PR17、固定head6b8d700（base3902108）并本地fetch；不提交远端审核、评论或合并。
+- 实施：包内流标识像素格式/数字编码器/中文图片/转场量纲/PR16内存解析修复，Frame按当前尺寸/精度转换、TF32构建策略/旧Engine缓存隔离；15个核心入源码并内嵌，图片/分段/时序/ordered入口同步RGB48。前端源切片/拼接/跨后端中间gbrp16le；最近邻改zscale point避免swscale低位偏差4码。新配置默认FP32，半精度明确float16，保留原用户精度选择；NCNN RIFE旧8bit入口拒绝，旧启用配置暂停并保留模型。
+- PR17结合：两处LakeUI原生ⓘ及精度说明、明确精度/中间位深相同改动纳入，CLI自动模式均明确FP32（本轮FlashVSR自动策略也FP32）；外部分发的rgb48-v1完整后端保留全部Python并使用自带ordered/segmented。新增owner=external/cli区分外部与CLI维护，完整外部包覆盖时可交还所有权，写入中断会在下次完整重试。两次独立启动、旧后端升级及重复同步、转为外部后保留独立修订均实测通过。
+- GPU新增问题：NCNN Mat借用临时NumPy数组，旧代码可产生NaN/1e14异常值。保留planar到extract完成，弱引用生命周期回归、RTX重复输出有限且一致；正式NCNN中文16bit图片输出成功、退出0。原生独立探针清理退出1保留，不冒称原生清理可靠；正式入口沿用既有退出规避。
+- GPU：RTX3060Laptop/6GiB/驱动621.14；CUDA65536码值往返精确，ONNX CUDA4096恒等精确；真实Compact ONNX/PyTorch14879级；中文ONNX输入路径实际TRT FP32构建运行、恒等4096精确；真实Compact ONNX→TRT14879级、PTH→TRT14874级，两个Engine对ONNX CUDA参考最大差均1码。PTH分支实际build_engine(disable_tf32=True)构建/序列化/加载通过，不仅测试ONNX原生builder。
+- 真实组合：Compact+RIFE4.6两顺序均128x128/gbrp16le、首帧14879级、独立Python文件哈希保持。初始探针误预期4帧，按现有RIFE端点规则改核验实际3帧，没有修改端点算法；总帧数估计/时长关系留报告，不把该样本扩大为任意时长保真。完整FlashVSR/BasicVSR++、全部模型/长片/吞吐与RTX/HDR边界未扩充验收。
+- 必要检查：原高位深5/窗口3、新回归10、ordered9、segment4、中文路径解析3（CPU命令GPU单例跳过，另有上述真实GPU）、导入9及编码缺省检查通过；PR17原生图标/文案、图片和队列FP32/显式FP16与真实参数回读、DPI往返通过。CLI/插件0警告0错误，最终完整solution publish成功，110项许可/源码/运行包/隔离安装/API11通过。首次包规则误把核心作为license复制，已排除，源码仍独立打包；两次Github504后改用已存在缓存并始终验证固定SHA，不改URL或略过门禁。各首次夹具/参数/编码器能力假设错误均修正，不作为产品失败。
+- 候选：后端1260279字节/SHA f467d0d88da1314c2ee60e92843fc33451a0a333aaf7bc1ad36f34b9de724218，前端18079031字节/SHA 7d90dbc1c2cbcb30f86d7ac7eecd1336d74abfc67d92cc7bb92b31e3d1836eb1；395文件manifest/335Python AST、15核心与入口资源一致，前端EXE/DLL与最终ZIP逐字节一致、Source ZIP包含当前核心及PR17源码。文件及SHA旁注在Artifacts/rve-high-bit-depth-fix-20261108；后端backend-r1.patch供逐项复核。原下载ZIP SHA不变。
+- 改动涵盖CLI Program/资源/默认编码/打包缓存与排除规则、RveHighBitDepthSupport、6份辅助Python、15份核心、插件配置/队列/图片/精度提示及必要测试，docs/rve-high-bit-depth-review.md、STATUS和中文进度更新；版本仍1.3.15，不动版本迭代记录。未修改正式安装、用户配置/权重、Python依赖，无新Release/tag、commit/push、远端合并或部署。本轮候选可复核，源码/记录未提交、工作树非干净；继续或换设备/工具前建议git提交保存。
+
+### 2026-11-09 13:41 Codex：启动RGB48完整扩大可用性矩阵
+
+- 用户要求安排矩阵，异步选择“完整扩大矩阵，允许更长耗时”。本轮同工具续接；AGENTS/INDEX/STATUS/HandShake已读取，git pull --ff-only已同步，main/origin仍3902108；保留全部既有未提交源码。
+- 隔离Artifacts/hbd-matrix-20261109：前端来自冻结PR17候选，后端来自r1 ZIP；156模型文件硬链接（排除原TensorRT缓存），Python/FFmpeg目录junction只作运行使用。candidate.json保存EXE/后端包哈希，original-models.json保存原权重路径、大小和mtime，模型新增Engine仅写隔离树，正式安装不覆盖。
+- 新增cli/tests/high_bit_depth_matrix.py。629例：目录186项×FP32/FP16共372，auto架构54，两顺序108，六超分×两补帧后端×双精度×双顺序48，图片18，tile32与目标1x各12，混合分段3，默认10bit420与NCNN补帧门禁各1。16bit彩色渐变/运动4帧；检查尺寸、4/7帧、像素格式、逐帧色阶/范围/截断，保存实际设备/精度日志。资源不足、CPU退化、超时均不算通过。
+- 已生成manifest.json、逐例JSONL/CSV和results.md；逐例落盘支持定向重跑，GPU串行、超时结束该例子进程树。BasicVSR++/CUDA RIFE FP32、Compact CUDA双精度、CUDA/ONNX混合分段auto试运行通过。分段夹具补齐显式混合开关并修正CLI大写JSON字段；最初脚本调用错误已修正重跑，不记作产品问题。
+- 完整矩阵正在运行（包含全部70个TRT目录项双精度与5个TRT RIFE双精度）。尚未完成，不把早期通过扩大为全部可用；日志Bit Depth固定仅识别p10le导致16bit摘要误报8，已定位为VideoInfo.py显示问题、未改变冻结候选，待本轮归类。
+- 命令：便携Python cli/tests/high_bit_depth_matrix.py --root Artifacts/hbd-matrix-20261109；报告Artifacts/hbd-matrix-20261109/results.md。未提交/推送/部署/发布，无版本变化；建议阶段性git提交。
+
+### 2026-11-09 14:12 Codex：扩大矩阵阶段检查与摘要修正
+
+- 当前结果{'planned': 629, 'completed': 198, 'statuses': {'PASS': 197, 'RESOURCE_OOM': 1}}，完整结果仍运行，不能宣称629例通过。全CUDA超分与补帧目录、NCNN目录42例和TRT RIFE10例通过；FlashVSR FP32确认为6GB资源限制，FP16输出位深/帧数/内容检查通过；默认auto仍坚持FP32，不静默降精度。
+- 新增docs/rve-high-bit-depth-matrix.md说明629例构成、可重复入口、精度请求与实际执行区别、资源/CPU退化/超时判定及短片限制。更正初期口头将GMFSS softsplat回退混同精度回退：仅GIMM强制FP32，GMFSS日志实际float16；文档已修正。
+- 修正VideoInfo.py仅识别p10le、其他输入位深都显示8的问题；只影响摘要，不参与处理链路。新增到cli/third-party/RVE/high-bit-depth/src/utils/VideoInfo.py，复用FFmpeg像素描述符位深，README核心数量15→16；test_high_bit_depth_regressions.py新增摘要检查，实际FFmpeg描述符验证8/10/12/16bit共7格式通过。隔离summary-fix/backend检查，未修改运行基线，未重复其他已通过回归。
+- git diff --check通过（仅既有换行提示）；矩阵清单及CSV/JSONL/日志已逐例保存。工作树仍非干净，没有部署/发布/提交/推送；完整TRT超分、架构/后端组合及图片等仍待跑完。后续若生成修正版候选，应明确r1矩阵结果与摘要修正的验证范围。
+
+### 2026-11-09 14:33 Codex：按用户要求提升至轻量3路并发
+
+- 用户指出GPU余量大并明确“轻量模型3路并发，遇到OOM再单独处理”。检查瞬时GPU8MiB/6144MiB、系统可用内存约32GiB；原全串行对轻量首次构建偏保守，按指令修改调度。
+- high_bit_depth_matrix.py新增--jobs 1/2/3、轻量线程池、重型/大尺寸独占屏障；并发OOM先入账并标记待重试，等在途任务清空后独占重试。重试输出与日志独立后缀，不覆盖争用证据；JSONL保存执行模式、最大并发与重试原因。共享夹具生成加锁，结果/CSV/Markdown仅由主线程写入。
+- 629个用例ID唯一与语法检查通过。停止旧驱动25884（不结束CLI子树），当前0a3e29318524ead3自然完成但未入账，保留before-parallel日志，使用缓存重新核验。247例断点（246PASS/1RESOURCE_OOM）完整续用，三个轻量TRT任务已同时启动；不重复全目录已通过案例。
+- 启动：便携Python cli/tests/high_bit_depth_matrix.py --root Artifacts/hbd-matrix-20261109 --jobs 3；parallel-resume.json记录切换信息，docs/rve-high-bit-depth-matrix.md同步新策略。GPU实测余量与并发OOM后续继续观察，不能把争用OOM当成模型失败。
+- 工作树仍有之前所有修复及本轮脚本/文档改动，未提交/推送/部署/发布；建议阶段性git提交，完整矩阵仍在进行。
+
+### 2026-11-09 14:42 Codex：按追加指令尝试轻量5路并发
+
+- 用户要求“轻量模型尝试5路并发”。--jobs扩展至1–5；大型独占与并发OOM独占重试不变，三路阶段实际23例通过、无新OOM，270例断点269PASS/1独占FlashVSR FP32资源OOM。
+- 结束三路调度器8636，不结束在途DAT2 FP32 CLI13728，等待自然完成再续跑，避免大型模型与轻量并发争显存。未入账在途案例保留原日志后使用已建Engine再次核验，已有结果和缓存不丢弃。
+- 新增test_high_bit_depth_matrix_scheduler.py，五路模拟探针1项通过：轻量peak=5，重型与OOM独占重跑active=1，首次OOM与重试日志独立，JSONL保留9次尝试而summary取8PASS。该检查不加载GPU，也不重复完整产品回归。文档更新五路命令。
+- 待在途结束后启动 --jobs 5 并核对实际5进程/显存/完成速度；完整矩阵尚未完成，无部署/发布/提交/推送。工作树非干净，阶段性提交建议仍有效。
+
+### 2026-11-09 14:48 Codex：五路正式续跑并核对资源
+
+- DAT2 FP32在途CLI13728自然完成（日志完成标记/有效视频），未捕获退出码的案例不直接算通过；保留ed959a11dab53b22.before-five.log，后续复用缓存重新捕获退出码与输出探测。
+- 当前实际调度器命令--jobs 5，5个CLI进程同时运行，采样GPU3112MiB/6144MiB/57%；首个五路ESRGAN Lite FP32通过，暂未并发OOM。后续看真实吞吐，不以GPU瞬时低占用断言空转。
+- 调度同层轻量优先、大型后跑；新增TRT缓存键互斥，auto按FP32归一，补帧区分顺序后的实际输入尺寸，避免相同Engine构建文件竞争。五路/重型/OOM重试探针改动后再次通过（单项，不跑GPU）。CSV字段补execution_mode/configured_jobs/retry_reason；完整JSONL保留切换前后尝试。
+- docs/rve-high-bit-depth-matrix.md采用--jobs 5，STATUS与中文进度同步；未提交/推送/部署/发布。完整矩阵运行中，后续需检查全部结果、原模型元数据、冻结后端哈希，并补摘要修正候选打包。建议阶段性保存Git提交。
+
+
+### 2026-11-09 15:05 Codex：暂停矩阵并准备1.3.16正式发布
+
+- 用户明确先发布Z+1 release、后续再矩阵，追加发行说明不用防御性内容。按1.3.15→1.3.16推进，不重复确认；停止五路调度器，不强杀在途构建，298例断点保存。没有将未捕获退出码的在途案例计入通过。
+- git pull --ff-only最新，PR17连接器回读仍6b8d700、open/mergeable；GitHub v1.3.16不存在，gh和ModelScope账号有效。版本元数据同步、逐行功能说明与版本历史准备。受管RGB48核心包含新VideoInfo，共16文件；完整矩阵仍待后续，不在公开说明加入测试/显存限制。
+- 接下来保存修复、接入PR17祖先、完整构建和必要门禁、冻结资产，普通推送新标签与双源发布/回读。用户此次授权发布，不据此改动正式安装或自动恢复矩阵。

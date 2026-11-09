@@ -31,7 +31,7 @@ def _normalise_upscaled_frame(render, source_frame, frame):
 
     payload = getattr(frame, "_bytes", None)
     if payload is not None:
-        bytes_per_pixel = 6 if render.hdr_mode else 3
+        bytes_per_pixel = 6
         expected = width * height * bytes_per_pixel
         if len(payload) != expected:
             raise ValueError(

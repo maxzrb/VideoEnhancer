@@ -10,7 +10,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputArchive,
     [string]$ArchiveTool = '',
-    [switch]$DisablePythonProbe
+    [switch]$DisablePythonProbe,
+    [string[]]$ExcludePaths = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,6 +19,15 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $basePath = [System.IO.Path]::GetFullPath($BaseRoot).TrimEnd('\', '/')
 $targetPath = [System.IO.Path]::GetFullPath($TargetRoot).TrimEnd('\', '/')
 $outputPath = [System.IO.Path]::GetFullPath($OutputArchive)
+$excludedPaths = [System.Collections.Generic.HashSet[string]]::new(
+    [System.StringComparer]::OrdinalIgnoreCase)
+foreach ($rawPath in $ExcludePaths) {
+    $relative = $rawPath.Replace('\', '/').Trim('/')
+    if ([string]::IsNullOrWhiteSpace($relative) -or $relative -match '(^|/)\.\.(/|$)') {
+        throw "排除路径无效：$rawPath"
+    }
+    [void]$excludedPaths.Add($relative)
+}
 
 if ([string]::IsNullOrWhiteSpace($ArchiveTool)) {
     $repositoryRoot = Split-Path -Parent $PSScriptRoot
@@ -75,6 +85,8 @@ New-Item -ItemType Directory -Force -Path $payloadRoot | Out-Null
 try {
     $operations = [System.Collections.Generic.List[object]]::new()
     foreach ($relative in ($targetFiles.Keys | Sort-Object)) {
+        # 所有权标记可能由插件先行写入，增量更新不能把它当作普通新增文件。
+        if ($excludedPaths.Contains($relative)) { continue }
         $targetFile = $targetFiles[$relative]
         $newHash = Get-Sha256 $targetFile.FullName
         if ($baseFiles.ContainsKey($relative)) {
@@ -101,6 +113,7 @@ try {
     }
 
     foreach ($relative in ($baseFiles.Keys | Sort-Object)) {
+        if ($excludedPaths.Contains($relative)) { continue }
         if ($targetFiles.ContainsKey($relative)) { continue }
         $baseFile = $baseFiles[$relative]
         $operations.Add([ordered]@{
@@ -119,6 +132,7 @@ try {
         createdAt = [DateTimeOffset]::Now.ToString('o')
         pythonProbe = -not $DisablePythonProbe
         healthCheckFiles = @('python/python.exe', 'backend/rve-backend.py')
+        excludedPaths = @($excludedPaths | Sort-Object)
         operations = $operations
     }
     [System.IO.File]::WriteAllText(

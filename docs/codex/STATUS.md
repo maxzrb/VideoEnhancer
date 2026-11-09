@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-09 15:33
+Last updated: 2026-11-09 16:54
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-09 16:54：**1.3.16正式发布，独立后端补全为2026.11.09.1。** GitHub v1.3.16为Latest、非草稿/非预发行，五资产冻结且标签仍c7f46be；ModelScope运行附件、stable清单和Models备用EXE同步。后端完成3.04GB完整包、94,003字节增量包和channel上传，远端大小/SHA及最新补丁实际下载通过；标准旧后端与已有cli所有权标记的受管后端均实际升级通过。发布正文已补入后端版本。629例矩阵仍暂停在298/629，本机正式安装未改。
 
 - 2026-11-09 15:33：**LakeUI5.201适配及定向核验完成，重建1.3.16草稿附件中。** 固定编译/测试基线5.201.0、纯布局Grid/Horizontal启用SkipWhenFullyTransparent；根背景/滚动面板保留自身呈现，增加底色会恢复绘制。预览改公开强类型PixelPictureCallbackSource并声明SDR色域/传递函数，去除反射表达式工厂。0警告0错误、四档DPI/滚动/图片/透明外观与5.201实际GPU红蓝换帧/清空/所有权均通过。旧发行附件已备份before-lakeui，GitHub仍草稿、ModelScope未上传，后续冻结新包并对齐未公开候选标签再完成双源发布。
 
@@ -183,8 +185,9 @@ Updated by: Codex
 
 ## Active TODO
 
-- [x] RVE全链路16bit源码与配套前端：包内问题、主线中文ONNX路径、PR17提示和脚本所有权、16bit中间文件/分段、NCNN输入生命周期均已修正；CPU/GPU短样本与UI/DPI通过。当前只生成本地候选，不自动部署或远端合并/发布。
-- [ ] 后续若正式分发：核对最终候选清单并明确后端/前端配套发布；FlashVSR/BasicVSR++全模型、长片吞吐、RTX/HDR边界未扩大验收，RIFE端点与时长行为另行检查。
+- [x] RVE全链路16bit源码与配套前端：包内问题、主线中文ONNX路径、PR17提示和脚本所有权、16bit中间文件/分段、NCNN输入生命周期均已修正；CPU/GPU短样本与UI/DPI通过，已随1.3.16正式发布。
+- [x] 后端/前端配套发布：ModelScope独立后端升级至2026.11.09.1，完整包、增量包和channel远端通过；补丁从既有cli受管标记和标准旧后端两种起点实测成功。
+- [ ] 继续RGB48扩大矩阵（当前298/629：297 PASS、FlashVSR FP32在6GB资源OOM 1例）；FlashVSR/BasicVSR++全模型、长片吞吐、RTX/HDR边界、RIFE端点与时长行为仍需后续验收。
 
 - [x] 正式发布1.3.15：源码/标签、五项GitHub资产、运行镜像、十项实下载hash、回退分支隔离验证与本机正式升级完成；ModelScope登录已由用户刷新并验收上传。
 
@@ -256,6 +259,7 @@ Updated by: Codex
 ## Decisions
 
 - 2026-11-09：高位深主帧RGB48/uint16，自动FP32、显式FP16；最终默认AV1 p6/CRF12/Main/yuv420p10le（仅缺视频编码器兜底）。沿PR17尊重独立后端脚本，.videoenhancer-rgb48-owner为external时保留、为cli时由CLI按哈希维护；完整独立包可转交所有权。NCNN RIFE不再提供8bit降级，旧启用配置暂停且保留原模型。RTX/HDR/固定精度模型等限制不扩大承诺。
+- 2026-11-09：内嵌16bit核心继续作为前端/后端协议同步保障，同时必须发布独立后端版本，避免CLI显示仍为旧后端。所有权标记保留在完整包，通过-PatchExcludePaths从增量补丁排除，使标准旧后端和已写cli标记的受管后端都能升级。
 
 - 2026-10-06用户覆盖此前双源源码镜像约定：完整对应源码统一合并为一个独立 VideoEnhancer-<version>-source.zip，仅上传GitHub Release；ModelScope只上传运行文件、清单和说明，来源说明指向GitHub同版源码附件。旧发行资产不删除。
 
@@ -337,6 +341,8 @@ Updated by: Codex
 
 ## Verification And Commands
 
+- 2026-11-09 16:54：后端2026.11.09.1差异34项（11新增/23替换/0删除）；完整包3041286511字节/SHA256 4e287f23213665480deba33b6c3d3be5834c97114841655844c0ac55377e8665，与目标目录逐项一致。增量包94003字节/SHA256 ca02985f3a4672a7d81106a0925a538a277f2f0cb762da38949cc79081174462；标准旧后端及已有cli标记均实际应用并识别current。ModelScope完整包/补丁线通道大小/SHA、最新补丁实下载，GitHub五资产实下载、正文和Latest状态通过。证据见Artifacts/rve-high-bit-depth-fix-20261108/backend-release-20261109与Artifacts/release-1.3.16。
+
 - 2026-11-09 13:24：完整dotnet publish成功；release/test-third-party-package.ps1为110/API11通过；后端395项manifest+335 AST和15核心/辅助资源匹配，前端EXE/DLL与ZIP、当前源码与Source.zip核对通过。GPU含PTH与ONNX→TRT FP32真实构建运行（参考最大差1码）、NCNN生命周期修正及正式入口、两个真实Compact/RIFE顺序；PR17所有权三场景、两图标精度参数、DPI通过。具体证据见Artifacts/rve-high-bit-depth-fix-20261108/package-checks.json、gpu/checks.json、gpu/ncnn-fixed.json、combined/checks.json与报告。
 
 - 2026-11-08 14:19：RVE候选审查：git pull --ff-only/status；393项MANIFEST SHA256、334个Python AST语法、test_temporal_low_memory三例通过；真实FFmpeg RGB48/FFV1往返65536码值逐字节一致。定向CPU探针复现输出格式覆盖/数字编码器/中文图片/转场量纲；主线ONNX路径解析三例定向候选后1过2失败。test_high_bit_depth未完成原生依赖初始化，已停止本轮自有进程，不计通过。证据Artifacts/rve-high-bit-depth-review-20261108。
@@ -371,6 +377,8 @@ git diff --check
 文档整理仅验证归档字节/SHA256、UTF-8、链接和记录结构，不重跑程序测试。程序验收与发行详见 `release/发布流程.md`。
 
 ## Git Sync
+
+- 2026-11-09 16:54：启动main/origin/main=c7f46be、v1.3.16解引用c7f46be；公开Release和标签均未移动。收尾仅修改后端补丁工具、发布流程和后端版本说明，另更新STATUS/中文进程/版本迭代记录；准备普通提交推送后核对干净工作树与本地远端一致。本机正式安装、模型和配置未改。
 
 - 2026-11-09 13:24：HEAD/main/origin/main仍3902108；只fetch PR17到origin/pr17=6b8d700并组合代码，未远端合并/评论。工作树源码、15核心、新测试和记录均未提交，无部署/发布；候选与探针在忽略Artifacts内。建议保存提交后再切换工具/设备。
 
@@ -1227,3 +1235,13 @@ git diff --check
 - PixelPreviewImage移除反射/Expression动态工厂，直接使用公开PixelPictureCallbackSource/Source和DrawImage，明确SRgb/传递函数/Bgra32，预览图像仍由页面负责释放。未将8bit预览旁路冒称为16bit主帧；主处理链不变。
 - 构建0警告0错误；appearance、dpi、scroll、image通过，覆盖96/120/144/192及往返；新版实际GPU readback红→蓝像素准确，assign/replace/clear/ownership通过。只运行适配相关检查，矩阵未恢复。
 - 改动涉及上述插件/测试、SOURCE/NOTICES/README/发布流程、功能式Release Notes与版本记录；之前5资产备份至Artifacts/release-1.3.16/before-lakeui。即将提交适配、完整重建、最终包/安装检查并更新草稿，确保源标签/资产一致。当前用户已授权完成发布，无需再次发布确认；建议继续前保存Git提交，下面会执行提交。
+
+
+### 2026-11-09 16:54 Codex：1.3.16正式发行、独立后端更新与远端验收
+
+- 同工具续接，重读HandShake/AGENTS/INDEX/STATUS；启动git pull --ff-only显示main=origin/main=c7f46be，v1.3.16标签解引用c7f46be。用户指出看不到后端更新后重新核查：原发行只把16bit核心内嵌到1.3.16并由CLI同步，ModelScope Backend/channel仍为2026.09.30.1，独立后端语义不完整。内嵌机制继续保留以绑定rgb48-v1协议，同时补发正式独立后端版本2026.11.09.1。
+- 以2026.09.30.1完整目录为基线叠加r2后端396文件，最终34项差异：11新增、23替换、0删除。完整包3041286511字节/SHA256 4e287f23213665480deba33b6c3d3be5834c97114841655844c0ac55377e8665，prepare脚本解压后与目标目录逐项一致；增量包94003字节/SHA256 ca02985f3a4672a7d81106a0925a538a277f2f0cb762da38949cc79081174462；channel保留09.12→09.19→09.30→11.09三版补丁链。
+- 发现并处理升级兼容：插件已运行后可能先写入cli所有权标记，若补丁把external标记当普通新增文件会拒绝。release/build-backend-patch.ps1和prepare-backend-update.ps1新增PatchExcludePaths，保留完整包标记但从补丁排除；release/发布流程.md记录原因。标准旧后端与已有cli标记两种隔离起点均实际应用补丁，状态均为current/2026.11.09.1，业务树与目标393文件一致。
+- 按完整包→增量包→channel顺序上传ModelScope Models；3.04GB全量包带断点缓存上传成功，随后94KB补丁和channel提交成功。远端完整包/全部补丁大小与SHA、channel内容完全一致，最新补丁实际下载哈希通过；remote-backend-verification.json保存结果。
+- GitHub v1.3.16仍Latest、非草稿/非预发行，五项资产大小/SHA实际下载通过，源码独立下载62967080字节/hash一致；Release正文补入后端2026.11.09.1说明并重新核验。公开标签和资产均未重打或移动。
+- 本轮只改后端发布工具/流程与记录，未改运行产品、正式安装、模型或配置；629例矩阵按用户先前要求保持298/629暂停。Git准备普通提交推送后核对工作树干净和本地远端一致。

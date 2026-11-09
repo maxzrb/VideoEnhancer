@@ -15,7 +15,8 @@ param(
     [string]$PreviousChannel = '',
     [ValidateRange(1, 20)][int]$PatchRetentionCount = 5,
     [switch]$DeferFullArchive,
-    [string]$ArchiveTool = ''
+    [string]$ArchiveTool = '',
+    [string[]]$PatchExcludePaths = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -196,7 +197,8 @@ $patchPath = Join-Path $outputPath $patchName
 & (Join-Path $PSScriptRoot 'build-backend-patch.ps1') `
     -BaseRoot $basePath -TargetRoot $targetPath `
     -BaseVersion $BaseVersion -TargetVersion $TargetVersion `
-    -OutputArchive $patchPath -ArchiveTool $archiveToolPath
+    -OutputArchive $patchPath -ArchiveTool $archiveToolPath `
+    -ExcludePaths $PatchExcludePaths
 if ($LASTEXITCODE -ne 0) { throw '后端增量包生成失败' }
 
 $patchItem = Get-Item -LiteralPath $patchPath
@@ -205,6 +207,7 @@ $audit['patch'] = [ordered]@{
     remotePath = $PatchRemotePath
     size = [long]$patchItem.Length
     sha256 = Get-Sha256 $patchPath
+    excludedPaths = @($PatchExcludePaths)
 }
 if ($DeferFullArchive) {
     $audit['backendDeferred'] = $true

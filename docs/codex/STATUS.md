@@ -7,7 +7,7 @@ Updated by: Codex
 
 ## Current Snapshot
 
-- 2026-11-09 19:44：**RGB48完整矩阵完成，TensorRT FP16黑帧问题已修复并完成定向复验。** 629例首轮为614 PASS、11 RESOURCE_OOM、3 FAIL_CONTENT、1 PASS_GATE；11个OOM全部是RTX3060 Laptop 6GB上的FlashVSR硬件边界。3个内容失败均由TensorRT FP16 Engine输出NaN造成，诊断确认FP16 Engine为0/73728有限值、对应FP32 Engine为73728/73728有限值。CLI与RVE后端已对AniToon-RPLKSRL、DAT2、GRL回退FP32，后端同时拒绝已知模型的旧FP16 Engine；3个失败案例与2个正常FP16对照的端到端复验全部通过。受管内嵌路径的UpscaleTorch.py源码/安装哈希一致，构建0警告0错误，6项能力测试与12项RGB48回归通过。合并矩阵结论为617个PASS/PASS_GATE、11个显存边界、0个已知内容失败。v1.3.16标签和资产保持冻结，本轮修复尚未发布新版本；工作树有4个源码/测试文件和本记录待提交。
+- 2026-11-09 19:44：**RGB48完整矩阵完成，TensorRT FP16黑帧问题已修复并完成定向复验。** 629例首轮为614 PASS、11 RESOURCE_OOM、3 FAIL_CONTENT、1 PASS_GATE；11个OOM全部是RTX3060 Laptop 6GB上的FlashVSR硬件边界。3个内容失败均由TensorRT FP16 Engine输出NaN造成，诊断确认FP16 Engine为0/73728有限值、对应FP32 Engine为73728/73728有限值。CLI与RVE后端已对AniToon-RPLKSRL、DAT2、GRL回退FP32，后端同时拒绝已知模型的旧FP16 Engine；3个失败案例与2个正常FP16对照的端到端复验全部通过。受管内嵌路径的UpscaleTorch.py源码/安装哈希一致，构建0警告0错误，6项能力测试与12项RGB48回归通过。合并矩阵结论为617个PASS/PASS_GATE、11个显存边界、0个已知内容失败。修复与记录已普通提交2e5cad7并推送，main=origin/main，工作树干净；v1.3.16标签和资产保持冻结，本轮修复尚未发布新版本。
 
 - 2026-11-09 16:54：**1.3.16正式发布，独立后端补全为2026.11.09.1。** GitHub v1.3.16为Latest、非草稿/非预发行，五资产冻结且标签仍c7f46be；ModelScope运行附件、stable清单和Models备用EXE同步。后端完成3.04GB完整包、94,003字节增量包和channel上传，远端大小/SHA及最新补丁实际下载通过；标准旧后端与已有cli所有权标记的受管后端均实际升级通过。发布正文已补入后端版本。629例矩阵仍暂停在298/629，本机正式安装未改；发布记录已普通提交59b649a并推送，main=origin/main，工作树干净。
 
@@ -1265,4 +1265,4 @@ git diff --check
 - 3个原失败ID端到端重跑全部PASS，输出gbrp16le，每帧约1.93万级色阶、范围约5.3万码、裁剪比例0；日志确认请求FP16时加载FP32 Engine。PTH/Ani4K-Compact与PTH/AniScale2-Refiner两个正常对照仍加载FP16 Engine并PASS，回退名单未扩大。
 - 受管后端路径实际安装内嵌UpscaleTorch.py，仓库源与安装副本SHA256均为9a94d4840b1c91b6d1f444797b9b6f88f1d74dfb49bf91e42dffee693f0fdc94，运行输出PASS；外部后端仍走ValidateExternal不覆盖，独立后端发布升级与CLI内嵌同步职责保持分离。
 - 证据位于Artifacts/hbd-matrix-20261109/results.*与Artifacts/hbd-matrix-20261109-fp16fix/fp16-fix-verification.json。dotnet build cli/VideoEnhancer.csproj -c Release --no-restore为0警告0错误；test_model_capabilities 6项、test_high_bit_depth_regressions 12项、Python语法和git diff --check通过。
-- 合并结论为629例中617例通过或按预期拒绝、11例6GB显存OOM、0例已知内容失败；剩余11例不宣称可在该显卡运行。v1.3.16标签/资产和本机正式安装未改，本次作为发布后修复留待后续版本。提交前工作树包含4个源码/测试文件及STATUS、中文进度和矩阵说明；随后应普通提交并核对main/origin/main。
+- 合并结论为629例中617例通过或按预期拒绝、11例6GB显存OOM、0例已知内容失败；剩余11例不宣称可在该显卡运行。v1.3.16标签/资产和本机正式安装未改，本次作为发布后修复留待后续版本。源码、测试、STATUS、中文进度和矩阵说明已普通提交2e5cad7并推送；main=origin/main，v1.3.16仍解引用c7f46be，工作树在收尾记录提交前仅有本轮文档状态更新。

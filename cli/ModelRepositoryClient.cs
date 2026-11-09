@@ -97,17 +97,12 @@ internal sealed class ModelRepositoryClient
         // 模型权重继续使用稳定路径；更新同一权重时覆盖原路径，不产生带日期的重复条目。
         KeepLatestVersionedArchive(
             result,
-            @"^Backend/python_(?<version>\d{8})\.7z$",
-            "Backend/python.7z");
-        KeepLatestVersionedArchive(
-            result,
             @"^Bin/rtx-video/RTXVideoRuntime_(?<version>\d{8})\.7z$");
 
         // 新版补帧包已迁移到 Frame-Interpolation；旧 RIFE/RIFE.7z 与其内容重复，
         // 但远端文件仍保留给旧客户端使用，因此只从当前下载列表隐藏旧路径。
         result.RemoveAll(model =>
-            model.Path.Equals("Backend/channel.json", StringComparison.OrdinalIgnoreCase)
-            || model.Path.StartsWith("Backend/patches/", StringComparison.OrdinalIgnoreCase));
+            model.Path.StartsWith("Backend/", StringComparison.OrdinalIgnoreCase));
         result.RemoveAll(model => model.Path.Equals("RIFE/RIFE.7z", StringComparison.OrdinalIgnoreCase));
 
         return result.OrderBy(m => m.Path, StringComparer.OrdinalIgnoreCase).ToList();

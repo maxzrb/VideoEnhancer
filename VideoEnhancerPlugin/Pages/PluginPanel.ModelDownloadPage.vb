@@ -19,6 +19,7 @@ Namespace videoenhancer
 
         ' ── 模型下载页 ──
         Private Const DownloadActionColumn As Integer = 3
+        Private Const BackendDownloadPath As String = "Backend/update"
         Private ReadOnly _downloadList As New UltraDetailListView()
         Private ReadOnly _btnRefreshDownloads As New ModernButton()
         Private ReadOnly _btnDownloadPluginUpdate As New ModernButton()
@@ -314,6 +315,8 @@ Namespace videoenhancer
                         For Each item In document.RootElement.EnumerateArray()
                             Dim name = item.GetProperty("name").GetString()
                             Dim relativePath = item.GetProperty("path").GetString()
+                            ' 旧版 CLI 仍可能返回后端完整包；页面统一改用一条状态更新项。
+                            If DownloadCategory(If(relativePath, "")).Equals("Backend", StringComparison.OrdinalIgnoreCase) Then Continue For
                             Dim size = item.GetProperty("size").GetInt64()
                             Dim hashElement As JsonElement
                             Dim remoteHash = If(item.TryGetProperty("sha256", hashElement), hashElement.GetString(), "")
@@ -321,8 +324,6 @@ Namespace videoenhancer
                                 .Name = If(name, relativePath), .RelativePath = If(relativePath, ""), .Size = size, .Sha256 = If(remoteHash, ""),
                                 .Installed = DownloadInstallStatus.IsDownloadInstalled(If(relativePath, ""), ResolveCoreRoot(), PluginConfig.ResolveInstalledExePath(), If(remoteHash, ""))
                             }
-                            entry.IsBackend = DownloadCategory(entry.RelativePath).Equals("Backend", StringComparison.OrdinalIgnoreCase)
-                            If entry.IsBackend Then ApplyBackendDownloadStatus(entry, backendStatus)
                             Dim componentFile = DownloadInstallStatus.ComponentCoreFile(ResolveCoreRoot(), entry.RelativePath)
                             If Not entry.Installed AndAlso Not String.IsNullOrEmpty(componentFile) AndAlso File.Exists(componentFile) Then
                                 Dim marker = DownloadInstallStatus.ComponentArchiveMarkerPath(ResolveCoreRoot(), entry.RelativePath)
@@ -332,6 +333,11 @@ Namespace videoenhancer
                             entries.Add(entry)
                         Next
                     End Using
+                    Dim backendEntry = New DownloadModelEntry With {
+                        .Name = "Backend 后端", .RelativePath = BackendDownloadPath, .IsBackend = True
+                    }
+                    ApplyBackendDownloadStatus(backendEntry, backendStatus)
+                    entries.Add(backendEntry)
                     Dim categoryOrder = New String() {"Plugin", "Backend", "BasicVSR++", "Bin", "ONNX", "Param-Bin", "FlashVSR", "Frame-Interpolation", "RIFE", "PTH", "TensorRT-Default"}
                     For Each group In entries.GroupBy(Function(entry) DownloadCategory(entry.RelativePath)).
                             OrderBy(Function(value)

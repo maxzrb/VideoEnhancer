@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-09 19:44
+Last updated: 2026-11-09 20:08
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-09 20:16：**1.3.17发布候选已通过本地发行构建，前端与独立后端等待提交、打标签和上传。** 版本元数据及功能式Release Notes已切到1.3.17，并明确独立后端同步至2026.11.09.2；Release Notes不包含矩阵资源和防御性测试内容。完整构建为0警告0错误，110项包/源码/隔离安装/API11、安装与自更新回滚、后端升级器6项均通过；后端增量审计仍为0新增/4替换/0删除。冻结前端资产为运行EXE 12831808字节/`db93847910add1a78dc0fba0d5730c688e2e638f3225f2ca29ee9bb9fb3d726c`、安装器16401198字节/`ea0657b6056dae2b79a20946152b5bd5c7380a28dd57f33610dbf879cd2014b9`、手动ZIP 18080981字节/`25460dd50a39fc8438089ff1c5dba4a0fa7bbf9d9059d20ad8690ed4bb567f45`、源码ZIP 62967474字节/`2a720c8c296836c67545e802388d320257403437b699cf484d2f9d6d189b235c`、stable.json 712字节/`8e1f6db1388e865fedd10ea72e9ddc80394567cfe8ae12c04ed5a7d3aea44461`。后端完整包2645835588字节/SHA256 `0aa52bbc03bd3d68e2f1dd1ce140b3573e321c98eaf421e0f210da655fe18537`，最终增量包27356字节/SHA256 `48c106318677af5ebc3ee0dce202afde15d9ff6a8924c2e87e694692f0cbc7a3`，channel.json 2304字节/SHA256 `dfa997d8bdd41fd3d9424a9478c6634f6f1fb6aa0199a553d6e803861410cd49`。接下来提交候选、原子推送main与v1.3.17并完成双源发布。
 
 - 2026-11-09 19:44：**RGB48完整矩阵完成，TensorRT FP16黑帧问题已修复并完成定向复验。** 629例首轮为614 PASS、11 RESOURCE_OOM、3 FAIL_CONTENT、1 PASS_GATE；11个OOM全部是RTX3060 Laptop 6GB上的FlashVSR硬件边界。3个内容失败均由TensorRT FP16 Engine输出NaN造成，诊断确认FP16 Engine为0/73728有限值、对应FP32 Engine为73728/73728有限值。CLI与RVE后端已对AniToon-RPLKSRL、DAT2、GRL回退FP32，后端同时拒绝已知模型的旧FP16 Engine；3个失败案例与2个正常FP16对照的端到端复验全部通过。受管内嵌路径的UpscaleTorch.py源码/安装哈希一致，构建0警告0错误，6项能力测试与12项RGB48回归通过。合并矩阵结论为617 PASS、1 PASS_GATE、11个显存边界、0个已知内容失败。修复与记录已普通提交2e5cad7并推送，main=origin/main，工作树干净；v1.3.16标签和资产保持冻结，本轮修复尚未发布新版本。
 
@@ -189,7 +191,8 @@ Updated by: Codex
 
 - [x] RVE全链路16bit源码与配套前端：包内问题、主线中文ONNX路径、PR17提示和脚本所有权、16bit中间文件/分段、NCNN输入生命周期均已修正；CPU/GPU短样本与UI/DPI通过，已随1.3.16正式发布。
 - [x] 后端/前端配套发布：ModelScope独立后端升级至2026.11.09.1，完整包、增量包和channel远端通过；补丁从既有cli受管标记和标准旧后端两种起点实测成功。
-- [ ] 继续RGB48扩大矩阵（当前298/629：297 PASS、FlashVSR FP32在6GB资源OOM 1例）；FlashVSR/BasicVSR++全模型、长片吞吐、RTX/HDR边界、RIFE端点与时长行为仍需后续验收。
+- [x] RGB48完整扩大矩阵：629例中617 PASS、1 PASS_GATE、11个RTX3060 Laptop 6GB资源OOM、0个已知内容失败；3个TensorRT FP16黑帧已修复并由原失败案例端到端复验。
+- [ ] 可用性边界继续验收：长片吞吐、RTX/HDR边界、FlashVSR/BasicVSR++在更大显存设备上的组合、RIFE端点与时长行为仍需后续样本。
 
 - [x] 正式发布1.3.15：源码/标签、五项GitHub资产、运行镜像、十项实下载hash、回退分支隔离验证与本机正式升级完成；ModelScope登录已由用户刷新并验收上传。
 

@@ -7,7 +7,7 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>videoenhancer</AssemblyName>
     <RootNamespace>VideoEnhancer</RootNamespace>
-    <Version>1.3.17</Version>
+    <Version>1.3.18</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>

@@ -12,7 +12,7 @@ Namespace videoenhancer
         Inherits DpiLayoutPanel
 
         Private Const ScrollDurationMilliseconds As Double = 120.0
-        Private ReadOnly _scrollTimer As New Timer With {.Interval = 16}
+        Private ReadOnly _scrollTimer As New Timer With {.Interval = 8}
         Private _scrollAnimating As Boolean
         Private _scrollStart As Integer
         Private _scrollTarget As Integer

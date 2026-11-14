@@ -12,10 +12,9 @@ partial class Program
         using var panel = (UserControl)Activator.CreateInstance(plugin.GetType("videoenhancer.PluginPanel")!, config, true)!;
         var source = (Control)Field(panel, "ModernPanel1");
         var workbench = (Control)Field(panel, "_pageUpscale");
-        var workbenchRoot = (Control)Field(panel, "_upscaleRoot");
         var tutorial = (Control)Field(panel, "_pageTutorial");
         var layouts = Descendants(panel).OfType<LakeUI.ModernPanel>()
-            .Where(control => control.GetType().Name is "ModernGridPanel" or "ModernHorizontalPanel" or "DpiLayoutPanel").ToArray();
+            .Where(control => control.GetType().Name is "ModernGridPanel" or "ModernHorizontalPanel").ToArray();
         Check(layouts.Length > 0 && layouts.All(control => control.TransparentRenderMode ==
             LakeUI.ModernPanel.TransparentRenderModeEnum.SkipWhenFullyTransparent), "纯布局容器启用原生透明免绘制模式");
         var transparentLayout = layouts.First(control => control.IsTransparentNoRenderActive);
@@ -25,18 +24,8 @@ partial class Program
         transparentLayout.BackColor1 = layoutBackground;
         Check(transparentLayout.IsTransparentNoRenderActive, "布局容器恢复透明后重新免绘制");
         Check(((LakeUI.ModernPanel)source).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal &&
-            ((LakeUI.ModernPanel)workbench).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal &&
-            ((LakeUI.ModernPanel)workbenchRoot).IsTransparentNoRenderActive,
-            "宿主背景根和固定滚动视口持续呈现，移动内容根不重复绘制背景");
-        var workbenchBakedSources = Descendants(workbenchRoot)
-            .Select(control => new
-            {
-                Control = control,
-                Source = control.GetType().GetProperty("BackgroundSource", Flags)?.GetValue(control) as Control
-            })
-            .Count(item => ReferenceEquals(item.Source, source));
-        Check(workbenchBakedSources == 0,
-            "滚动子树不把宿主背景烘焙到独立GPU表面");
+            ((LakeUI.ModernPanel)workbench).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal,
+            "宿主背景根节点和滚动面板保留自身呈现");
         var surface = Color.FromArgb(40, 220, 220, 220);
         var darkSurface = Color.FromArgb(40, 0, 0, 0);
         var separator = Color.FromArgb(80, 220, 220, 220);

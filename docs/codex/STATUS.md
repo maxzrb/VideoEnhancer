@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-14 14:49
+Last updated: 2026-11-14 14:53
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-14 14:53：**用户确认三版滚动修复的实际效果均差于原始状态，已全部回退并部署本轮开始前基线。** `LakeScrollPanel.vb`、`LakeLayoutPanel.vb`、`PluginPanel.vb`、`UpscalePage.vb`及两项UI探针恢复到`e58652d^`；不再包含额外渲染事务、擦除拦截、背景源切断或布局表面禁用。Release构建0警告0错误，原有滚动/外观检查在96/120/144/192 DPI通过；完整publish成功。官方`--apply-update`部署输出`UPDATE_COMPLETE|1.3.17`，安装EXE SHA256=`a644d021ef318d87f628b3520eae49f34f47da80a45920217b7f435b6dcc8335`、插件DLL SHA256=`ab737c9c22bce2adb8100c1cfe6474e66b98fea7dddc772129a0625f09df3496`，CLI/后端、配置、157个模型及更新事务保持。原始轻微问题可能重新出现，但当前更严重的断层已移除；LakeUI 5.201/上游HEAD无单surface滚动方案。
 
 - 2026-11-14 14:49：**已核对 LakeUI 5.201.0 与上游最新 HEAD，当前没有可直接启用的一体化滚动解决方案。** 上游`dbff827`与本地5.201.0的`ModernPanel.vb`、`D3D_HwndCompositionPresenter.vb`、`D3D_V5Presentation.vb`和`D3D_ControlSurfaceRegistry.vb`哈希完全一致；滚动仍是移动子HWND，每个控件仍使用独立`IDCompositionSurface`和`AlphaMode.Ignore`。`BeginBatch`只合并DComp提交，不控制HWND几何移动，因此无法保证大量子表面的移动和重绘在同一呈现帧完成。LakeUI README也明确V5没有CPU纹理透明层。插件侧继续调`BackgroundSource`、擦除或双缓冲无法根治；可行路径只剩给滚动页使用稳定不透明底色，或改LakeUI为单surface滚动容器/可透明Premultiplied子表面。
 
@@ -211,7 +213,7 @@ Updated by: Codex
 
 ## Active TODO
 
-- [ ] 超分工作台滚动背景断层：用户实测第三版仍未解决；LakeUI当前架构没有单surface滚动或透明Premultiplied子表面能力。下一步需选择滚动页稳定不透明底色方案，或推动LakeUI增加单surface滚动容器。
+- [x] 超分工作台滚动背景断层实验已全部回退并部署原始基线；用户已明确原始状态优于三版候选。后续若继续处理，只考虑稳定不透明底色或LakeUI单surface滚动能力。
 
 - [x] 超分工作台滚动背景断层第三版已部署本机3FUI测试；用户实机确认仍有断层。LakeUI 5.201.0与最新上游相关实现一致，插件侧参数修复路径已排除。
 
@@ -337,6 +339,8 @@ Updated by: Codex
 - 旧清理拒绝和 GitHub CDN 验证限制见 Active TODO；不将历史注册残留推测当实测事实。
 
 ## Environment Notes
+
+- 2026-11-14 14:53当前本机3FUI测试安装：`C:/Program portable/3FUI/3FUI/Plugin`，已回退滚动实验至本轮开始前基线；插件`1.3.17`、后端`2026.11.09.2/current`。EXE SHA256=`a644d021ef318d87f628b3520eae49f34f47da80a45920217b7f435b6dcc8335`，插件DLL SHA256=`ab737c9c22bce2adb8100c1cfe6474e66b98fea7dddc772129a0625f09df3496`；`models`157文件/10,796,183,134字节。备份和部署证据位于`Artifacts/local-test-20261114/backup-scroll-rollback-20261114-145315`。本条优先于旧安装记录；宿主未自动启动。
 
 - 2026-11-14 14:44当前本机3FUI测试安装：`C:/Program portable/3FUI/3FUI/Plugin`，插件`1.3.17`、后端`2026.11.09.2/current`。EXE SHA256=`365053c39fe133d4289c28265ca88e182ed903a3c7675fa0653d90f3bcbdc215`，插件DLL SHA256=`84301311bddf24de747f4416d478abe3d16a1ff620cbb8e8aba83b2b3d792225`；`models`157文件/10,796,183,134字节。备份和部署证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-v3-final-20261114-144422`。本条优先于旧安装记录；宿主未自动启动。
 
@@ -1425,3 +1429,11 @@ git diff --check
 - `ModernPanel.ScrollTo`仍通过`应用子控件偏移`移动子HWND；每个V5控件仍创建独立`IDCompositionSurface`，Presenter使用`AlphaMode.Ignore`并逐表面清为不透明黑色。`BeginBatch/EndBatch`只把DComp内容更新合并到一次`CompositionDevice.Commit`，Win32子窗口位置变化在批量提交之外，不能保证移动、裁剪和各表面重绘属于同一个视觉帧。
 - 上游README明确说明LakeUI V5没有CPU纹理层，原版透明背景映射无法可靠兼容。这与当前断层现象一致：即使插件固定背景源、停止子树BackgroundSource绑定和禁用纯布局表面，仍无法让多个独立HWND/DComp surfaces在连续滚动中原子换位。
 - 结论：LakeUI 5.201.0及当前上游HEAD没有可直接调用的单surface滚动容器、DComp visual offset滚动或Premultiplied透明子表面方案。插件侧可立即采用稳定不透明滚动底色消除可见断层；完整保留背景图需要上游新增单surface滚动容器或透明合成能力。本轮只做上游/架构核查，未修改产品代码、安装、版本或远端资产。
+
+
+### 2026-11-14 14:53 Codex：回退全部滚动修复并部署原始基线
+
+- 用户明确表示三版滚动修复状态均差于原始版本，要求回退。将`LakeScrollPanel.vb`、`LakeLayoutPanel.vb`、`PluginPanel.vb`、`PluginPanel.UpscalePage.vb`、`Program.Scroll.cs`和`Program.Appearance.cs`恢复为`e58652d^`（`bf0a70d`）内容，保留前序提交和本文件历史作为审计记录。
+- 回退后Release构建0警告0错误；原有滚动/外观检查在96/120/144/192 DPI通过。完整publish成功并生成0警告0错误安装候选。
+- 官方`--apply-update`输出`UPDATE_COMPLETE|1.3.17`；安装EXE SHA256=`a644d021ef318d87f628b3520eae49f34f47da80a45920217b7f435b6dcc8335`、插件DLL SHA256=`ab737c9c22bce2adb8100c1cfe6474e66b98fea7dddc772129a0625f09df3496`，均与候选一致。后端仍为`current/2026.11.09.2`，配置/独立组件保护项、157个模型及待处理事务均正常。
+- 备份和证据位于`Artifacts/local-test-20261114/backup-scroll-rollback-20261114-145315`。宿主保持关闭，等待用户重新打开；本轮未提升版本、未发布，也未修改公开标签或远端资产。

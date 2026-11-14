@@ -12,44 +12,22 @@ Namespace videoenhancer
         Inherits DpiLayoutPanel
 
         Private Const ScrollDurationMilliseconds As Double = 120.0
-        Private Const WmEraseBackground As Integer = &H14
         Private ReadOnly _scrollTimer As New Timer With {.Interval = 16}
         Private _scrollAnimating As Boolean
         Private _scrollStart As Integer
         Private _scrollTarget As Integer
         Private _scrollStartedAt As Long
         Private _wheelRemainder As Double
-        Private _applyingScrollPosition As Boolean
 
         Public Sub New()
-            ' 滚动视口负责 GPU 背景和滚动条，不能随透明布局容器进入原生免绘制路径。
-            TransparentRenderMode = ModernPanel.TransparentRenderModeEnum.Normal
             AddHandler _scrollTimer.Tick, AddressOf OnScrollTimerTick
         End Sub
 
         Private Sub ApplyScrollPosition(horizontalOffset As Integer, verticalOffset As Integer)
             ' 位置移动和透明子树重新取景在同一个提交中完成，避免下一拍沿用旧背景。
-            RunScrollUpdate(
-                Sub()
-                    MyBase.ScrollTo(horizontalOffset, verticalOffset)
-                End Sub)
-        End Sub
-
-        Private Sub RunScrollUpdate(action As Action)
-            If action Is Nothing Then Return
-            If _applyingScrollPosition Then
-                action()
-                Return
-            End If
-
-            _applyingScrollPosition = True
-            Try
-                Using update = D3D_PaintBridge.BeginRenderUpdate(Me)
-                    action()
-                End Using
-            Finally
-                _applyingScrollPosition = False
-            End Try
+            Using update = D3D_PaintBridge.BeginRenderUpdate(Me)
+                MyBase.ScrollTo(horizontalOffset, verticalOffset)
+            End Using
         End Sub
 
         Friend Function MaximumVerticalOffset() As Integer
@@ -117,7 +95,9 @@ Namespace videoenhancer
         Protected Overrides Sub OnMouseWheel(e As MouseEventArgs)
             If (ModifierKeys And Keys.Shift) = Keys.Shift OrElse MaximumVerticalOffset() <= 0 Then
                 StopScrollAnimation()
-                RunScrollUpdate(Sub() MyBase.OnMouseWheel(e))
+                Using update = D3D_PaintBridge.BeginRenderUpdate(Me)
+                    MyBase.OnMouseWheel(e)
+                End Using
                 Return
             End If
             BeginWheelScroll(e.Delta)
@@ -154,29 +134,24 @@ Namespace videoenhancer
         End Sub
 
         Private Sub OnContentMoved(sender As Object, e As EventArgs)
-            If IsDisposed OrElse Disposing OrElse _applyingScrollPosition Then Return
+            If IsDisposed OrElse Disposing Then Return
             ' 只重绘当前视口及子树；不使宿主背景或其他页签失效，也不逐控件同步 Refresh。
             OuterToInnerRefreshScheduler.RequestFull(Me, invalidateChildren:=True)
         End Sub
 
-        Protected Overrides Sub WndProc(ByRef m As Message)
-            ' LakeUI 的 GPU 表面已经完整绘制背景；原生擦除会先清空窗口并形成可见闪屏。
-            If m.Msg = WmEraseBackground Then
-                m.Result = New IntPtr(1)
-                Return
-            End If
-            MyBase.WndProc(m)
-        End Sub
-
         Protected Overrides Sub OnMouseDown(e As MouseEventArgs)
             StopScrollAnimation()
-            RunScrollUpdate(Sub() MyBase.OnMouseDown(e))
+            Using update = D3D_PaintBridge.BeginRenderUpdate(Me)
+                MyBase.OnMouseDown(e)
+            End Using
         End Sub
 
         Protected Overrides Sub OnMouseMove(e As MouseEventArgs)
             If Capture AndAlso (e.Button And MouseButtons.Left) <> MouseButtons.None Then
                 ' 拖动滚动条同样会移动内容；普通悬停不触发整棵子树提交。
-                RunScrollUpdate(Sub() MyBase.OnMouseMove(e))
+                Using update = D3D_PaintBridge.BeginRenderUpdate(Me)
+                    MyBase.OnMouseMove(e)
+                End Using
             Else
                 MyBase.OnMouseMove(e)
             End If
@@ -216,16 +191,9 @@ Namespace videoenhancer
     Friend Class GpuScrollContentPanel
         Inherits DpiLayoutPanel
 
-        Private Const WmEraseBackground As Integer = &H14
         Private Const WmWindowPosChanging As Integer = &H46
         Private Const SwpNoMove As UInteger = &H2UI
         Private Const SwpNoCopyBits As UInteger = &H100UI
-
-        Public Sub New()
-            ' 内容根随滚动不断移动，不能自己再采样并绘制一份背景图。
-            ' 固定视口已经把背景提交完成；内容根只承载子控件，避免两层背景在移动瞬间错位。
-            TransparentRenderMode = ModernPanel.TransparentRenderModeEnum.SkipWhenFullyTransparent
-        End Sub
 
         <StructLayout(LayoutKind.Sequential)>
         Private Structure WindowPosition
@@ -243,10 +211,6 @@ Namespace videoenhancer
         End Function
 
         Protected Overrides Sub WndProc(ByRef m As Message)
-            If m.Msg = WmEraseBackground Then
-                m.Result = New IntPtr(1)
-                Return
-            End If
             If m.Msg = WmWindowPosChanging AndAlso m.LParam <> IntPtr.Zero Then
                 Dim position = Marshal.PtrToStructure(Of WindowPosition)(m.LParam)
                 position.Flags = ScrollMoveFlags(position.Flags)

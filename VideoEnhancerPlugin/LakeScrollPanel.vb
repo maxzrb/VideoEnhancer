@@ -222,8 +222,9 @@ Namespace videoenhancer
         Private Const SwpNoCopyBits As UInteger = &H100UI
 
         Public Sub New()
-            ' 内容根必须拥有连续 GPU 背景，避免滚动时暴露中间透明层。
-            TransparentRenderMode = ModernPanel.TransparentRenderModeEnum.Normal
+            ' 内容根随滚动不断移动，不能自己再采样并绘制一份背景图。
+            ' 固定视口已经把背景提交完成；内容根只承载子控件，避免两层背景在移动瞬间错位。
+            TransparentRenderMode = ModernPanel.TransparentRenderModeEnum.SkipWhenFullyTransparent
         End Sub
 
         <StructLayout(LayoutKind.Sequential)>

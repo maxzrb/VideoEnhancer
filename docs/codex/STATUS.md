@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-14 14:26
+Last updated: 2026-11-14 14:35
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-14 14:35：**用户实机反馈第一版滚动修复后背景仍会抽动，已找到第二层原因并部署新候选。** 固定滚动视口本身绘制的是正确背景，但`GpuScrollContentPanel`仍以`Normal`模式再绘制一份背景源；内容根每个动画帧移动时，这两层分别采样和提交，产生一帧相对错位。第二版只让固定`SmoothScrollPanel`承担背景呈现，内容根恢复`SkipWhenFullyTransparent`，移动时不再建立自己的GPU背景表面；原生擦除拦截、`SWP_NOCOPYBITS`和统一滚动事务保留。Release构建0警告0错误，滚动/外观探针在96/120/144/192 DPI通过。新候选已通过`--apply-update`部署，安装EXE SHA256=`84b4247cdb40d31afac6ac79e7d06ab3af410dfe6e71f746c58936983b444773`、插件DLL SHA256=`a75f2581b82c191374bba4af66388ee7f21a9ebe2a7b77e05c32b6dc9c53c50d`，CLI/后端及用户文件保持；等待用户重开3FUI复验背景是否仍有抽动。
 
 - 2026-11-14 14:26：**超分工作台滚动背景闪烁修复已部署到本机3FUI测试安装。** 关闭3FUI与CLI后，本地候选通过官方`--apply-update`事务输出`UPDATE_COMPLETE|1.3.17`；安装EXE SHA256=`9b1156c2ae2baf8a4feda9dca8a2105c58654a722b68d9260fd7b0da0aa66459`，插件DLL SHA256=`33a2526ccfb212c926c5c2887be837667ce5b5f7c73888300804461bf6bdd7ff`，均与构建候选一致。安装后CLI回读版本`1.3.17`，后端仍为`current/2026.11.09.2`；保护项不变，157个模型共10,796,183,134字节及用户模型清单均保持，待处理更新事务为0。宿主保持关闭，等待用户重开后在超分工作台连续上下滚动完成最终视觉确认；本轮未提升版本、未发布，也未修改公开标签或远端资产。
 
@@ -205,6 +207,8 @@ Updated by: Codex
 
 ## Active TODO
 
+- [ ] 超分工作台滚动背景抽动第二版已部署本机3FUI测试：滚动内容根改为无自绘透明模式，避免随位置移动重复采样背景；等待用户重开宿主连续上下滚动做视觉复验。
+
 - [x] 超分工作台滚动背景闪烁修复已部署本机3FUI测试：Release构建、四档DPI滚动/外观探针和安装事务通过；用户重开宿主连续上下滚动做最终视觉验收。
 
 - [x] 后端增量更新补丁链修复已部署本机3FUI测试：只更新前端EXE/插件DLL，安装后CLI与后端状态通过，157个模型及用户模型清单保留；用户重开宿主后的实际界面/任务验收仍由用户完成。
@@ -329,6 +333,8 @@ Updated by: Codex
 - 旧清理拒绝和 GitHub CDN 验证限制见 Active TODO；不将历史注册残留推测当实测事实。
 
 ## Environment Notes
+
+- 2026-11-14 14:35当前本机3FUI测试安装：`C:/Program portable/3FUI/3FUI/Plugin`，插件`1.3.17`、后端`2026.11.09.2/current`。EXE SHA256=`84b4247cdb40d31afac6ac79e7d06ab3af410dfe6e71f746c58936983b444773`，插件DLL SHA256=`a75f2581b82c191374bba4af66388ee7f21a9ebe2a7b77e05c32b6dc9c53c50d`；`models`157文件/10,796,183,134字节。备份和部署证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-v2-20261114-143536`。本条优先于旧安装记录；宿主未自动启动。
 
 - 2026-11-14 14:26当前本机3FUI测试安装：`C:/Program portable/3FUI/3FUI/Plugin`，插件`1.3.17`、后端`2026.11.09.2/current`。EXE SHA256=`9b1156c2ae2baf8a4feda9dca8a2105c58654a722b68d9260fd7b0da0aa66459`，插件DLL SHA256=`33a2526ccfb212c926c5c2887be837667ce5b5f7c73888300804461bf6bdd7ff`；`models`157文件/10,796,183,134字节。备份和部署证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-20261114-142600`。本条优先于旧安装记录；宿主未自动启动。
 
@@ -1386,3 +1392,12 @@ git diff --check
 - 安装后实际启动CLI回读版本`1.3.17`；`--backend-status --json`仍为`current`/`2026.11.09.2`。配置与独立组件保护项不变，157个模型共10,796,183,134字节及用户模型清单保持，待处理更新事务为0，`update-result.txt`为`OK|1.3.17`。
 - 部署前备份和证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-20261114-142600`，含`before.json`、`deployment.json`、`update-output.txt`及旧二进制/保护文件。未自动启动3FUI，等待用户重开后在超分工作台连续上下滚动做最终视觉确认。
 - 公开v1.3.16/v1.3.17标签和资产、远端后端通道、用户配置和模型均未改写。版本未变化；本轮只形成滚动修复与部署记录的本地提交，尚未推送。
+
+
+### 2026-11-14 14:35 Codex：修正滚动内容根重复背景并再次部署
+
+- 用户实机反馈第一版部署后背景图滚动时仍会抽动。复核确认固定`SmoothScrollPanel`和移动中的`GpuScrollContentPanel`都使用`Normal`呈现并各自采样同一背景源；内容根位置逐帧变化后，两层背景提交存在相对错位窗口。
+- 第二版将固定滚动视口保留为唯一连续GPU背景层，内容根恢复`SkipWhenFullyTransparent`，因此移动时不再建立自己的背景表面；原有`WM_ERASEBKGND`、`SWP_NOCOPYBITS`和同一渲染事务内位置更新继续保留。测试改为明确断言固定视口负责呈现、内容根无自绘透明模式处于激活状态。
+- `dotnet build VideoEnhancer.slnx -c Release`为0警告0错误，`ModelMetadataUi --scroll`和`--appearance`在96/120/144/192 DPI通过；完整publish成功并生成0警告0错误安装候选。
+- 官方`--apply-update`输出`UPDATE_COMPLETE|1.3.17`；安装EXE SHA256=`84b4247cdb40d31afac6ac79e7d06ab3af410dfe6e71f746c58936983b444773`、插件DLL SHA256=`a75f2581b82c191374bba4af66388ee7f21a9ebe2a7b77e05c32b6dc9c53c50d`，均与候选一致。后端仍为`current/2026.11.09.2`，配置/独立组件保护项、157个模型及用户目录不变，待处理更新事务为0。
+- 备份和证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-v2-20261114-143536`。宿主保持关闭，等待用户重开后在超分工作台连续上下滚动复验。公开标签、远端资产和版本均未改变。

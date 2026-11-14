@@ -26,10 +26,10 @@ partial class Program
         Check(transparentLayout.IsTransparentNoRenderActive, "布局容器恢复透明后重新免绘制");
         Check(((LakeUI.ModernPanel)source).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal &&
             ((LakeUI.ModernPanel)workbench).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal &&
-            ((LakeUI.ModernPanel)workbenchRoot).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal,
-            "宿主背景根、滚动视口和内容根保留连续 GPU 呈现");
+            ((LakeUI.ModernPanel)workbenchRoot).IsTransparentNoRenderActive,
+            "宿主背景根和固定滚动视口持续呈现，移动内容根不重复绘制背景");
         Check(ReferenceEquals(Get(workbenchRoot, "BackgroundSource"), source),
-            "滚动内容根固定采样宿主背景，不经过中间透明层");
+            "滚动内容子控件继续绑定固定宿主背景源");
         var surface = Color.FromArgb(40, 220, 220, 220);
         var darkSurface = Color.FromArgb(40, 0, 0, 0);
         var separator = Color.FromArgb(80, 220, 220, 220);

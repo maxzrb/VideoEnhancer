@@ -26,11 +26,13 @@ partial class Program
             var step = Pixels(48, targetScale);
             Check(maximum > step * 3, $"{dpi} DPI 工作台存在可滚动内容");
             Check(root.GetType().FullName == "videoenhancer.GpuScrollContentPanel", $"{dpi} DPI 内容根使用防旧像素复制窗口");
-            Check(((LakeUI.ModernPanel)page).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal &&
-                ((LakeUI.ModernPanel)root).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal,
-                $"{dpi} DPI 滚动视口和内容根保持连续 GPU 呈现");
+            Check(((LakeUI.ModernPanel)page).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal,
+                $"{dpi} DPI 固定滚动视口负责连续 GPU 背景");
+            Check(((LakeUI.ModernPanel)root).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.SkipWhenFullyTransparent &&
+                ((LakeUI.ModernPanel)root).IsTransparentNoRenderActive,
+                $"{dpi} DPI 滚动内容根不绘制会随位置移动的第二层背景");
             Check(ReferenceEquals(Get(root, "BackgroundSource"), source),
-                $"{dpi} DPI 滚动内容根固定采样宿主背景");
+                $"{dpi} DPI 内容子控件继续绑定固定宿主背景源");
 
             foreach (var surface in new[] { page, root })
             {

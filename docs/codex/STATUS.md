@@ -1,11 +1,15 @@
 # Project Status
 
-Last updated: 2026-11-14 14:08
+Last updated: 2026-11-14 14:26
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-14 14:26：**超分工作台滚动背景闪烁修复已部署到本机3FUI测试安装。** 关闭3FUI与CLI后，本地候选通过官方`--apply-update`事务输出`UPDATE_COMPLETE|1.3.17`；安装EXE SHA256=`9b1156c2ae2baf8a4feda9dca8a2105c58654a722b68d9260fd7b0da0aa66459`，插件DLL SHA256=`33a2526ccfb212c926c5c2887be837667ce5b5f7c73888300804461bf6bdd7ff`，均与构建候选一致。安装后CLI回读版本`1.3.17`，后端仍为`current/2026.11.09.2`；保护项不变，157个模型共10,796,183,134字节及用户模型清单均保持，待处理更新事务为0。宿主保持关闭，等待用户重开后在超分工作台连续上下滚动完成最终视觉确认；本轮未提升版本、未发布，也未修改公开标签或远端资产。
+
+- 2026-11-14 14:22：**超分工作台上下滚动时的背景闪烁已形成修复候选，等待宿主实机视觉验收。** 根因是滚动位置已在外层 `D3D_PaintBridge.BeginRenderUpdate` 中统一提交时，内容根每次 `LocationChanged` 仍额外请求一次整树失效；同时 LakeUI 的 GPU 表面会收到 WinForms 原生背景擦除，移动窗口时可能先清空再等待 DirectComposition 重画。`SmoothScrollPanel` 现将滚轮、拖动、滚动条点击和程序化跳转统一包进同一滚动事务，事务内的位置事件不再重复排队；滚动视口与内容根显式保持`TransparentRenderMode.Normal`，并在两层拦截`WM_ERASEBKGND`，普通透明Grid/Horizontal布局仍保留`SkipWhenFullyTransparent`。Release构建0警告0错误；滚动探针覆盖96/120/144/192 DPI、滚轮/拖动状态、位置事务、禁止原生擦除、背景源和无旧像素复制，外观探针确认连续GPU呈现与普通透明布局优化并存。本轮未部署、未提升版本、未发布，也未修改公开标签或远端资产。
 
 - 2026-11-14 14:08：**NCNN补帧8bit兼容模式已修复、实机验收并部署到本机3FUI测试安装。** 旧`InterpBackend=ncnn`配置不再在加载时关闭补帧，补帧后端选择器也不再被关闭的补帧开关锁死；NCNN项明确显示“8bit兼容”。RVE入口将RGB48量化为RGB24交给现有NCNN RIFE，插帧结果按`uint8 * 257`扩回RGB48，因此NCNN继续可用、主链路和默认AV1编码仍为10bit/16bit，但插帧计算不冒充真实10bit精度。Solution Release与完整publish均0警告0错误；UI探针20/20、Python高位深回归13/13通过。RTX3060真实短视频在部署候选和部署后正式安装入口各通过纯NCNN补帧、先超分后补帧、先补帧后超分三项：均7帧，分别输出`96x64 gbrp16le`、`192x128 gbrp16le`和`192x128 AV1 yuv420p10le`。本机后端所有权仍为`external`，本地测试安装仅同步修改过的`InterpolateNCNN.py`、`PixelFormat.py`，原件已备份；下个正式版本必须把这两处加入独立后端更新包，否则只更新前端不能修复外部后端。安装EXE SHA256=`53e94e20...`、DLL SHA256=`c036e88c...`；配置哈希、157个模型及10,796,183,134字节均保持，事务日志已清理。首次更新因宿主加载DLL被Windows拒绝，关闭宿主后第二次正常恢复并输出`UPDATE_COMPLETE|1.3.17`；该失败未改变任何安装文件。备份与证据位于`Artifacts/local-test-20261114/`。
 
@@ -201,6 +205,8 @@ Updated by: Codex
 
 ## Active TODO
 
+- [x] 超分工作台滚动背景闪烁修复已部署本机3FUI测试：Release构建、四档DPI滚动/外观探针和安装事务通过；用户重开宿主连续上下滚动做最终视觉验收。
+
 - [x] 后端增量更新补丁链修复已部署本机3FUI测试：只更新前端EXE/插件DLL，安装后CLI与后端状态通过，157个模型及用户模型清单保留；用户重开宿主后的实际界面/任务验收仍由用户完成。
 - [x] 模型下载页重复后端修复：已提交d4f4593并通过CLI/插件编译、定向契约和真实远端列表检查；待下个版本统一合入发行，公开v1.3.17不改写。
 - [x] 正式发布1.3.17：版本提交41f7a92、注释标签v1.3.17、GitHub五项冻结资产、ModelScope运行附件和Models备用EXE同步；双源实际下载与本独立后端2026.11.09.2增量升级通过。
@@ -323,6 +329,8 @@ Updated by: Codex
 - 旧清理拒绝和 GitHub CDN 验证限制见 Active TODO；不将历史注册残留推测当实测事实。
 
 ## Environment Notes
+
+- 2026-11-14 14:26当前本机3FUI测试安装：`C:/Program portable/3FUI/3FUI/Plugin`，插件`1.3.17`、后端`2026.11.09.2/current`。EXE SHA256=`9b1156c2ae2baf8a4feda9dca8a2105c58654a722b68d9260fd7b0da0aa66459`，插件DLL SHA256=`33a2526ccfb212c926c5c2887be837667ce5b5f7c73888300804461bf6bdd7ff`；`models`157文件/10,796,183,134字节。备份和部署证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-20261114-142600`。本条优先于旧安装记录；宿主未自动启动。
 
 - 2026-11-14 13:41当前本机3FUI测试安装：`C:/Program portable/3FUI/3FUI/Plugin`，插件`1.3.17`、后端`2026.11.09.2/current`。EXE SHA256=`b095dc9b7f9f430fbf2b7c720cb60503f9b38b75f64b6eb729db2c57a207db31`，插件DLL SHA256=`4aad6b84bf84fc46ef816bf8918369e5d2ff104b176fb46e57b929accecbfb6f`；`models`157文件/10,796,183,134字节。备份`Artifacts/local-test-20261114/backup-20261114-133725`，部署证据为该目录下`local-deployment.json`。本条优先于旧1.3.15安装记录；宿主未自动启动。
 
@@ -1361,3 +1369,20 @@ git diff --check
 - 宿主运行时首次`--apply-update`因`videoenhancer.3fui.dll`被Windows加载而失败，事务留下恢复日志但旧EXE/DLL、配置和模型哈希未改变。发送正常关闭请求并确认宿主与CLI退出后重试，先自动恢复遗留事务，再输出`UPDATE_COMPLETE|1.3.17`；安装EXE=`53e94e20658ad3fabd2db6cb3491232e8134ea85bf41ab8c2d6a74143b5aea48`、DLL=`c036e88ccbfd53e159f4e93bdf4415b5fd08b48aa6e7d3f10edb121950b1575e`，均与候选一致。安装后`--backend-status`仍为`current/2026.11.09.2`，NCNN补帧模型可列出5项，事务目录和待恢复日志为0。
 - 本机独立后端标记为`external`，CLI按PR17约定不覆盖其脚本；因此本地测试只将`InterpolateNCNN.py`和`PixelFormat.py`同步到现有外部后端，原文件备份在`Artifacts/local-test-20261114/pre-ncnn-compat-backup/`。下个版本发布时必须把这两处加入独立后端包，并验证从`2026.11.09.2`升级，不能只发布前端DLL/EXE。
 - 部署前备份、首次失败记录、最终事务结果和两种入口的三项输出位于`Artifacts/local-test-20261114/`。现有配置哈希保持`84f26473...`，157个模型文件及大小不变；未启动3FUI。公开标签和资产保持不变，本轮只形成下版本候选提交，不提升版本或发布。
+
+
+### 2026-11-14 14:22 Codex：修复超分工作台滚动背景闪烁
+
+- 同工具续接；重新读取AGENTS、INDEX、STATUS，执行`git pull --ff-only`。启动时main=origin/main，工作树干净，main较远端领先4个本地提交。
+- 复核滚动链确认外层渲染事务已经会按外到内刷新完整视口；内容根的`LocationChanged`又调用一次`OuterToInnerRefreshScheduler.RequestFull(Me, invalidateChildren:=True)`，造成同一帧的重复失效请求。LakeUI GPU层同时仍可能收到WinForms`WM_ERASEBKGND`，在窗口移动后先清空表面。
+- `LakeScrollPanel.vb`新增统一`RunScrollUpdate`状态，滚轮、拖动、滚动条点击和程序化跳转均在位置变更前进入状态，并在同一个`D3D_PaintBridge.BeginRenderUpdate`中提交；`OnContentMoved`在该状态内直接返回。`SmoothScrollPanel`与`GpuScrollContentPanel`显式保持`Normal`GPU呈现，并拒绝原生背景擦除；普通透明Grid/Horizontal布局的`SkipWhenFullyTransparent`不变。
+- `Program.Scroll.cs`增加连续GPU呈现、固定背景源、禁止原生背景擦除和位置变更位于事务内的检查；`Program.Appearance.cs`增加滚动内容根的外观契约。`dotnet build VideoEnhancer.slnx -c Release`为0警告0错误，`ModelMetadataUi --scroll`与`--appearance`全部通过。
+- 本轮未部署本机3FUI、未提升版本、未发布；公开v1.3.16/v1.3.17标签和资产保持不变。视觉闪烁最终仍需宿主实机滚动验收，代码工作树包含3个修改文件，建议切换设备或工具前提交。
+
+
+### 2026-11-14 14:26 Codex：部署滚动背景闪烁修复到本机3FUI测试
+
+- 用户要求部署测试。确认3FUI与CLI已关闭后，用本地候选的官方`--apply-update`事务更新`C:/Program portable/3FUI/3FUI/Plugin`，输出`UPDATE_COMPLETE|1.3.17`；安装EXE SHA256=`9b1156c2ae2baf8a4feda9dca8a2105c58654a722b68d9260fd7b0da0aa66459`、插件DLL SHA256=`33a2526ccfb212c926c5c2887be837667ce5b5f7c73888300804461bf6bdd7ff`，均与候选一致。
+- 安装后实际启动CLI回读版本`1.3.17`；`--backend-status --json`仍为`current`/`2026.11.09.2`。配置与独立组件保护项不变，157个模型共10,796,183,134字节及用户模型清单保持，待处理更新事务为0，`update-result.txt`为`OK|1.3.17`。
+- 部署前备份和证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-20261114-142600`，含`before.json`、`deployment.json`、`update-output.txt`及旧二进制/保护文件。未自动启动3FUI，等待用户重开后在超分工作台连续上下滚动做最终视觉确认。
+- 公开v1.3.16/v1.3.17标签和资产、远端后端通道、用户配置和模型均未改写。版本未变化；本轮只形成滚动修复与部署记录的本地提交，尚未推送。

@@ -12,6 +12,7 @@ partial class Program
         using var panel = (UserControl)Activator.CreateInstance(plugin.GetType("videoenhancer.PluginPanel")!, config, true)!;
         var source = (Control)Field(panel, "ModernPanel1");
         var workbench = (Control)Field(panel, "_pageUpscale");
+        var workbenchRoot = (Control)Field(panel, "_upscaleRoot");
         var tutorial = (Control)Field(panel, "_pageTutorial");
         var layouts = Descendants(panel).OfType<LakeUI.ModernPanel>()
             .Where(control => control.GetType().Name is "ModernGridPanel" or "ModernHorizontalPanel").ToArray();
@@ -24,8 +25,11 @@ partial class Program
         transparentLayout.BackColor1 = layoutBackground;
         Check(transparentLayout.IsTransparentNoRenderActive, "布局容器恢复透明后重新免绘制");
         Check(((LakeUI.ModernPanel)source).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal &&
-            ((LakeUI.ModernPanel)workbench).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal,
-            "宿主背景根节点和滚动面板保留自身呈现");
+            ((LakeUI.ModernPanel)workbench).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal &&
+            ((LakeUI.ModernPanel)workbenchRoot).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal,
+            "宿主背景根、滚动视口和内容根保留连续 GPU 呈现");
+        Check(ReferenceEquals(Get(workbenchRoot, "BackgroundSource"), source),
+            "滚动内容根固定采样宿主背景，不经过中间透明层");
         var surface = Color.FromArgb(40, 220, 220, 220);
         var darkSurface = Color.FromArgb(40, 0, 0, 0);
         var separator = Color.FromArgb(80, 220, 220, 220);

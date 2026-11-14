@@ -13,6 +13,7 @@ partial class Program
             using var panel = (UserControl)Activator.CreateInstance(plugin.GetType("videoenhancer.PluginPanel")!, config, true)!;
             using var page = (Control)Field(panel, "_pageUpscale");
             var root = (Control)Field(panel, "_upscaleRoot");
+            var source = (Control)Field(panel, "ModernPanel1");
             var targetScale = dpi / 96f;
             var ratio = targetScale / LayoutScale(page).Width;
             panel.Scale(new SizeF(ratio, ratio));
@@ -25,6 +26,29 @@ partial class Program
             var step = Pixels(48, targetScale);
             Check(maximum > step * 3, $"{dpi} DPI 工作台存在可滚动内容");
             Check(root.GetType().FullName == "videoenhancer.GpuScrollContentPanel", $"{dpi} DPI 内容根使用防旧像素复制窗口");
+            Check(((LakeUI.ModernPanel)page).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal &&
+                ((LakeUI.ModernPanel)root).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal,
+                $"{dpi} DPI 滚动视口和内容根保持连续 GPU 呈现");
+            Check(ReferenceEquals(Get(root, "BackgroundSource"), source),
+                $"{dpi} DPI 滚动内容根固定采样宿主背景");
+
+            foreach (var surface in new[] { page, root })
+            {
+                var eraseMessage = Message.Create(IntPtr.Zero, 0x14, IntPtr.Zero, IntPtr.Zero);
+                var eraseArgs = new object[] { eraseMessage };
+                surface.GetType().GetMethod("WndProc", Flags)!.Invoke(surface, eraseArgs);
+                eraseMessage = (Message)eraseArgs[0];
+                Check(eraseMessage.Result == new IntPtr(1), $"{dpi} DPI {surface.GetType().Name} 禁止原生背景擦除");
+            }
+
+            var applyingDuringMove = false;
+            void ObserveScrollState(object sender, EventArgs args) =>
+                applyingDuringMove = (bool)Field(page, "_applyingScrollPosition");
+            root.LocationChanged += ObserveScrollState;
+            Call(page, "ScrollTo", 0, step);
+            Check(applyingDuringMove && root.Top == -step, $"{dpi} DPI 程序滚动位置变化位于同一渲染事务中");
+            Call(page, "ScrollTo", 0, 0);
+            root.LocationChanged -= ObserveScrollState;
 
             var wheel = new HandledMouseEventArgs(MouseButtons.None, 0, 0, 0, -120);
             Call(page, "OnMouseWheel", wheel);

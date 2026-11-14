@@ -1607,7 +1607,8 @@ Namespace videoenhancer
 
 
             _pageUpscale.Controls.Add(root)
-            BindScrollableGpuBackgroundSources(root, ModernPanel1)
+            ' 固定滚动视口是唯一的背景层。内容根及其移动子树不绑定 BackgroundSource，
+            ' 避免每个 GPU 表面把背景图烘焙到自身并在滚动时出现横向断层。
             ' 为 LakeUI 覆盖式滚动条保留绘制带，避免子窗口覆盖父面板的 GPU 滚动条。
             SyncUpscaleRootBounds()
             UpdateModeStateLabels()

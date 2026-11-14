@@ -13,7 +13,7 @@ partial class Program
             using var panel = (UserControl)Activator.CreateInstance(plugin.GetType("videoenhancer.PluginPanel")!, config, true)!;
             using var page = (Control)Field(panel, "_pageUpscale");
             var root = (Control)Field(panel, "_upscaleRoot");
-            var source = (Control)Field(panel, "ModernPanel1");
+            var hostBackground = (Control)Field(panel, "ModernPanel1");
             var targetScale = dpi / 96f;
             var ratio = targetScale / LayoutScale(page).Width;
             panel.Scale(new SizeF(ratio, ratio));
@@ -31,8 +31,15 @@ partial class Program
             Check(((LakeUI.ModernPanel)root).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.SkipWhenFullyTransparent &&
                 ((LakeUI.ModernPanel)root).IsTransparentNoRenderActive,
                 $"{dpi} DPI 滚动内容根不绘制会随位置移动的第二层背景");
-            Check(ReferenceEquals(Get(root, "BackgroundSource"), source),
-                $"{dpi} DPI 内容子控件继续绑定固定宿主背景源");
+            var bakedHostBackgrounds = Descendants(root)
+                .Select(control => new
+                {
+                    Control = control,
+                    Source = control.GetType().GetProperty("BackgroundSource", Flags)?.GetValue(control) as Control
+                })
+                .Count(item => ReferenceEquals(item.Source, hostBackground));
+            Check(bakedHostBackgrounds == 0,
+                $"{dpi} DPI 滚动子树不把宿主背景烘焙到独立GPU表面");
 
             foreach (var surface in new[] { page, root })
             {

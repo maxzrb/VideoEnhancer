@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-14 14:35
+Last updated: 2026-11-14 14:44
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-14 14:44：**根据实机断层截图完成第三版滚动背景修复并部署。** 第二版移除了移动内容根自身的背景表面，但滚动子树仍被统一绑定到宿主背景源，每个字段/标签/控件会各自烘焙背景切片；移动提交不同步时形成截图中的横向断层。第三版在滚动内容根边界停止传播`BackgroundSource`，固定`SmoothScrollPanel`成为唯一背景层，移动子控件保持透明合成；同时所有纯`DpiLayoutPanel`默认进入无GPU表面透明模式。Release构建0警告0错误，96/120/144/192 DPI滚动/外观探针通过，明确验证滚动子树不再绑定宿主背景源。候选已通过`--apply-update`部署，EXE SHA256=`365053c39fe133d4289c28265ca88e182ed903a3c7675fa0653d90f3bcbdc215`、插件DLL SHA256=`84301311bddf24de747f4416d478abe3d16a1ff620cbb8e8aba83b2b3d792225`，CLI/后端及用户文件保持；等待用户重开3FUI复验。
 
 - 2026-11-14 14:35：**用户实机反馈第一版滚动修复后背景仍会抽动，已找到第二层原因并部署新候选。** 固定滚动视口本身绘制的是正确背景，但`GpuScrollContentPanel`仍以`Normal`模式再绘制一份背景源；内容根每个动画帧移动时，这两层分别采样和提交，产生一帧相对错位。第二版只让固定`SmoothScrollPanel`承担背景呈现，内容根恢复`SkipWhenFullyTransparent`，移动时不再建立自己的GPU背景表面；原生擦除拦截、`SWP_NOCOPYBITS`和统一滚动事务保留。Release构建0警告0错误，滚动/外观探针在96/120/144/192 DPI通过。新候选已通过`--apply-update`部署，安装EXE SHA256=`84b4247cdb40d31afac6ac79e7d06ab3af410dfe6e71f746c58936983b444773`、插件DLL SHA256=`a75f2581b82c191374bba4af66388ee7f21a9ebe2a7b77e05c32b6dc9c53c50d`，CLI/后端及用户文件保持；等待用户重开3FUI复验背景是否仍有抽动。
 
@@ -207,9 +209,9 @@ Updated by: Codex
 
 ## Active TODO
 
-- [ ] 超分工作台滚动背景抽动第二版已部署本机3FUI测试：滚动内容根改为无自绘透明模式，避免随位置移动重复采样背景；等待用户重开宿主连续上下滚动做视觉复验。
+- [ ] 超分工作台滚动背景断层第三版已部署本机3FUI测试：固定视口是唯一背景层，移动子树不再绑定宿主背景源，纯布局层不再建立GPU表面；等待用户重开宿主连续上下滚动做视觉复验。
 
-- [x] 超分工作台滚动背景闪烁修复已部署本机3FUI测试：Release构建、四档DPI滚动/外观探针和安装事务通过；用户重开宿主连续上下滚动做最终视觉验收。
+- [x] 超分工作台滚动背景抽动第二版已部署本机3FUI测试；用户实机确认仍有控件边界横向断层，已转入第三版处理。
 
 - [x] 后端增量更新补丁链修复已部署本机3FUI测试：只更新前端EXE/插件DLL，安装后CLI与后端状态通过，157个模型及用户模型清单保留；用户重开宿主后的实际界面/任务验收仍由用户完成。
 - [x] 模型下载页重复后端修复：已提交d4f4593并通过CLI/插件编译、定向契约和真实远端列表检查；待下个版本统一合入发行，公开v1.3.17不改写。
@@ -333,6 +335,8 @@ Updated by: Codex
 - 旧清理拒绝和 GitHub CDN 验证限制见 Active TODO；不将历史注册残留推测当实测事实。
 
 ## Environment Notes
+
+- 2026-11-14 14:44当前本机3FUI测试安装：`C:/Program portable/3FUI/3FUI/Plugin`，插件`1.3.17`、后端`2026.11.09.2/current`。EXE SHA256=`365053c39fe133d4289c28265ca88e182ed903a3c7675fa0653d90f3bcbdc215`，插件DLL SHA256=`84301311bddf24de747f4416d478abe3d16a1ff620cbb8e8aba83b2b3d792225`；`models`157文件/10,796,183,134字节。备份和部署证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-v3-final-20261114-144422`。本条优先于旧安装记录；宿主未自动启动。
 
 - 2026-11-14 14:35当前本机3FUI测试安装：`C:/Program portable/3FUI/3FUI/Plugin`，插件`1.3.17`、后端`2026.11.09.2/current`。EXE SHA256=`84b4247cdb40d31afac6ac79e7d06ab3af410dfe6e71f746c58936983b444773`，插件DLL SHA256=`a75f2581b82c191374bba4af66388ee7f21a9ebe2a7b77e05c32b6dc9c53c50d`；`models`157文件/10,796,183,134字节。备份和部署证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-v2-20261114-143536`。本条优先于旧安装记录；宿主未自动启动。
 
@@ -1401,3 +1405,13 @@ git diff --check
 - `dotnet build VideoEnhancer.slnx -c Release`为0警告0错误，`ModelMetadataUi --scroll`和`--appearance`在96/120/144/192 DPI通过；完整publish成功并生成0警告0错误安装候选。
 - 官方`--apply-update`输出`UPDATE_COMPLETE|1.3.17`；安装EXE SHA256=`84b4247cdb40d31afac6ac79e7d06ab3af410dfe6e71f746c58936983b444773`、插件DLL SHA256=`a75f2581b82c191374bba4af66388ee7f21a9ebe2a7b77e05c32b6dc9c53c50d`，均与候选一致。后端仍为`current/2026.11.09.2`，配置/独立组件保护项、157个模型及用户目录不变，待处理更新事务为0。
 - 备份和证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-v2-20261114-143536`。宿主保持关闭，等待用户重开后在超分工作台连续上下滚动复验。公开标签、远端资产和版本均未改变。
+
+
+### 2026-11-14 14:44 Codex：移除滚动子树背景烘焙并部署第三版
+
+- 用户提供实机截图，连续滚轮和拖动滚动条时均出现横向断层。截图中的断层边界对应不同字段/标签控件的GPU表面，确认第二版只移除了内容根表面，滚动子树仍被`BindScrollableGpuBackgroundSources`递归绑定到`ModernPanel1`；每个移动表面都缓存了宿主背景切片，提交不同步时切片来自不同滚动位置。
+- 第三版让背景绑定在`GpuScrollContentPanel`边界停止传播。固定`SmoothScrollPanel`继续绘制唯一宿主背景，移动中的字段、标签和交互控件不再采样宿主背景，只绘制自身半透明内容并叠加在固定视口上。
+- `DpiLayoutPanel`默认改为`SkipWhenFullyTransparent`，纯字段/页面布局容器不再建立无内容GPU表面；`SmoothScrollPanel`仍显式使用`Normal`绘制背景和滚动条，`GpuScrollContentPanel`仍显式无自绘。
+- Release构建0警告0错误，滚动/外观探针在96/120/144/192 DPI通过；新增检查确认滚动子树没有任何控件继续指向宿主`BackgroundSource`。完整publish生成0警告0错误候选。
+- 正常关闭正在运行的FFmpegFreeUI宿主后，官方`--apply-update`输出`UPDATE_COMPLETE|1.3.17`。安装EXE SHA256=`365053c39fe133d4289c28265ca88e182ed903a3c7675fa0653d90f3bcbdc215`、插件DLL SHA256=`84301311bddf24de747f4416d478abe3d16a1ff620cbb8e8aba83b2b3d792225`，均与候选一致；后端`current/2026.11.09.2`、保护项、157个模型和待处理事务均正常。
+- 备份和证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-v3-final-20261114-144422`。宿主保持关闭，等待用户重开后在超分工作台连续上下滚动复验。公开标签、远端资产和版本均未改变。

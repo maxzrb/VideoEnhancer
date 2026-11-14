@@ -15,7 +15,7 @@ partial class Program
         var workbenchRoot = (Control)Field(panel, "_upscaleRoot");
         var tutorial = (Control)Field(panel, "_pageTutorial");
         var layouts = Descendants(panel).OfType<LakeUI.ModernPanel>()
-            .Where(control => control.GetType().Name is "ModernGridPanel" or "ModernHorizontalPanel").ToArray();
+            .Where(control => control.GetType().Name is "ModernGridPanel" or "ModernHorizontalPanel" or "DpiLayoutPanel").ToArray();
         Check(layouts.Length > 0 && layouts.All(control => control.TransparentRenderMode ==
             LakeUI.ModernPanel.TransparentRenderModeEnum.SkipWhenFullyTransparent), "纯布局容器启用原生透明免绘制模式");
         var transparentLayout = layouts.First(control => control.IsTransparentNoRenderActive);
@@ -28,8 +28,15 @@ partial class Program
             ((LakeUI.ModernPanel)workbench).TransparentRenderMode == LakeUI.ModernPanel.TransparentRenderModeEnum.Normal &&
             ((LakeUI.ModernPanel)workbenchRoot).IsTransparentNoRenderActive,
             "宿主背景根和固定滚动视口持续呈现，移动内容根不重复绘制背景");
-        Check(ReferenceEquals(Get(workbenchRoot, "BackgroundSource"), source),
-            "滚动内容子控件继续绑定固定宿主背景源");
+        var workbenchBakedSources = Descendants(workbenchRoot)
+            .Select(control => new
+            {
+                Control = control,
+                Source = control.GetType().GetProperty("BackgroundSource", Flags)?.GetValue(control) as Control
+            })
+            .Count(item => ReferenceEquals(item.Source, source));
+        Check(workbenchBakedSources == 0,
+            "滚动子树不把宿主背景烘焙到独立GPU表面");
         var surface = Color.FromArgb(40, 220, 220, 220);
         var darkSurface = Color.FromArgb(40, 0, 0, 0);
         var separator = Color.FromArgb(80, 220, 220, 220);

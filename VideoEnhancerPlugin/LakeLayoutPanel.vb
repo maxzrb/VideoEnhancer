@@ -88,6 +88,11 @@ Namespace videoenhancer
 
         Private _layoutScale As New SizeF(1.0F, 1.0F)
 
+        Public Sub New()
+            ' 纯布局层只负责子控件位置，不建立自己的 GPU 背景表面。
+            TransparentRenderMode = ModernPanel.TransparentRenderModeEnum.SkipWhenFullyTransparent
+        End Sub
+
         Friend ReadOnly Property LayoutScale As SizeF
             Get
                 Return _layoutScale

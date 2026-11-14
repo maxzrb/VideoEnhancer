@@ -268,7 +268,116 @@ try {
     $partialMarker = Get-Content -Raw -Encoding UTF8 (Join-Path $partialPython '.videoenhancer-backend.json') | ConvertFrom-Json
     Assert-True ($partialMarker.version -eq 'target-2') '幂等更新未补写版本标记'
 
-    Write-Output 'BACKEND_UPDATER_TESTS_PASS|6'
+    # 场景 7：内嵌核心已把文件推进到后续补丁目标时，补丁链应继续推进版本标记。
+    $ahead = Join-Path $testRoot 'ahead'
+    $aheadCore = Join-Path $ahead 'core'
+    $aheadPython = Join-Path $aheadCore 'python'
+    $aheadBase = Join-Path $ahead 'base'
+    $aheadMiddle = Join-Path $ahead 'middle'
+    $aheadTarget = Join-Path $ahead 'target'
+    New-BackendTree $aheadBase 'base-file'
+    New-BackendTree $aheadMiddle 'middle-file'
+    New-BackendTree $aheadTarget 'final-file'
+    New-BackendTree $aheadPython 'final-file'
+    Write-TestText (Join-Path $aheadPython '.videoenhancer-backend.json') '{"version":"ahead-1"}'
+    $aheadPatch1 = Join-Path $ahead 'ahead-1_to_2.7z'
+    $aheadPatch2 = Join-Path $ahead 'ahead-2_to_3.7z'
+    & (Join-Path $PSScriptRoot 'build-backend-patch.ps1') `
+        -BaseRoot $aheadBase -TargetRoot $aheadMiddle `
+        -BaseVersion 'ahead-1' -TargetVersion 'ahead-2' `
+        -OutputArchive $aheadPatch1 -ArchiveTool $archiveToolPath -DisablePythonProbe | Out-Null
+    & (Join-Path $PSScriptRoot 'build-backend-patch.ps1') `
+        -BaseRoot $aheadMiddle -TargetRoot $aheadTarget `
+        -BaseVersion 'ahead-2' -TargetVersion 'ahead-3' `
+        -OutputArchive $aheadPatch2 -ArchiveTool $archiveToolPath -DisablePythonProbe | Out-Null
+    $aheadPatch1Item = Get-Item -LiteralPath $aheadPatch1
+    $aheadPatch2Item = Get-Item -LiteralPath $aheadPatch2
+    $aheadChannel = [ordered]@{
+        schemaVersion = 1
+        latestVersion = 'ahead-3'
+        full = [ordered]@{ path = 'full.7z'; size = 999; sha256 = '' }
+        patches = @(
+            [ordered]@{
+                baseVersion = 'ahead-1'; targetVersion = 'ahead-2'; path = 'ahead-1_to_2.7z'
+                size = [long]$aheadPatch1Item.Length; sha256 = Get-Sha256 $aheadPatch1
+            },
+            [ordered]@{
+                baseVersion = 'ahead-2'; targetVersion = 'ahead-3'; path = 'ahead-2_to_3.7z'
+                size = [long]$aheadPatch2Item.Length; sha256 = Get-Sha256 $aheadPatch2
+            }
+        )
+        legacyBaselines = @()
+    }
+    $aheadChannelPath = Join-Path $ahead 'channel.json'
+    Write-TestText $aheadChannelPath ($aheadChannel | ConvertTo-Json -Depth 8)
+    Use-CoreRoot $aheadCore
+    $exitCode = Invoke-VideoEnhancer @('--update-backend', '--backend-channel', $aheadChannelPath)
+    Assert-True ($exitCode -eq 0) '文件已提前到达后续目标时应完成整条补丁链'
+    Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $aheadPython 'backend\rve-backend.py')) -eq 'final-file') '后续目标文件被错误改写'
+    $aheadMarker = Get-Content -Raw -Encoding UTF8 (Join-Path $aheadPython '.videoenhancer-backend.json') | ConvertFrom-Json
+    Assert-True ($aheadMarker.version -eq 'ahead-3') '后续目标文件未推进到最终版本标记'
+
+    # 场景 8：无版本标记且哨兵误判为后一版时，应自动向前展开补丁并重试。
+    $backtrack = Join-Path $testRoot 'backtrack'
+    $backtrackCore = Join-Path $backtrack 'core'
+    $backtrackPython = Join-Path $backtrackCore 'python'
+    $backtrackBase = Join-Path $backtrack 'base'
+    $backtrackMiddle = Join-Path $backtrack 'middle'
+    $backtrackTarget = Join-Path $backtrack 'target'
+    New-BackendTree $backtrackBase 'base-file'
+    New-BackendTree $backtrackMiddle 'middle-file'
+    Write-TestText (Join-Path $backtrackMiddle 'backend\from-first.py') 'middle-add'
+    New-BackendTree $backtrackTarget 'final-file'
+    Write-TestText (Join-Path $backtrackTarget 'backend\from-first.py') 'final-add'
+    New-BackendTree $backtrackPython 'final-file'
+    $backtrackPatch1 = Join-Path $backtrack 'backtrack-1_to_2.7z'
+    $backtrackPatch2 = Join-Path $backtrack 'backtrack-2_to_3.7z'
+    & (Join-Path $PSScriptRoot 'build-backend-patch.ps1') `
+        -BaseRoot $backtrackBase -TargetRoot $backtrackMiddle `
+        -BaseVersion 'backtrack-1' -TargetVersion 'backtrack-2' `
+        -OutputArchive $backtrackPatch1 -ArchiveTool $archiveToolPath -DisablePythonProbe | Out-Null
+    & (Join-Path $PSScriptRoot 'build-backend-patch.ps1') `
+        -BaseRoot $backtrackMiddle -TargetRoot $backtrackTarget `
+        -BaseVersion 'backtrack-2' -TargetVersion 'backtrack-3' `
+        -OutputArchive $backtrackPatch2 -ArchiveTool $archiveToolPath -DisablePythonProbe | Out-Null
+    $backtrackPatch1Item = Get-Item -LiteralPath $backtrackPatch1
+    $backtrackPatch2Item = Get-Item -LiteralPath $backtrackPatch2
+    $backtrackChannel = [ordered]@{
+        schemaVersion = 1
+        latestVersion = 'backtrack-3'
+        full = [ordered]@{ path = 'full.7z'; size = 999; sha256 = '' }
+        patches = @(
+            [ordered]@{
+                baseVersion = 'backtrack-1'; targetVersion = 'backtrack-2'; path = 'backtrack-1_to_2.7z'
+                size = [long]$backtrackPatch1Item.Length; sha256 = Get-Sha256 $backtrackPatch1
+            },
+            [ordered]@{
+                baseVersion = 'backtrack-2'; targetVersion = 'backtrack-3'; path = 'backtrack-2_to_3.7z'
+                size = [long]$backtrackPatch2Item.Length; sha256 = Get-Sha256 $backtrackPatch2
+            }
+        )
+        legacyBaselines = @([ordered]@{
+            version = 'backtrack-2'
+            sentinels = @([ordered]@{
+                path = 'backend/rve-backend.py'
+                sha256 = Get-Sha256 (Join-Path $backtrackPython 'backend\rve-backend.py')
+            })
+        })
+    }
+    $backtrackChannelPath = Join-Path $backtrack 'channel.json'
+    Write-TestText $backtrackChannelPath ($backtrackChannel | ConvertTo-Json -Depth 8)
+    Use-CoreRoot $backtrackCore
+    $backtrackStatus = (& $script:activeExe --backend-status --backend-channel $backtrackChannelPath --json |
+        Select-Object -Last 1) | ConvertFrom-Json
+    Assert-True ($backtrackStatus.installedVersion -eq 'backtrack-2' -and $backtrackStatus.patchCount -eq 1) `
+        '无标记误判测试的前置状态错误'
+    $exitCode = Invoke-VideoEnhancer @('--update-backend', '--backend-channel', $backtrackChannelPath)
+    Assert-True ($exitCode -eq 0) '哨兵误判后应自动回退并完成整条补丁链'
+    Assert-True ((Get-Content -Raw -Encoding UTF8 (Join-Path $backtrackPython 'backend\from-first.py')) -eq 'final-add') '自动回退未补齐前序新增文件'
+    $backtrackMarker = Get-Content -Raw -Encoding UTF8 (Join-Path $backtrackPython '.videoenhancer-backend.json') | ConvertFrom-Json
+    Assert-True ($backtrackMarker.version -eq 'backtrack-3') '自动回退后版本标记错误'
+
+    Write-Output 'BACKEND_UPDATER_TESTS_PASS|8'
 }
 finally {
     $resolvedTestRoot = [System.IO.Path]::GetFullPath($testRoot)

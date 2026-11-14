@@ -1592,15 +1592,7 @@ internal static class Program
                 return ApplyBackendFullArchive(archive, status.LatestVersion);
             }
 
-            foreach (var patch in status.PatchRoute)
-            {
-                Console.WriteLine($"BACKEND_PATCH_START|{patch.BaseVersion}|{patch.TargetVersion}|{patch.Size}");
-                var archive = AcquireBackendArtifact(source, patch.Path, patch.Size, patch.Sha256);
-                var code = ApplyBackendPatchArchive(archive);
-                if (code != 0) return code;
-            }
-            Console.WriteLine("BACKEND_UPDATE_COMPLETE|" + status.LatestVersion);
-            return 0;
+            return RunBackendPatchRoute(source, status, channel);
         }
         catch (Exception ex)
         {
@@ -1613,6 +1605,145 @@ internal static class Program
                 Console.Error.WriteLine("[错误] 后端更新失败：" + ex.Message);
             return 1;
         }
+    }
+
+    /// <summary>先校验完整补丁链，再按顺序应用，允许文件已提前到达后续版本目标。</summary>
+    private static int RunBackendPatchRoute(
+        string channelSource,
+        BackendUpdateStatus status,
+        BackendUpdateChannel channel)
+    {
+        var route = status.PatchRoute.ToList();
+        var attemptedBases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (route.Count > 0)
+        {
+            attemptedBases.Add(route[0].BaseVersion);
+            var chainRoot = Path.Combine(
+                BackendUpdateManager.StateRoot(CoreRoot),
+                "patch-chain-" + Guid.NewGuid().ToString("N"));
+            var staged = new List<(BackendPatchEdge Edge, string ExtractRoot, BackendPatchManifest Manifest)>();
+            try
+            {
+                for (var index = 0; index < route.Count; index++)
+                {
+                    var patch = route[index];
+                    Console.WriteLine($"BACKEND_PATCH_START|{patch.BaseVersion}|{patch.TargetVersion}|{patch.Size}");
+                    var archive = AcquireBackendArtifact(channelSource, patch.Path, patch.Size, patch.Sha256);
+                    var extractRoot = Path.Combine(chainRoot, index.ToString("D2", CultureInfo.InvariantCulture));
+                    var code = ExtractArchive(archive, extractRoot);
+                    if (code != 0) return code;
+
+                    var manifest = BackendUpdateManager.ReadPatchManifest(extractRoot);
+                    if (!manifest.BaseVersion.Equals(patch.BaseVersion, StringComparison.OrdinalIgnoreCase)
+                        || !manifest.TargetVersion.Equals(patch.TargetVersion, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException(
+                            $"补丁清单版本与更新通道不一致：通道 {patch.BaseVersion}->{patch.TargetVersion}，" +
+                            $"补丁 {manifest.BaseVersion}->{manifest.TargetVersion}");
+                    }
+                    staged.Add((patch, extractRoot, manifest));
+                }
+
+                var retryWithEarlierPatch = false;
+                for (var index = 0; index < staged.Count; index++)
+                {
+                    DownloadCancellation.Check();
+                    var futureTargets = CollectFutureTargetHashes(staged, index);
+                    try
+                    {
+                        var version = BackendUpdateManager.ApplyExtractedPatch(
+                            CoreRoot,
+                            staged[index].ExtractRoot,
+                            futureTargets);
+                        Console.WriteLine("BACKEND_PATCH_COMPLETE|" + version);
+                    }
+                    catch (Exception ex) when (
+                        index == 0
+                        && BackendUpdateManager.ReadInstalledVersion(CoreRoot) is null
+                        && IsPatchPreconditionFailure(ex))
+                    {
+                        var earlier = FindEarlierPatchEdge(route, channel.Patches, attemptedBases);
+                        if (earlier is not null)
+                        {
+                            Console.WriteLine(
+                                $"BACKEND_PATCH_ROUTE_ADJUST|{earlier.BaseVersion}|{route[0].BaseVersion}");
+                            route.Insert(0, earlier);
+                            retryWithEarlierPatch = true;
+                            break;
+                        }
+                        ReportBackendPatchFailure(ex);
+                        return 1;
+                    }
+                    catch (Exception ex)
+                    {
+                        ReportBackendPatchFailure(ex);
+                        return 1;
+                    }
+                }
+
+                if (retryWithEarlierPatch) continue;
+                Console.WriteLine("BACKEND_UPDATE_COMPLETE|" + status.LatestVersion);
+                return 0;
+            }
+            finally
+            {
+                if (Directory.Exists(chainRoot)) Directory.Delete(chainRoot, true);
+            }
+        }
+
+        ReportBackendPatchFailure(new InvalidOperationException("更新通道没有可用补丁路径"));
+        return 1;
+    }
+
+    private static BackendPatchEdge? FindEarlierPatchEdge(
+        IReadOnlyList<BackendPatchEdge> route,
+        IReadOnlyList<BackendPatchEdge> patches,
+        IReadOnlySet<string> attemptedBases)
+    {
+        return patches
+            .Where(item => item.TargetVersion.Equals(route[0].BaseVersion, StringComparison.OrdinalIgnoreCase)
+                && !attemptedBases.Contains(item.BaseVersion))
+            .OrderBy(item => Math.Max(0, item.Size))
+            .FirstOrDefault();
+    }
+
+    private static bool IsPatchPreconditionFailure(Exception ex)
+    {
+        if (ex is not InvalidOperationException) return false;
+        return ex.Message.Contains("新增文件已存在", StringComparison.Ordinal)
+            || ex.Message.Contains("待更新文件不存在", StringComparison.Ordinal)
+            || ex.Message.Contains("旧文件 SHA256 不匹配", StringComparison.Ordinal);
+    }
+
+    private static void ReportBackendPatchFailure(Exception ex)
+    {
+        Console.Error.WriteLine("BACKEND_FULL_REQUIRED|增量补丁不适用于当前本地文件，可改用完整修复包");
+        Console.Error.WriteLine("[错误] 应用后端补丁失败：" + ex.Message);
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyCollection<string>> CollectFutureTargetHashes(
+        IReadOnlyList<(BackendPatchEdge Edge, string ExtractRoot, BackendPatchManifest Manifest)> staged,
+        int currentIndex)
+    {
+        var grouped = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        for (var index = currentIndex + 1; index < staged.Count; index++)
+        {
+            foreach (var operation in staged[index].Manifest.Operations)
+            {
+                if (string.IsNullOrWhiteSpace(operation.NewSha256)) continue;
+                if (!grouped.TryGetValue(operation.Path, out var hashes))
+                {
+                    hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    grouped[operation.Path] = hashes;
+                }
+                hashes.Add(operation.NewSha256);
+            }
+        }
+
+        return grouped.ToDictionary(
+            item => item.Key,
+            item => (IReadOnlyCollection<string>)item.Value.ToArray(),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private static string AcquireBackendArtifact(

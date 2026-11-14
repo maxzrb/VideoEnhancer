@@ -254,7 +254,10 @@ internal static class BackendUpdateManager
         Console.WriteLine("BACKEND_RECOVERY_COMPLETE|后端已恢复到更新前状态");
     }
 
-    internal static string ApplyExtractedPatch(string coreRoot, string extractedRoot)
+    internal static string ApplyExtractedPatch(
+        string coreRoot,
+        string extractedRoot,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>>? futureTargetHashes = null)
     {
         RecoverPending(coreRoot);
         var pythonRoot = PythonRoot(coreRoot);
@@ -271,7 +274,11 @@ internal static class BackendUpdateManager
                 $"补丁基础版本不匹配：当前 {installedVersion}，补丁要求 {manifest.BaseVersion}");
         }
 
-        var operationsToApply = ValidatePatchFiles(pythonRoot, extractedRoot, manifest);
+        var operationsToApply = ValidatePatchFiles(
+            pythonRoot,
+            extractedRoot,
+            manifest,
+            futureTargetHashes);
         var stateRoot = StateRoot(coreRoot);
         Directory.CreateDirectory(stateRoot);
         var transactionDirectory = Path.Combine(stateRoot, "transaction-" + Guid.NewGuid().ToString("N"));
@@ -388,13 +395,22 @@ internal static class BackendUpdateManager
     private static IReadOnlyList<BackendPatchOperation> ValidatePatchFiles(
         string pythonRoot,
         string extractedRoot,
-        BackendPatchManifest manifest)
+        BackendPatchManifest manifest,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>>? futureTargetHashes)
     {
         var operationsToApply = new List<BackendPatchOperation>();
         foreach (var operation in manifest.Operations)
         {
             var target = SafeCombine(pythonRoot, operation.Path);
             var exists = File.Exists(target);
+            if (exists
+                && futureTargetHashes is not null
+                && futureTargetHashes.TryGetValue(operation.Path, out var hashes)
+                && hashes.Any(expected => HashMatches(target, expected)))
+            {
+                // 后端可能已由本机内嵌核心推进到后续版本；保留该内容，由后续补丁确认最终状态。
+                continue;
+            }
             if (operation.Action == "add")
             {
                 if (exists)

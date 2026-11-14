@@ -49,11 +49,11 @@ videoenhancer.exe -i <输入视频> -no-upscale -backend cuda -interp-model <CUD
 - `-modelpath` / `--modelpath` / `--model`：放大模型（完整路径 / models 下相对路径 / 模型名），省略用默认模型。NCNN、CUDA、TensorRT 都会递归搜索 `models` 的分类子目录，并排除独立的 `models\Frame-Interpolation` 和旧 `models\RIFE` 补帧目录；配合 `-no-upscale` 时可不提供（仅补帧模式）。
 - `-interp-model` / `--interp-model`：补帧模型，优先放在 `models\Frame-Interpolation` 并使用架构相对路径，如 `RIFE/rife-v4.25`、`GIMM-VFI/gimm-vfi`、`GMFSS/gmfss`；旧 `models\RIFE` 目录继续兼容。NCNN 使用含 `.param/.bin` 的目录，CUDA 递归识别 `.pth/.pt/.pkl`；TensorRT 目前只支持 RIFE `.pth/.pt/.pkl`，首次使用时由 RVE 按实际输入尺寸和当前 GPU 自动构建 Engine，GIMM/GMFSS 暂不提供 TensorRT。
 - `-interp-factor <N>`：补帧倍率（帧率倍数，默认 2，需大于 1；透传给 RIFE `--interpolate_factor`）。
-- `-interp-backend <ncnn|cuda|tensorrt>`：独立补帧后端；NCNN 使用 Vulkan 模型目录，CUDA/PyTorch 使用权重文件，TensorRT 从 RIFE 权重自动构建 Engine。GIMM-VFI 与 GMFSS 选择后会自动切换到 CUDA。
+- `-interp-backend <ncnn|cuda|tensorrt>`：独立补帧后端；NCNN 使用 Vulkan 模型目录并运行 8bit 兼容模式（输入从 RGB48 量化到 RGB24，插帧后扩展回 RGB48；主链路和最终编码仍为 10bit/16bit），CUDA/PyTorch 使用权重文件，TensorRT 从 RIFE 权重自动构建 Engine。GIMM-VFI 与 GMFSS 选择后会自动切换到 CUDA。
 - `-scene-threshold <N>`：转场检测阈值，使用 RVE 官方外部 0-10 标尺，默认 4；数值越低越敏感，越容易跳过转场处的插帧，直接透传给 RVE。
 - `-dynamic-optical-flow`：开启动态光流尺度，仅 CUDA/PyTorch RIFE 有效；TensorRT 会由 RVE 自动禁用。
 - `-tile-size <N>`：超分分块边长，0 表示 RVE 默认处理（不按显存自动试探）；显式值是输入帧边长，用于降低峰值显存但会增加处理时间。支持 NCNN、CUDA/PyTorch、TensorRT 和动态输入 ONNX；FlashVSR 不使用该参数。
-- `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内逐帧执行，只进行一次最终编码且不产生整段中间视频；跨后端时才使用无损 RGB FFV1 中间视频（SDR `gbrp10le`，HDR `gbrp16le`），任务结束后自动清理。当前 RVE 的 SDR 内部帧为 8-bit `rgb24`，最终输出指定 10-bit 像素格式不代表 10-bit 模型推理。
+- `-process-order <upscale-first|interp-first>`：组合处理顺序；同一后端时在单进程内逐帧执行，只进行一次最终编码且不产生整段中间视频；跨后端时才使用无损 RGB FFV1 中间视频（SDR `gbrp10le`，HDR `gbrp16le`），任务结束后自动清理。SDR/HDR主帧均为RGB48/uint16；只有NCNN RIFE兼容模式会在插帧调用边界降为RGB24，再扩回RGB48，最终输出位深不代表该插帧步骤拥有同等有效精度。
 - 位深与 HDR：PQ/HLG HDR 使用 16-bit `rgb48le`，且只允许 CUDA/PyTorch 或 TensorRT；NCNN、ONNX、FlashVSR 遇到 HDR 会明确报错，避免静默降为 SDR。
 - `-backend <ncnn|cuda|tensorrt|onnx|flashvsr>`：推理后端。`ncnn`（默认，Vulkan）；`cuda`（PyTorch）——
   放大模型使用 `models` 及子目录下的 `.pth/.pt/.pkl/.ckpt/.safetensors` 文件（如 `PTH/AnimeJaNai-V2-2x-Compact-36K`），

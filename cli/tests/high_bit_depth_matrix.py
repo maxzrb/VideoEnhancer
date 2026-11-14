@@ -126,7 +126,8 @@ def plan(root):
         cases[-1]["kind"] = "segments"
     add("default-encoder", ("cuda", compact))
     cases[-1]["kind"] = "default"
-    add("ncnn-interp-gate", interp=("ncnn", rife), expected_error="NCNN.*8bit|NCNN.*8.bit|NCNN.*高位深")
+    ncnn_rife = next(m for m in cats["interp", "ncnn"] if m["architecture"] == "RIFE")
+    add("ncnn-interp-compat", interp=("ncnn", ncnn_rife), expected_8bit_compat=True)
     # id 最后计算，覆盖图片/分段/分块等入口差异。
     for c in cases:
         c["id"] = hashlib.sha256(json.dumps({k:v for k,v in c.items() if k != "id"}, sort_keys=True).encode()).hexdigest()[:16]
@@ -201,6 +202,7 @@ def probe(root, path, c):
     meta["levels"] = [int(np.unique(f[..., 0]).size) for f in pixels]
     meta["range"] = [int(np.ptp(f.astype(np.int32))) for f in pixels]
     meta["clipped_fraction"] = [float(np.mean((f == 0) | (f == 65535))) for f in pixels]
+    meta["expanded_8bit_frames"] = sum(bool(np.all(f % 257 == 0)) for f in pixels)
     expected_frames = 1 if c["kind"] == "image" else 7 if c["interp"] else 4
     scale = c["output_scale"] or c["scale"]
     if meta["width"] != c["width"] * scale or meta["height"] != c["height"] * scale:
@@ -210,7 +212,13 @@ def probe(root, path, c):
     formats = ("yuv420p10le",) if c["kind"] == "default" else ("gbrp16le", "rgb48be", "rgb48le", "rgba64be", "rgba64le")
     if meta["pix_fmt"] not in formats:
         return "FAIL_BITDEPTH", meta
-    if min(meta["levels"]) <= 256 or min(meta["range"]) < 1024 or max(meta["clipped_fraction"]) > 0.90:
+    if c.get("expected_8bit_compat"):
+        # NCNN RIFE 真实计算仍为8bit；只要求插帧结果按每码值×257扩展回RGB48，不冒称256级以上精度。
+        if meta["expanded_8bit_frames"] == 0:
+            return "FAIL_NCNN_COMPAT", meta
+        if min(meta["levels"]) < 64 or min(meta["range"]) < 1024 or max(meta["clipped_fraction"]) > 0.90:
+            return "FAIL_CONTENT", meta
+    elif min(meta["levels"]) <= 256 or min(meta["range"]) < 1024 or max(meta["clipped_fraction"]) > 0.90:
         return "FAIL_CONTENT", meta
     return "PASS", meta
 

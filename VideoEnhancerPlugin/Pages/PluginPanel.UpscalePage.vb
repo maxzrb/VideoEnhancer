@@ -202,13 +202,6 @@ Namespace videoenhancer
                 ShowStatus("请先开启「插件总开关」", True)
                 Return
             End If
-            If _switchInterp.Checked AndAlso _config.InterpBackend = "ncnn" Then
-                _syncingInterpSwitch = True
-                _switchInterp.Checked = False
-                _syncingInterpSwitch = False
-                ShowStatus("NCNN 补帧不支持16bit，请先选择 CUDA 或 TensorRT", True)
-                Return
-            End If
             _config.InterpEnabled = _switchInterp.Checked
             If _switchInterp.Checked Then
                 RefreshInterpModels()
@@ -218,6 +211,10 @@ Namespace videoenhancer
             UpdateProcessOrderState()
             UpdateAdvancedControlState()
             UpdateHookState()
+            If _config.InterpEnabled AndAlso
+               String.Equals(_config.InterpBackend, "ncnn", StringComparison.OrdinalIgnoreCase) Then
+                ShowStatus("NCNN 补帧为8bit兼容模式；需要保留高位深时请选择 CUDA 或 TensorRT", True)
+            End If
         End Sub
 
         Private Sub OnRtxHdrSwitchChanged(sender As Object, e As EventArgs)
@@ -1271,7 +1268,10 @@ Namespace videoenhancer
             _config.Save()
             RefreshInterpModels()
             UpdateAdvancedControlState()
-            ShowStatus("补帧后端：" & If(backend = "tensorrt", "TensorRT（RIFE 权重自动构建 Engine）", If(backend = "cuda", "CUDA（PyTorch 权重）", "NCNN（Vulkan）")), False)
+            Dim backendText = If(backend = "tensorrt",
+                "TensorRT（RIFE 权重自动构建 Engine）",
+                If(backend = "cuda", "CUDA（PyTorch 权重）", "NCNN（Vulkan，8bit兼容）"))
+            ShowStatus("补帧后端：" & backendText, backend = "ncnn")
         End Sub
 
         Private Sub OnDynamicOpticalFlowSelected(sender As Object, e As EventArgs)
@@ -1515,6 +1515,7 @@ Namespace videoenhancer
             ConfigureCombo(_cmbInterpBackend)
             _cmbInterpBackend.Items.Add("CUDA (PyTorch)")
             _cmbInterpBackend.Items.Add("TensorRT (NVIDIA)")
+            _cmbInterpBackend.Items.Add("NCNN (Vulkan，8bit兼容)")
             AddHandler _cmbInterpBackend.SelectedIndexChanged, AddressOf OnInterpBackendSelected
             _cmbInterp.WaterText = "选择补帧模型…"
             ConfigureModelSelector(_cmbInterp)
@@ -1826,8 +1827,8 @@ Namespace videoenhancer
 
         Private Sub SyncInterpBackendCombo()
             If _cmbInterpBackend.Items.Count = 0 Then Return
-            _cmbInterpBackend.SelectedIndex = If(_config.InterpBackend = "tensorrt", 1, If(_config.InterpBackend = "cuda", 0, -1))
-            If _cmbInterpBackend.SelectedIndex < 0 Then _cmbInterpBackend.WaterText = "旧 NCNN 不支持16bit，请重新选择"
+            _cmbInterpBackend.SelectedIndex = If(_config.InterpBackend = "tensorrt", 1,
+                If(_config.InterpBackend = "cuda", 0, 2))
         End Sub
 
         Private Sub SyncDynamicOpticalFlowCombo()
@@ -1863,7 +1864,8 @@ Namespace videoenhancer
 
         Private Sub UpdateAdvancedControlState()
             _cmbBackend.Enabled = _config.Enabled AndAlso _config.UpscaleEnabled
-            _cmbInterpBackend.Enabled = _config.Enabled AndAlso _config.InterpEnabled
+            ' 补帧关闭时也允许先选后端，避免无效旧配置形成无法解除的门禁。
+            _cmbInterpBackend.Enabled = _config.Enabled
             _cmbFactor.Enabled = _config.Enabled AndAlso _config.InterpEnabled
             Dim rtxVsr = String.Equals(_config.Backend, "rtxvsr", StringComparison.OrdinalIgnoreCase)
             SyncOutputScaleControls()

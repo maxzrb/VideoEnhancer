@@ -109,6 +109,8 @@ Plugin\
 | BasicVSR++ | 支持（时序） | 不支持组合 | 使用 BasicVSR++ REDS4 时序模型，与运动补帧互斥 |
 | RTX VSR (NVIDIA RTX Video) | 支持 | 不作为补帧后端 | NVIDIA NGX 硬件超分，输出按扩展名直连最终容器，需 RTX 20 系及以上 |
 
+NCNN 超分使用 RGB48 浮点 Mat 路径，可进入 10bit/16bit 主链路；现有 NCNN RIFE 原生接口只接收 8bit RGB，因此 NCNN 补帧会明确标记为“8bit 兼容模式”。插帧计算会量化到 8bit，结果再写入 16bit 主帧和最终 10bit 编码。需要补帧环节也保留真实高位深时，请选择 CUDA/PyTorch 或 TensorRT。
+
 TensorRT 不依赖远端预置 Engine。任务启动时会根据当前视频和设备配置生成或复用本地 Engine。没有 NVIDIA/TensorRT 环境时，应选择 NCNN 或其他可用后端。
 
 TensorRT 的 `realesr-animevideov3 2/3/4x` 沿用同一份官方 4x 权重，通过现有输出倍率设置选择 2x、3x 或 4x。2x/3x 的双三次缩放编入 GPU Engine，向 CPU 和编码管道交付目标尺寸，不回传完整 4x 帧；它不是独立训练的原生 2x/3x 网络。超过 4x 时先进行 4x 推理再缩放。转换脚本随 CLI 内嵌同步，重装后端后也会恢复该支持。

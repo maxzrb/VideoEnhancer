@@ -163,6 +163,18 @@ partial class Program
         Call(panel, "UpdateAdvancedControlState");
         Check((int)Get(videoCombo, "SelectedIndex") == 4, "图片设置同步视频");
         Check(!((string)Get(Field(panel, "_outputScaleHint"), "Text")).Contains("缩放至"), "原生输出不提示额外缩放");
+        Set(config, "InterpEnabled", false);
+        Set(config, "InterpBackend", "ncnn");
+        Call(panel, "SyncInterpBackendCombo");
+        Call(panel, "UpdateAdvancedControlState");
+        var interpBackendCombo = Field(panel, "_cmbInterpBackend");
+        Check(((IList)Get(interpBackendCombo, "Items")).Count == 3 &&
+              (int)Get(interpBackendCombo, "SelectedIndex") == 2 &&
+              (bool)Get(interpBackendCombo, "Enabled"),
+              "补帧关闭时仍可选择NCNN后端，不会形成无效配置死锁");
+        Set(config, "InterpEnabled", true);
+        Call(panel, "UpdateAdvancedControlState");
+        Check((bool)Get(interpBackendCombo, "Enabled"), "NCNN兼容配置可开启补帧");
         Console.WriteLine("界面倍率状态验证通过；未启动宿主或显示窗口");
     }
 }

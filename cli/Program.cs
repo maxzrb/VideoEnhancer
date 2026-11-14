@@ -1210,9 +1210,6 @@ internal static class Program
         var stopWatcher = o.HasStopShm ? new StopWatcher(o.StopShm) : null;
         var segmentedUpscale = !string.IsNullOrWhiteSpace(o.SegmentsBase64);
 
-        if (o.HasInterpModel && o.InterpBackend == "ncnn")
-            return Fail("NCNN RIFE 只有8bit字节接口；请在补帧后端选择 CUDA/PyTorch 或 TensorRT");
-
         // 1. 环境检测（ffmpeg / python 库 / 模型库）
         if (!segmentedUpscale && !RunCheck(verbose: false, backend: o.Backend))
         {
@@ -4800,7 +4797,7 @@ internal static class Program
         var useUpscale = !string.IsNullOrEmpty(model);
         var useInterp = interpModel is not null;
         if (useInterp && interpBackend == "ncnn")
-            return Fail("NCNN RIFE 仅支持8bit帧，16bit链路请改用 CUDA/PyTorch 或 TensorRT 补帧");
+            Console.WriteLine("[精度] NCNN 补帧兼容模式：插帧计算使用8bit RGB，主帧仍以16bit传递和编码；需要真实高位深补帧请选择 CUDA/PyTorch 或 TensorRT。");
         var upscalePrecision = ResolveUpscalePrecision(model, upscaleBackend, requestedUpscalePrecision);
         var interpPrecision = ResolveInterpPrecision(interpModel, interpBackend, requestedInterpPrecision);
         if (!useUpscale || !useInterp)

@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-14 13:41
+Last updated: 2026-11-14 14:08
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-14 14:08：**NCNN补帧8bit兼容模式已修复、实机验收并部署到本机3FUI测试安装。** 旧`InterpBackend=ncnn`配置不再在加载时关闭补帧，补帧后端选择器也不再被关闭的补帧开关锁死；NCNN项明确显示“8bit兼容”。RVE入口将RGB48量化为RGB24交给现有NCNN RIFE，插帧结果按`uint8 * 257`扩回RGB48，因此NCNN继续可用、主链路和默认AV1编码仍为10bit/16bit，但插帧计算不冒充真实10bit精度。Solution Release与完整publish均0警告0错误；UI探针20/20、Python高位深回归13/13通过。RTX3060真实短视频在部署候选和部署后正式安装入口各通过纯NCNN补帧、先超分后补帧、先补帧后超分三项：均7帧，分别输出`96x64 gbrp16le`、`192x128 gbrp16le`和`192x128 AV1 yuv420p10le`。本机后端所有权仍为`external`，本地测试安装仅同步修改过的`InterpolateNCNN.py`、`PixelFormat.py`，原件已备份；下个正式版本必须把这两处加入独立后端更新包，否则只更新前端不能修复外部后端。安装EXE SHA256=`53e94e20...`、DLL SHA256=`c036e88c...`；配置哈希、157个模型及10,796,183,134字节均保持，事务日志已清理。首次更新因宿主加载DLL被Windows拒绝，关闭宿主后第二次正常恢复并输出`UPDATE_COMPLETE|1.3.17`；该失败未改变任何安装文件。备份与证据位于`Artifacts/local-test-20261114/`。
 
 - 2026-11-14 13:41：**后端增量补丁修复已部署到本机3FUI测试安装。** 用户明确授权后，本地候选通过`--apply-update`事务更新`C:/Program portable/3FUI/3FUI/Plugin`，输出`UPDATE_COMPLETE|1.3.17`；实际启动已安装CLI确认版本`1.3.17`，后端为`current`/`2026.11.09.2`。安装EXE SHA256=`b095dc9b...`、插件DLL SHA256=`4aad6b84...`，均与候选一致。现有`Plugin/videoenhancer/models`共157文件、10,796,183,134字节，用户模型清单可由已安装CLI正常读取；更新事务只替换EXE/DLL，模型未进入迁移或替换路径。部署前备份及证据位于`Artifacts/local-test-20261114/`。未自动启动3FUI，等待用户重开做宿主界面/实际任务验收。
 
@@ -280,7 +282,7 @@ Updated by: Codex
 
 ## Decisions
 
-- 2026-11-09：高位深主帧RGB48/uint16，自动FP32、显式FP16；最终默认AV1 p6/CRF12/Main/yuv420p10le（仅缺视频编码器兜底）。沿PR17尊重独立后端脚本，.videoenhancer-rgb48-owner为external时保留、为cli时由CLI按哈希维护；完整独立包可转交所有权。NCNN RIFE不再提供8bit降级，旧启用配置暂停且保留原模型。RTX/HDR/固定精度模型等限制不扩大承诺。
+- 2026-11-14：高位深主帧保持RGB48/uint16，自动FP32、显式FP16；最终默认AV1 p6/CRF12/Main/yuv420p10le（仅缺视频编码器兜底）。沿PR17尊重独立后端脚本，`.videoenhancer-rgb48-owner=external`时保留，`cli`时由CLI按哈希维护。NCNN超分继续走浮点Mat高位深路径；NCNN RIFE保留为明确标注的8bit兼容模式：插帧计算量化为RGB24，结果扩展回RGB48，真实10bit补帧要求CUDA/PyTorch或TensorRT。RTX/HDR/固定精度模型等限制不扩大承诺。
 - 2026-11-09：内嵌16bit核心继续作为前端/后端协议同步保障，同时必须发布独立后端版本，避免CLI显示仍为旧后端。所有权标记保留在完整包，通过-PatchExcludePaths从增量补丁排除，使标准旧后端和已写cli标记的受管后端都能升级。
 
 - 2026-10-06用户覆盖此前双源源码镜像约定：完整对应源码统一合并为一个独立 VideoEnhancer-<version>-source.zip，仅上传GitHub Release；ModelScope只上传运行文件、清单和说明，来源说明指向GitHub同版源码附件。旧发行资产不删除。
@@ -1348,3 +1350,14 @@ git diff --check
 - 交接摘要中的模型检查路径曾误写为`Plugin/videoenhancer/python/models`，因此部署JSON一度记录0文件。复核实际目录`Plugin/videoenhancer/models`为157文件、10,796,183,134字节；已修正证据JSON，改为部署后实测统计并明确部署前未生成完整模型清单。更新事务源码只迁移/替换EXE与插件DLL，现有应用根下的models不进入替换路径。
 - 部署前备份位于`Artifacts/local-test-20261114/backup-20261114-133725`，部署证据为`Artifacts/local-test-20261114/local-deployment.json`。没有自动启动宿主或结束用户程序，下一步由用户重开3FUI验证界面、后端更新提示和实际任务。
 - 公开v1.3.16/v1.3.17标签与资产、远端后端通道、用户配置和模型均未改写。本轮仅更新STATUS与中文工作进度并形成后续本地提交，main仍不推送。
+
+
+### 2026-11-14 14:08 Codex：修复并本机验收NCNN补帧兼容模式
+
+- 用户截图显示补帧关闭时后端选择器同时被禁用，而旧NCNN配置又无法开启补帧，形成配置死锁。修改保留NCNN而不删除功能：配置载入不再自动关闭NCNN补帧，后端下拉框在插件总开关打开时可直接切换，补帧开关允许NCNN并以“8bit兼容”标记和提示说明精度边界；CLI同步取消两项NCNN补帧硬拒绝。
+- RVE入口新增`to_uint8_compat()`，仅在旧NCNN RIFE边界把RGB48量化为RGB24，插帧后按每码值乘257扩回RGB48。NCNN超分仍使用独立的浮点Mat路径，不经过此降级；真实10bit/16bit补帧仍由CUDA/PyTorch或TensorRT提供。文档、矩阵门禁和Python回归同步更新，历史629例矩阵的“拒绝”结论保留为历史记录。
+- `dotnet build VideoEnhancer.slnx -c Release`及完整`dotnet publish`均0警告0错误。`ModelMetadataUi` 20项全部通过，包括“补帧关闭时仍可选择NCNN后端”和“NCNN兼容配置可开启补帧”；`test_high_bit_depth_regressions.py`在真实隔离后端环境13/13通过。
+- RTX3060真实短样本先由候选入口后由安装入口各跑三项：纯NCNN补帧输出7帧、`96x64 gbrp16le`；NCNN 2x超分后NCNN补帧输出7帧、`192x128 gbrp16le`；NCNN补帧后NCNN超分使用默认编码输出7帧、AV1/`yuv420p10le`。两项FFV1输出均确认存在按8bit兼容规则扩展的帧，退出码0。
+- 宿主运行时首次`--apply-update`因`videoenhancer.3fui.dll`被Windows加载而失败，事务留下恢复日志但旧EXE/DLL、配置和模型哈希未改变。发送正常关闭请求并确认宿主与CLI退出后重试，先自动恢复遗留事务，再输出`UPDATE_COMPLETE|1.3.17`；安装EXE=`53e94e20658ad3fabd2db6cb3491232e8134ea85bf41ab8c2d6a74143b5aea48`、DLL=`c036e88ccbfd53e159f4e93bdf4415b5fd08b48aa6e7d3f10edb121950b1575e`，均与候选一致。安装后`--backend-status`仍为`current/2026.11.09.2`，NCNN补帧模型可列出5项，事务目录和待恢复日志为0。
+- 本机独立后端标记为`external`，CLI按PR17约定不覆盖其脚本；因此本地测试只将`InterpolateNCNN.py`和`PixelFormat.py`同步到现有外部后端，原文件备份在`Artifacts/local-test-20261114/pre-ncnn-compat-backup/`。下个版本发布时必须把这两处加入独立后端包，并验证从`2026.11.09.2`升级，不能只发布前端DLL/EXE。
+- 部署前备份、首次失败记录、最终事务结果和两种入口的三项输出位于`Artifacts/local-test-20261114/`。现有配置哈希保持`84f26473...`，157个模型文件及大小不变；未启动3FUI。公开标签和资产保持不变，本轮只形成下版本候选提交，不提升版本或发布。

@@ -6,6 +6,7 @@ import pathlib
 import sys
 from ..utils.Util import suppress_stdout_stderr
 from ..utils.Frame import Frame
+from ..utils.PixelFormat import to_uint8_compat
 
 # third-party imports
 import numpy as np
@@ -137,7 +138,7 @@ class InterpolateRIFENCNN:
         interpolateFactor: int = 2,
         hdr_mode: bool = False,
     ):
-        raise ValueError("NCNN RIFE byte API is 8-bit only; use PyTorch or TensorRT interpolation for at least 10-bit processing")
+        print("NCNN RIFE 兼容模式：补帧计算使用 8bit RGB，主帧输出仍写入16bit容器。", flush=True)
         self.max_timestep = max_timestep
         self.interpolateFactor = interpolateFactor
         self.interpolateModelPath = interpolateModelPath
@@ -166,6 +167,27 @@ class InterpolateRIFENCNN:
             device = ncnn.get_gpu_device(self.gpuid).info().device_name()
         print("Using GPU:", device)
 
+    def _frame_to_rgb24(self, frame: Frame) -> bytes:
+        rgb48 = frame.get_frame_np()
+        rgb24 = to_uint8_compat(rgb48)
+        return rgb24.tobytes()
+
+    def _frame_from_rgb24(self, data: bytes, template: Frame) -> Frame:
+        rgb24 = np.frombuffer(data, dtype=np.uint8).reshape(
+            self.height, self.width, 3
+        )
+        rgb48 = rgb24.astype(np.uint16) * 257
+        ret_frame = Frame(
+            self.backend,
+            self.width,
+            self.height,
+            template.device,
+            gpu_id=template.gpu_id,
+            hdr_mode=self.hdr_mode,
+            dtype=template.dtype,
+        )
+        return ret_frame.set_frame_np(rgb48)
+
     def hotUnload(self):
         self.paused = True
         self.render.patch_pause()
@@ -178,14 +200,15 @@ class InterpolateRIFENCNN:
         img1: Frame,
         transition=False,
     ):
+        current = self._frame_to_rgb24(img1)
         if self.frame0 is None:
-            self.frame0 = img1.get_frame_bytes()
+            self.frame0 = current
             return
         if transition:
             self.render.process_bytes(
-                self.frame0, img1.get_frame_bytes(), self.max_timestep
+                self.frame0, current, self.max_timestep
             )  # get the cache to skip to next frame
-            self.frame0 = img1
+            self.frame0 = current
             
             for n in range(self.interpolateFactor - 1):
                 yield img1
@@ -194,8 +217,6 @@ class InterpolateRIFENCNN:
             while self.paused:
                 sleep(1)
             timestep = (n + 1) * 1.0 / (self.interpolateFactor)
-            frame = self.render.process_bytes(self.frame0, img1.get_frame_bytes(), timestep)
-            retFrame = Frame(self.backend, self.width, self.height, img1.device, gpu_id=img1.gpu_id, hdr_mode=self.hdr_mode, dtype=img1.dtype)
-            retFrame.set_frame_bytes(frame)
-            yield retFrame
-        self.frame0 = img1
+            frame = self.render.process_bytes(self.frame0, current, timestep)
+            yield self._frame_from_rgb24(frame, img1)
+        self.frame0 = current

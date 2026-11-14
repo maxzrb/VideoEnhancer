@@ -47,14 +47,14 @@ internal static class CliHelp
         writer.WriteLine("  -output-scale <N>   目标输出倍率（1–8）；超分结果先调整尺寸（TRT 图内缩小 / 其余 Lanczos），默认原生");
         writer.WriteLine("  -interp-model <路径>  补帧模型：完整路径、models\\Frame-Interpolation 下的相对路径或模型名");
         writer.WriteLine("        （如 RIFE/rife-v4.25、GIMM-VFI/gimm-vfi）；旧 models\\RIFE 目录仍可读取；");
-        writer.WriteLine("        CUDA 使用 .pth/.pt/.pkl；TensorRT 使用 RIFE 权重自动构建 Engine；NCNN RIFE 字节接口不支持16bit");
+        writer.WriteLine("        CUDA 使用 .pth/.pt/.pkl；TensorRT 使用 RIFE 权重自动构建 Engine；NCNN RIFE 使用8bit兼容模式");
         writer.WriteLine("  -interp-factor <N>  补帧倍率（帧率倍数，默认 2，需大于 1）");
         writer.WriteLine("  -process-order <upscale-first|interp-first>  组合处理顺序；默认 upscale-first");
         writer.WriteLine("        画质优先：先超分，再补帧。速度/算力优先：先补帧，再超分。");
         writer.WriteLine("  -upscale-precision <auto|float16|float32>  超分精度；默认 auto（FP32 高精度）；float16 显式启用半精度");
         writer.WriteLine("  -interp-precision <auto|float16|float32>  补帧精度；默认 auto（FP32 高精度）；float16 显式启用半精度");
         writer.WriteLine("        同后端组合也会分别应用两种精度，在内存中转换张量，不产生额外 FFV1 中间视频。");
-        writer.WriteLine("  -interp-backend <cuda|tensorrt>  可选的独立补帧后端；16bit 链路支持 CUDA/PyTorch、TensorRT（NCNN RIFE 不支持）");
+        writer.WriteLine("  -interp-backend <ncnn|cuda|tensorrt>  独立补帧后端；CUDA/TensorRT支持高位深，NCNN为8bit兼容模式");
         writer.WriteLine("  -scene-threshold <N>  转场检测阈值（RVE 官方外部 0-10 标尺；数值越低越敏感，默认 4）");
         writer.WriteLine("  -dynamic-optical-flow  开启 RIFE 动态光流尺度（仅 CUDA/PyTorch 补帧有效）");
         writer.WriteLine("  -tile-size <N>  超分分块边长（0 为 RVE 默认；至少 32；支持 NCNN/CUDA/TensorRT/ONNX）");

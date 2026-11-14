@@ -51,6 +51,14 @@ class HighBitDepthRegressions(unittest.TestCase):
         args = ["-pix_fmt", "rgb48le", "-i", "pipe:0", "-c:v", "ffv1", "-pix_fmt:v", "gbrp16le"]
         self.assertEqual(self.pixel.high_depth_encoder_args(args, FFMPEG), args)
 
+    def test_ncnn_rife_compatibility_is_explicitly_eight_bit(self):
+        np = self.np
+        rgb48 = np.array([0, 257, 32768, 32896, 65535], dtype=np.uint16)
+        rgb24 = self.pixel.to_uint8_compat(rgb48)
+        np.testing.assert_array_equal(rgb24, np.array([0, 1, 128, 128, 255], dtype=np.uint8))
+        restored = self.pixel.to_uint16(rgb24)
+        np.testing.assert_array_equal(restored, np.array([0, 257, 32896, 32896, 65535], dtype=np.uint16))
+
     def test_unicode_rgba_16bit_roundtrip(self):
         np = self.np
         with tempfile.TemporaryDirectory(dir=Path(BACKEND).parent, prefix="中文 图片-") as folder:

@@ -18,6 +18,18 @@ def to_uint16(image):
     return np.ascontiguousarray(np.rint(np.clip(image.astype(np.float32), 0, 1) * 65535).astype(np.uint16))
 
 
+def to_uint8_compat(image):
+    """仅供旧 NCNN RIFE 字节接口使用；其他处理链不得调用。"""
+    image = np.asarray(image)
+    if image.dtype == np.uint8:
+        return np.ascontiguousarray(image)
+    if image.dtype == np.uint16:
+        return np.ascontiguousarray(np.rint(image.astype(np.float32) / 257.0).astype(np.uint8))
+    return np.ascontiguousarray(
+        np.rint(np.clip(image.astype(np.float32), 0, 1) * 255).astype(np.uint8)
+    )
+
+
 def _ffmpeg_help(ffmpeg_path, *args):
     result = subprocess.run([str(ffmpeg_path), "-hide_banner", *args],
                             capture_output=True, text=True, encoding="utf-8", errors="replace",

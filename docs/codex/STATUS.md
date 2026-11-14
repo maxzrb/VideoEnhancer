@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-14 14:44
+Last updated: 2026-11-14 14:49
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-14 14:49：**已核对 LakeUI 5.201.0 与上游最新 HEAD，当前没有可直接启用的一体化滚动解决方案。** 上游`dbff827`与本地5.201.0的`ModernPanel.vb`、`D3D_HwndCompositionPresenter.vb`、`D3D_V5Presentation.vb`和`D3D_ControlSurfaceRegistry.vb`哈希完全一致；滚动仍是移动子HWND，每个控件仍使用独立`IDCompositionSurface`和`AlphaMode.Ignore`。`BeginBatch`只合并DComp提交，不控制HWND几何移动，因此无法保证大量子表面的移动和重绘在同一呈现帧完成。LakeUI README也明确V5没有CPU纹理透明层。插件侧继续调`BackgroundSource`、擦除或双缓冲无法根治；可行路径只剩给滚动页使用稳定不透明底色，或改LakeUI为单surface滚动容器/可透明Premultiplied子表面。
 
 - 2026-11-14 14:44：**根据实机断层截图完成第三版滚动背景修复并部署。** 第二版移除了移动内容根自身的背景表面，但滚动子树仍被统一绑定到宿主背景源，每个字段/标签/控件会各自烘焙背景切片；移动提交不同步时形成截图中的横向断层。第三版在滚动内容根边界停止传播`BackgroundSource`，固定`SmoothScrollPanel`成为唯一背景层，移动子控件保持透明合成；同时所有纯`DpiLayoutPanel`默认进入无GPU表面透明模式。Release构建0警告0错误，96/120/144/192 DPI滚动/外观探针通过，明确验证滚动子树不再绑定宿主背景源。候选已通过`--apply-update`部署，EXE SHA256=`365053c39fe133d4289c28265ca88e182ed903a3c7675fa0653d90f3bcbdc215`、插件DLL SHA256=`84301311bddf24de747f4416d478abe3d16a1ff620cbb8e8aba83b2b3d792225`，CLI/后端及用户文件保持；等待用户重开3FUI复验。
 
@@ -209,9 +211,9 @@ Updated by: Codex
 
 ## Active TODO
 
-- [ ] 超分工作台滚动背景断层第三版已部署本机3FUI测试：固定视口是唯一背景层，移动子树不再绑定宿主背景源，纯布局层不再建立GPU表面；等待用户重开宿主连续上下滚动做视觉复验。
+- [ ] 超分工作台滚动背景断层：用户实测第三版仍未解决；LakeUI当前架构没有单surface滚动或透明Premultiplied子表面能力。下一步需选择滚动页稳定不透明底色方案，或推动LakeUI增加单surface滚动容器。
 
-- [x] 超分工作台滚动背景抽动第二版已部署本机3FUI测试；用户实机确认仍有控件边界横向断层，已转入第三版处理。
+- [x] 超分工作台滚动背景断层第三版已部署本机3FUI测试；用户实机确认仍有断层。LakeUI 5.201.0与最新上游相关实现一致，插件侧参数修复路径已排除。
 
 - [x] 后端增量更新补丁链修复已部署本机3FUI测试：只更新前端EXE/插件DLL，安装后CLI与后端状态通过，157个模型及用户模型清单保留；用户重开宿主后的实际界面/任务验收仍由用户完成。
 - [x] 模型下载页重复后端修复：已提交d4f4593并通过CLI/插件编译、定向契约和真实远端列表检查；待下个版本统一合入发行，公开v1.3.17不改写。
@@ -1415,3 +1417,11 @@ git diff --check
 - Release构建0警告0错误，滚动/外观探针在96/120/144/192 DPI通过；新增检查确认滚动子树没有任何控件继续指向宿主`BackgroundSource`。完整publish生成0警告0错误候选。
 - 正常关闭正在运行的FFmpegFreeUI宿主后，官方`--apply-update`输出`UPDATE_COMPLETE|1.3.17`。安装EXE SHA256=`365053c39fe133d4289c28265ca88e182ed903a3c7675fa0653d90f3bcbdc215`、插件DLL SHA256=`84301311bddf24de747f4416d478abe3d16a1ff620cbb8e8aba83b2b3d792225`，均与候选一致；后端`current/2026.11.09.2`、保护项、157个模型和待处理事务均正常。
 - 备份和证据位于`Artifacts/local-test-20261114/backup-scroll-flicker-v3-final-20261114-144422`。宿主保持关闭，等待用户重开后在超分工作台连续上下滚动复验。公开标签、远端资产和版本均未改变。
+
+
+### 2026-11-14 14:49 Codex：核对 LakeUI 当前架构与上游解决方案
+
+- 用户报告第三版仍有断层并询问 LakeUI 是否已有解决方案。读取上游`https://github.com/Lake1059/LakeUI`最新HEAD`dbff827669c69a273c571085fef3672e7c21ea83`，与仓库内LakeUI 5.201.0源码比较：`ModernPanel.vb`、`D3D_HwndCompositionPresenter.vb`、`D3D_V5Presentation.vb`、`D3D_ControlSurfaceRegistry.vb`四项SHA256均完全一致。
+- `ModernPanel.ScrollTo`仍通过`应用子控件偏移`移动子HWND；每个V5控件仍创建独立`IDCompositionSurface`，Presenter使用`AlphaMode.Ignore`并逐表面清为不透明黑色。`BeginBatch/EndBatch`只把DComp内容更新合并到一次`CompositionDevice.Commit`，Win32子窗口位置变化在批量提交之外，不能保证移动、裁剪和各表面重绘属于同一个视觉帧。
+- 上游README明确说明LakeUI V5没有CPU纹理层，原版透明背景映射无法可靠兼容。这与当前断层现象一致：即使插件固定背景源、停止子树BackgroundSource绑定和禁用纯布局表面，仍无法让多个独立HWND/DComp surfaces在连续滚动中原子换位。
+- 结论：LakeUI 5.201.0及当前上游HEAD没有可直接调用的单surface滚动容器、DComp visual offset滚动或Premultiplied透明子表面方案。插件侧可立即采用稳定不透明滚动底色消除可见断层；完整保留背景图需要上游新增单surface滚动容器或透明合成能力。本轮只做上游/架构核查，未修改产品代码、安装、版本或远端资产。

@@ -1,11 +1,13 @@
 # Project Status
 
-Last updated: 2026-11-09 21:19
+Last updated: 2026-11-14 13:18
 Updated by: Codex
 
 本文件是唯一 AI 操作状态来源。历史原文已冻结归档至 [记录归档](../archive/records-2026-10-01/README.md)，仅查历史时读取；归档中的版本、远端、环境和 TODO 不代表当前状态。
 
 ## Current Snapshot
+
+- 2026-11-14 13:18：**后端增量更新设备差异已复现，根因定位为 `v1.3.17` 内嵌核心与旧版本补丁链交叠。** [诊断报告](../backend-incremental-update-diagnosis.md)。普通命令会先同步内嵌高精度核心；`v1.3.17` 的 `UpscaleTorch.py` 已是后端第二段补丁终值 `9a94d484...`，而 `2026.09.30.1 -> 2026.11.09.1` 第一段仍要求 `v1.3.16` 值 `fa95f86a...`。隔离复现中，未先运行 `v1.3.17` 的旧后端两段补丁均成功；先运行过的同版本标记后端第一段稳定失败并输出 `BACKEND_FULL_REQUIRED`。无版本标记的后端还可能被单文件哨兵误判为 `2026.11.09.1`，跳过第一段后因新增说明文件缺失失败。建议下版本实现补丁链向前兼容并增加该状态回归；本轮未改产品代码、正式安装或公开 `v1.3.17` 资产。
 
 - 2026-11-09 21:19：**模型下载页重复显示两条“Backend 后端”的问题已修复并提交。** 原因不是双源发布，而是远端仍保留 `Backend/python_20261109.7z` 和 `Backend/python_20261109_2.7z` 两个完整包；CLI普通模型列表把它们都返回，下载页又按后端状态改写成相同名称。现已让CLI从普通模型列表排除全部 `Backend/*`，页面固定从 `--backend-status` 合成唯一一条 `Backend/update` 更新项，并继续兼容旧CLI错误返回的后端文件。CLI与插件均0警告0错误，定向下载目录契约通过；重建CLI真实远端列表的 `BACKEND_ROWS=0`。修复提交d4f4593，尚未提升版本或发布；保留给下个版本统一合入发行，公开v1.3.17资产不改写。
 
@@ -1303,3 +1305,14 @@ git diff --check
 - `ModelRepositoryClient.FetchRemoteModels`不再把任何`Backend/*`文件混入普通模型目录，后端版本、增量路由和完整包仍由独立channel与状态接口管理。`ModelDownloadPage`固定从`--backend-status`创建一条`Backend/update`行，同时忽略旧CLI可能返回的Backend普通文件，避免版本命名变化再次产生重复。
 - CLI与插件Release构建均0警告0错误，目标下载目录契约通过；重建后真实ModelScope列表的Backend普通文件行为0，页面源码确认合成项只追加一次。完整测试文件的既有LakeUI5.110断言已过期且与本修复无关，不使用它作为本轮失败结论。
 - 修复提交为d4f4593，本轮不提升版本或发布；按用户要求保留到下一个版本统一合入发行。已公开v1.3.17标签和资产保持冻结。
+
+
+### 2026-11-14 13:18 Codex：定位后端增量更新设备差异
+
+- 同工具续接；重新读取AGENTS、INDEX、STATUS和HandShake，执行`git pull --ff-only`，启动时main=origin/main=83c5f12且工作树干净。用户报告部分设备应用增量补丁、部分设备要求下载完整包，但没有提供具体设备样本。
+- 复核调用顺序确认`--backend-status`与`--update-backend`先返回；普通视频、图片和模型探测命令才调用`EnsureInterpolationSupportScripts()`。`RveHighBitDepthSupport.Install()`会更新内嵌核心并保留旧`.videoenhancer-backend.json`标记。
+- 哈希对照确认`v1.3.16`提交c7f46be的`UpscaleTorch.py`（工作树CRLF）为`fa95f86ae21d5b6e8380ebe89e1a86c6baceecd866ff87586d01467025e97e19`，等于09.30→11.09.1补丁目标；`v1.3.17`提交41f7a92为`9a94d4840b1c91b6d1f444797b9b6f88f1d74dfb49bf91e42dffee693f0fdc94`，等于11.09.1→11.09.2补丁目标。
+- 隔离矩阵复现两条确定性路径：原版09.30.1未先运行v1.3.17时，两段补丁退出码均0并到达current/11.09.2；标记为09.30.1但已先运行v1.3.17时，第一段补丁退出码1，`ValidatePatchFiles`明确报告UpscaleTorch.py旧哈希不匹配，`ApplyBackendPatchArchive`输出BACKEND_FULL_REQUIRED。无版本标记且先同步核心的后端可由单文件哨兵误判为11.09.1，跳过第一段后因新增说明文件不存在失败。
+- 新增`docs/backend-incremental-update-diagnosis.md`记录调用链、复现矩阵、哈希证据、临时失败归并问题和建议修复。诊断产物位于`Artifacts/backend-patch-diagnosis-20261114/`。本轮未修改CLI/插件运行代码、正式安装、后端channel或公开资产；v1.3.17继续冻结，不重打标签。
+- 建议下一版本让更新器预读完整补丁链，接受文件已等于后续补丁目标哈希的状态，并增加“09.30.1标记+已运行v1.3.17”回归；无标记旧版应结合新增文件/多文件指纹判断，而非只依赖单个哨兵。结束前运行git diff --check，仅存在仓库既有的LF/CRLF提示。
+- 诊断记录已本地提交，工作树干净；main较origin/main领先1个提交，本轮未推送。远端v1.3.16仍解引用c7f46be，v1.3.17仍解引用41f7a92，公开标签未移动。
